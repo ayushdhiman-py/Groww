@@ -1,0 +1,16 @@
+{
+  "name": "alpha-scanner",
+  "version": "2.0.0",
+  "description": "EMA 20/50 Golden Cross + Multi-Signal Scanner — SmartAPI (Angel One)",
+  "type": "module",
+  "main": "scanner.mjs",
+  "scripts": {
+    "start": "node scanner.mjs",
+    "dev": "node --watch scanner.mjs"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "express": "^4.19.0",
+    "nodemon": "^3.1.14"
+  }
+}
