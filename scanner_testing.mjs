@@ -184,6 +184,7 @@ function rsi(closes, period = 14) {
 
 // ── Universe ──────────────────────────────────────────────────────────────────
 const UNIVERSE = [
+    // --- Nifty 50 & Mainstream ---
     "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
     "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "BPCL",
     "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY",
@@ -195,19 +196,34 @@ const UNIVERSE = [
     "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TCS", "TATACONSUM",
     "TATAMOTORS", "TATASTEEL", "TECHM", "TITAN", "ULTRACEMCO", "WIPRO",
     "BANKBARODA", "PNB", "AUBANK", "FEDERALBNK", "CANBK",
-    "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA"
+    "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA",
+    // --- Added from Watchlists ---
+    "BEL", "MOTHERSON", "GAIL", "IRFC", "MARKSANS", "SJVN", "IOC", "AMBUJACEM", "TVSMOTOR",
+    "UNIONBANK", "IDBI", "INDIANB", "IOB", "YESBANK", "CENTRALBK",
+    "MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "HAL",
+    "LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "HYUNDAI",
+    "MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "VEDL", "HINDZINC",
+    "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "PFC", "SAIL",
+    "NUVAMA", "TAALTECH", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "ASTERDM",
+    "DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND"
 ];
 
 const SECTOR = {
+    ALWAYS_UP: ["BEL", "MOTHERSON", "EICHERMOT", "GAIL", "IRFC", "PNB", "MARKSANS", "ETERNAL", "SJVN", "IOC", "POWERGRID", "TATASTEEL", "AMBUJACEM", "ICICIBANK", "ONGC", "RELIANCE", "SBIN", "TCS", "TVSMOTOR"],
+    BANK: ["AUBANK", "BANDHANBNK", "ICICIBANK", "HDFCBANK", "SBIN", "KOTAKBANK", "AXISBANK", "PNB", "BANKBARODA", "UNIONBANK", "IDBI", "CANBK", "INDIANB", "IOB", "INDUSINDBK", "YESBANK", "IDFCFIRSTB", "CENTRALBK", "FEDERALBNK", "BANKINDIA"],
+    DEFENCE: ["MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "BEL", "HAL"],
+    AUTO: ["LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "MOTHERSON", "TVSMOTOR", "EICHERMOT", "HYUNDAI", "BAJAJ-AUTO", "M&M", "MARUTI", "TATAMOTORS", "HEROMOTOCO", "INDIGO"],
+    METAL: ["MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "HINDALCO", "VEDL", "HINDZINC", "TATASTEEL", "JSWSTEEL", "SAIL"],
+    GOVT: ["IRFC", "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "AXISBANK", "CANBK", "PNB", "BANKINDIA", "CENTRALBK", "UNIONBANK", "BANKBARODA", "PFC", "SBIN", "NTPC", "ONGC", "SAIL"],
+    DIVIDEND: ["NUVAMA", "TAALTECH", "ICICIBANK", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "NTPC", "ONGC", "POWERGRID", "ITC", "CANBK", "GAIL", "HINDZINC", "COALINDIA", "VEDL", "ASTERDM"],
+    CLOSE_LOOK: ["DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "MRPL", "COALINDIA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND", "BPCL"],
     IT: ["INFY", "TCS", "HCLTECH", "TECHM", "WIPRO"],
-    PHARMA: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP"],
-    BANK: ["HDFCBANK", "ICICIBANK", "AXISBANK", "SBIN", "KOTAKBANK", "INDUSINDBK", "BANDHANBNK", "IDFCFIRSTB", "AUBANK", "FEDERALBNK", "BANKBARODA", "PNB", "CANBK", "BANKINDIA"],
-    ENERGY: ["RELIANCE", "ONGC", "BPCL", "NTPC", "POWERGRID", "COALINDIA"],
-    AUTO: ["MARUTI", "TATAMOTORS", "BAJAJ-AUTO", "HEROMOTOCO", "EICHERMOT", "M&M"],
-    METAL: ["TATASTEEL", "JSWSTEEL", "HINDALCO"],
-    FMCG: ["HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM"],
-    INFRA: ["LT", "GRASIM", "ULTRACEMCO", "ADANIPORTS", "ADANIENT"],
-    FINANCE: ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "SHRIRAMFIN"],
+    PHARMA: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP", "ASTERDM", "MARKSANS"],
+    ENERGY: ["RELIANCE", "ONGC", "BPCL", "NTPC", "POWERGRID", "COALINDIA", "IOC", "GAIL", "PETRONET"],
+    FMCG: ["HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM", "RENUKA", "BALRAMCHIN"],
+    INFRA: ["LT", "GRASIM", "ULTRACEMCO", "ADANIPORTS", "ADANIENT", "AMBUJACEM"],
+    FINANCE: ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "SHRIRAMFIN", "M&MFIN", "LTF", "PFC", "RECLTD", "IRFC", "NUVAMA", "CDSL", "CAMS"],
+    DAILY: ["KOTAKBANK", "CIPLA"]
 };
 const getSector = s => Object.keys(SECTOR).find(k => SECTOR[k].includes(s)) || "OTHER";
 
@@ -763,7 +779,9 @@ async function load(){
     const res=await fetch("/api/state");
     if(res.status===401){checkAuth();return;}
     const next=await res.json();
-    data=next; nextAt=Date.now()+30000;
+    data=next; 
+    // Set nextAt 30s from now for the countdown timer
+    nextAt=Date.now()+30000;
     const tf=document.getElementById("tf")?.value||"ALL";
     let all=[], buys=[], sells=[], golden=[];
     if (tf === "ALL") {
@@ -796,8 +814,33 @@ async function load(){
     document.getElementById("scanning").style.display="none";
     render();
   }catch(e){
-    console.error(e);
-    document.getElementById("scanning").style.display="block";
+    console.error("Load error:", e);
+    const sn=document.getElementById("scanning");
+    if(sn) sn.style.display="block";
+  }
+}
+
+let lastScanState = false;
+async function pollStatus(){
+  try {
+    const s = await fetch("/api/status").then(r=>r.json());
+    const sn = document.getElementById("scanning");
+    if(sn) sn.style.display = s.scanning ? "block" : "none";
+    
+    // If scanning just finished, trigger a full load
+    if (lastScanState === true && s.scanning === false) {
+      console.log("Scan finished, reloading data...");
+      load();
+    }
+    lastScanState = s.scanning;
+    
+    // Update market status indicator
+    const li=document.getElementById("liveInd"), mt=document.getElementById("mktTxt");
+    const o=isOpen();
+    if(li)li.className=o?"live":"live dead";
+    if(mt)mt.textContent=o?"Market Open":"Market Closed";
+  } catch(e) {
+    console.error("Status poll error:", e);
   }
 }
 
@@ -916,8 +959,10 @@ function fmtV(v){
 }
 
 setInterval(tick,1000);
-setInterval(load,30000);
+setInterval(pollStatus,5000); // Check status every 5s for faster refresh
+setInterval(load,60000); // Full data reload every 60s as backup
 tick();
+pollStatus(); // Initial status check
 checkAuth();
 </script>
 </body>
