@@ -1,0 +1,216 @@
+import { fetchCandles } from "./groww.mjs";
+import { ema, macd, rsi } from "./indicators.mjs";
+import { TF_MAP } from "./config.mjs";
+import { UNIVERSE, getSector } from "./universe.mjs";
+
+const rl = [];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+export let state = emptyState();
+const prevSigs = new Map();
+export let scanning = false;
+export let isAuthenticated = false;
+
+export function setIsAuthenticated(val) {
+    isAuthenticated = val;
+}
+
+export function isMarketOpen() {
+    const ist = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const h = ist.getHours(), m = ist.getMinutes(), d = ist.getDay();
+    return d > 0 && d < 6 && (h > 9 || (h === 9 && m >= 15)) && (h < 15 || (h === 15 && m <= 30));
+}
+
+export function getState() {
+    return state;
+}
+
+export function emptyState() {
+    const data = {};
+    for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
+    return { lastUpdated: null, data, errors: [], universe: UNIVERSE.length };
+}
+
+async function rateLimit() {
+    while (true) {
+        const now = Date.now();
+        while (rl.length && now - rl[0] > 1000) rl.shift();
+        if (rl.length < 2) { rl.push(Date.now()); return; }
+        await sleep(500);
+    }
+}
+
+function buildSignal(candles, tf, symbol) {
+    const cls = candles.map(c => c.close).filter(Number.isFinite);
+    const vol = candles.map(c => c.volume).filter(Number.isFinite);
+    if (cls.length < 55 || vol.length < 15) return null;
+
+    const e21 = ema(cls, 21), e50 = ema(cls, 50);
+    const { macd: ml, signal: sl } = macd(cls, 12, 26, 9);
+    const rsiVal = rsi(cls);
+    const n = cls.length;
+
+    const c21 = e21[n - 1], p21 = e21[n - 2];
+    const c50 = e50[n - 1], p50 = e50[n - 2];
+    const cM = ml[n - 1], pM = ml[n - 2];
+    const cS = sl[n - 1], pS = sl[n - 2];
+
+    const goldenCross = p21 !== null && p50 !== null && p21 <= p50 && c21 > c50;
+    const deathCross = p21 !== null && p50 !== null && p21 >= p50 && c21 < c50;
+    const ema21above = c21 > c50;
+    const macdBull = pM !== null && pS !== null && pM <= pS && cM > cS;
+    const macdBear = pM !== null && pS !== null && pM >= pS && cM < cS;
+    const macdAbove = cM !== null && cS !== null && cM > cS;
+
+    const recentVol = vol.slice(-10);
+    const avgVol = recentVol.reduce((a, b) => a + b, 0) / recentVol.length;
+    const lastVol = vol[vol.length - 1];
+    const prevVol = vol[vol.length - 2] || 0;
+    const volSpike = lastVol > avgVol * 1.5;
+
+    const last = candles[candles.length - 1];
+    const chgPct = ((last.close - last.open) / last.open) * 100;
+    const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
+
+    const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
+    const lastTs = normalizeTs(last.ts);
+    const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
+    const weekThresh = lastTs - (7 * 86400000);
+    let dayH = -Infinity, dayL = Infinity;
+    let weekH = -Infinity, weekL = Infinity;
+    for (let i = n - 1; i >= 0; i--) {
+        const c = candles[i];
+        const ts = normalizeTs(c.ts);
+        if (ts < weekThresh) break;
+        weekH = Math.max(weekH, c.high);
+        weekL = Math.min(weekL, c.low);
+        if (new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" }) === tzStr) {
+            dayH = Math.max(dayH, c.high);
+            dayL = Math.min(dayL, c.low);
+        }
+    }
+    if (dayH === -Infinity) { dayH = last.high; dayL = last.low; }
+    if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
+
+    const histLen = 60;
+    const priceHist = cls.slice(-histLen);
+    const ema21Hist = e21.slice(-histLen);
+    const ema50Hist = e50.slice(-histLen);
+
+    const checks = {
+        "Golden Cross (EMA 21>50)": goldenCross,
+        "EMA 21 above 50": ema21above,
+        "MACD Bull cross": macdBull,
+        "MACD above signal": macdAbove,
+        "Vol spike + price up": volSpike && chgPct > 0,
+        "RSI healthy (45-75)": rsiVal !== null && rsiVal >= 45 && rsiVal <= 75,
+    };
+
+    const redFlags = {
+        "Death Cross": deathCross,
+        "MACD Bear cross": macdBear,
+        "RSI overbought >80": rsiVal !== null && rsiVal > 80,
+        "RSI oversold <25": rsiVal !== null && rsiVal < 25,
+        "Volume collapsing": lastVol < avgVol * 0.4,
+    };
+
+    const techScore = Object.values(checks).filter(Boolean).length;
+    const redCount = Object.values(redFlags).filter(Boolean).length;
+
+    let signal = "NONE";
+    if (goldenCross) signal = "BUY";
+    else if (deathCross) signal = "SELL";
+    else if (ema21above && macdBull) signal = "BUY";
+    else if (!ema21above && macdBear) signal = "SELL";
+
+    const rating = techScore >= 5 ? "STRONG BUY" : techScore >= 3 ? "MODERATE" : "SKIP";
+
+    return {
+        symbol, sector: getSector(symbol), tf, signal,
+        goldenCross, deathCross,
+        price: +last.close.toFixed(2), open: +last.open.toFixed(2),
+        high: +last.high.toFixed(2), low: +last.low.toFixed(2),
+        dayH, dayL, weekH, weekL,
+        chgPct: +chgPct.toFixed(2),
+        volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
+        ema21: c21 !== null ? +c21.toFixed(2) : null,
+        ema50: c50 !== null ? +c50.toFixed(2) : null,
+        emaGap, ema21above,
+        ema21Hist, ema50Hist, priceHist,
+        macdBull, macdBear, macdAbove,
+        macdVal: cM !== null ? +cM.toFixed(4) : null,
+        rsi: rsiVal,
+        checks, redFlags,
+        techScore, redCount,
+        rating,
+        ts: last.ts,
+        isNew: false, isNewGolden: false,
+    };
+}
+
+async function scanSymbol(symbol, buckets, errors) {
+    for (const tf of Object.keys(TF_MAP)) {
+        try {
+            await rateLimit();
+            process.stdout.write(`Scanning ${symbol} (${tf})... `);
+            const candles = await fetchCandles(symbol, tf);
+            const row = buildSignal(candles, tf, symbol);
+            if (!row) { console.log(" (no data)"); continue; }
+            console.log(" ✓");
+
+            const key = `${symbol}|${tf}`;
+            const prev = prevSigs.get(key);
+            row.isNew = !prev || prev !== row.signal;
+            row.isNewGolden = row.goldenCross && row.isNew;
+            prevSigs.set(key, row.signal);
+
+            buckets[`${tf}_ALL`].push(row);
+            if (row.signal === "BUY") buckets[`${tf}_BUY`].push(row);
+            if (row.signal === "SELL") buckets[`${tf}_SELL`].push(row);
+            if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
+        } catch (e) {
+            if (errors.length === 0) {
+                console.error(`First error — ${symbol}/${tf}:`, e.response?.status, JSON.stringify(e.response?.data || e.message).substring(0, 300));
+                console.error("Request URL:", e.config?.url);
+                console.error("Request params:", JSON.stringify(e.config?.params));
+            }
+            errors.push(`${symbol}/${tf}: ${e.response?.data?.message || e.response?.data?.error || e.message}`);
+        }
+    }
+}
+
+export async function scanAll() {
+    if (!isAuthenticated || scanning) return;
+    scanning = true;
+    console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
+    const next = emptyState();
+    try {
+        const sortFn = (a, b) => {
+            if (a.goldenCross !== b.goldenCross) return a.goldenCross ? -1 : 1;
+            if (b.techScore !== a.techScore) return b.techScore - a.techScore;
+            return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
+        };
+
+        for (const sym of UNIVERSE) {
+            await scanSymbol(sym, next.data, next.errors);
+
+            for (const tf of Object.keys(TF_MAP)) {
+                next.data[`${tf}_BUY`].sort(sortFn);
+                next.data[`${tf}_GOLDEN`].sort(sortFn);
+                next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
+            }
+            next.lastUpdated = new Date().toISOString();
+            state = JSON.parse(JSON.stringify(next));
+        }
+        console.log(`Scan done | Errors: ${state.errors.length}`);
+    } finally { scanning = false; }
+}
+
+export async function startScan() {
+    while (true) {
+        if (isMarketOpen() || state.lastUpdated === null) {
+            await scanAll();
+        }
+        await sleep(60000);
+    }
+}
