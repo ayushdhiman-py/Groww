@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Ayush's Scanner — Groww</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#07090f;--card:#0d1220;--card2:#111927;--border:#1c2a3f;
+  --text:#dce8f5;--muted:#526a85;--green:#22c55e;--red:#ef4444;
+  --accent:#00d4aa;--yellow:#f59e0b;--purple:#a78bfa;
+  --mono:'JetBrains Mono',monospace;--sans:'Sora',sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(0,212,170,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,170,.018) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+.wrap{position:relative;z-index:1;max-width:1450px;margin:0 auto;padding:16px;}
+
+/* login */
+.ls{width:100%;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.lc{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:40px 44px;max-width:500px;width:100%;text-align:center;}
+.lt{font-size:22px;font-weight:700;color:var(--accent);margin-bottom:8px;}
+.lsub{color:var(--muted);font-size:13px;margin-bottom:22px;line-height:1.7;}
+.step{background:var(--card2);border:1px solid var(--border);border-radius:10px;padding:13px;margin-bottom:10px;text-align:left;font-size:12px;line-height:1.7;}
+.step b{color:var(--accent);}
+code{background:#000;padding:2px 6px;border-radius:4px;font-family:var(--mono);color:var(--yellow);font-size:11px;}
+.lbtn{width:100%;background:var(--accent);color:#041a14;padding:13px;border-radius:10px;font-weight:700;font-size:14px;border:none;cursor:pointer;font-family:var(--sans);margin-top:6px;}
+.lbtn:hover{opacity:.87;}
+.note{font-size:11px;color:var(--muted);margin-top:14px;line-height:1.6;}
+
+/* top */
+.top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border);}
+.brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700;}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(1.4)}}
+.brand span{color:var(--accent);}
+.top-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.pill{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:999px;font-size:11px;font-family:var(--mono);display:flex;align-items:center;gap:6px;}
+.live{width:6px;height:6px;border-radius:50%;background:var(--green);}
+.live.dead{background:var(--red);}
+.tbtn{padding:5px 13px;border-radius:999px;font-size:11px;cursor:pointer;font-family:var(--sans);font-weight:600;background:rgba(0,212,170,.1);border:1px solid rgba(0,212,170,.3);color:var(--accent);}
+.groww-badge{background:rgba(0,180,70,.12);border:1px solid rgba(0,180,70,.3);color:#22c55e;padding:5px 12px;border-radius:999px;font-size:10px;font-family:var(--mono);font-weight:700;}
+
+/* stat cards */
+.stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.sc{flex:1;min-width:90px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:11px 13px;}
+.scl{font-size:9px;color:var(--muted);font-family:var(--mono);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
+.scv{font-size:20px;font-weight:700;font-family:var(--mono);}
+.g{color:var(--green);}.r{color:var(--red);}.a{color:var(--accent);}.y{color:var(--yellow);}.p{color:var(--purple);}
+.scv.sm{font-size:11px;color:var(--muted);}
+
+/* controls */
+.controls{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;}
+.controls input,.controls select{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:10px;padding:9px 12px;font-size:12px;font-family:var(--sans);outline:none;}
+.controls input:focus,.controls select:focus{border-color:var(--accent);}
+.controls input{flex:2;min-width:180px;}
+.controls select{min-width:135px;}
+
+/* legend */
+.legend{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:10px 16px;margin-bottom:10px;font-size:11px;display:flex;gap:14px;flex-wrap:wrap;align-items:center;color:var(--muted);}
+.lb{padding:2px 7px;border-radius:4px;font-weight:700;font-family:var(--mono);font-size:10px;}
+.lb.sb{background:rgba(34,197,94,.18);color:var(--green);}
+.lb.wl{background:rgba(245,158,11,.18);color:var(--yellow);}
+.lb.sk{background:rgba(239,68,68,.18);color:var(--red);}
+
+/* fund note */
+.fundnote{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.18);border-radius:10px;padding:10px 15px;color:var(--yellow);font-size:11px;margin-bottom:10px;line-height:1.7;}
+
+/* tabs */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.tab{padding:7px 16px;border-radius:999px;border:1px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer;font-size:12px;font-weight:600;}
+.tab.active{background:var(--accent);color:#041a14;border-color:var(--accent);}
+.tab.tb.active{background:var(--green);border-color:var(--green);color:#fff;}
+.tab.tg.active{background:var(--purple);border-color:var(--purple);color:#fff;}
+.tab.ts.active{background:var(--red);border-color:var(--red);color:#fff;}
+
+.meta{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:8px;color:var(--muted);font-size:11px;font-family:var(--mono);}
+
+/* table */
+.tw{overflow:auto;border:1px solid var(--border);border-radius:14px;}
+table{width:100%;border-collapse:collapse;min-width:1120px;}
+thead th{position:sticky;top:0;background:var(--card2);text-align:left;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;font-family:var(--mono);white-space:nowrap;user-select:none;}
+thead th:hover{color:var(--text);}
+tbody td{padding:10px 12px;border-bottom:1px solid rgba(28,42,63,.8);font-size:12px;white-space:nowrap;}
+tbody tr:hover{background:rgba(255,255,255,.016);}
+tbody tr.group-sep{border-top:2px solid var(--border);}
+tbody tr.group-sep td{padding-top:16px;}
+/* Accordion Styles */
+.group-master{cursor:pointer;background:rgba(255,255,255,0.02);}
+.group-master:hover{background:rgba(255,255,255,0.04);}
+.group-master .sym {display:flex;align-items:center;gap:10px;}
+.toggle-icon{transition:transform 0.2s;color:var(--muted);font-size:10px;}
+.expanded .toggle-icon{transform:rotate(90deg);color:var(--accent);}
+.sub-row{background:rgba(255,255,255,0.01);opacity:0.9;font-size:11px;}
+.sub-row td{padding-top:6px;padding-bottom:6px;border-bottom:1px dashed var(--border);}
+.sub-row .sym{padding-left:24px;font-size:11px;color:var(--muted);}
+
+
+.sym{font-weight:700;font-family:var(--mono);font-size:13px;}
+.sec{font-size:9px;color:var(--muted);}
+.bgc{display:inline-block;background:rgba(167,139,250,.18);border:1px solid rgba(167,139,250,.35);color:var(--purple);padding:1px 5px;border-radius:3px;font-size:8px;font-family:var(--mono);margin-left:4px;vertical-align:middle;}
+.bnew{display:inline-block;background:rgba(0,212,170,.13);border:1px solid rgba(0,212,170,.32);color:var(--accent);padding:1px 5px;border-radius:3px;font-size:8px;font-family:var(--mono);margin-left:3px;vertical-align:middle;}
+.sb{color:var(--green);font-weight:700;}.ss{color:var(--red);font-weight:700;}.sn{color:var(--muted);}
+.up{color:var(--green);}.dn{color:var(--red);}
+.ea{color:var(--green);font-size:10px;}.eb{color:var(--red);font-size:10px;}
+.spike{color:var(--yellow);font-weight:700;}
+.rat-sb{background:rgba(34,197,94,.12);color:var(--green);padding:2px 7px;border-radius:4px;font-size:10px;font-family:var(--mono);font-weight:700;}
+.rat-wl{background:rgba(245,158,11,.12);color:var(--yellow);padding:2px 7px;border-radius:4px;font-size:10px;font-family:var(--mono);font-weight:700;}
+.rat-sk{background:rgba(239,68,68,.10);color:var(--red);padding:2px 7px;border-radius:4px;font-size:10px;font-family:var(--mono);font-weight:700;}
+.checks{display:flex;gap:2px;}
+.ck{width:10px;height:10px;border-radius:2px;display:inline-block;cursor:default;}
+.ck.on{background:var(--green);}.ck.off{background:rgba(255,255,255,.09);}
+.rf{color:var(--red);font-size:10px;}
+
+.errbar{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.18);border-radius:10px;padding:9px 13px;color:var(--red);font-size:11px;font-family:var(--mono);margin-bottom:10px;}
+.empty{padding:40px;text-align:center;color:var(--muted);}
+.scanning{padding:30px;text-align:center;color:var(--muted);font-family:var(--mono);font-size:12px;}
+
+[title]{cursor:help;}
+
+.sparkline{width:100px;height:30px;display:block;margin-bottom:4px;border-radius:4px;background:rgba(255,255,255,0.02);padding:2px;}
+.spark-p{stroke:rgba(255,255,255,0.2);stroke-width:1;fill:none;}
+.spark-21{stroke:var(--green);stroke-width:1.5;fill:none;}
+.spark-50{stroke:var(--red);stroke-width:1.5;fill:none;}
+.ema-cell{display:flex;flex-direction:column;gap:2px;}
+.ema-val{font-size:10px;font-weight:600;display:flex;align-items:center;gap:4px;}
+
+@media(max-width:700px){.controls{flex-direction:column;}.sc{min-width:80px;}}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="LS" style="display:none">
+<div class="ls"><div class="lc">
+  <div class="lt">⚡ Ayush's Scanner</div>
+  <div class="lsub">EMA 21/50 Golden Cross · MACD 12/26/9 · Volume Spike · RSI<br>Powered by <b style="color:#22c55e">Groww Trading API</b></div>
+  <div class="step"><b>Step 1:</b> Your Groww API Key and Secret are already configured in the server.</div>
+  <div class="step"><b>Step 2:</b> Click Login to authenticate with the Groww API. Access token is auto-generated using your API secret.</div>
+  <div class="step"><b>Step 3:</b> Once authenticated, the scanner starts scanning all 59 NSE stocks across 8 timeframes.</div>
+  <button class="lbtn" onclick="doLogin()">🔐 Login with Groww API</button>
+  <div class="note">Token auto-refreshes. Only reads historical data — no orders placed.<br>Rate limit: 10 req/sec (Groww market data limit).</div>
+</div></div>
+</div>
+
+<!-- MAIN APP -->
+<div id="APP" style="display:none">
+<div class="wrap">
+
+<div class="top">
+  <div class="brand"><div class="dot"></div>Ayush's Personal <span>Scanner</span></div>
+  <div class="top-r">
+    <div class="groww-badge">GROWW API</div>
+    <div class="pill"><div class="live" id="liveInd"></div><span id="mktTxt">--</span></div>
+    <div class="pill" id="timerPill">Next: --</div>
+    <button class="tbtn" onclick="doLogin()">Re-Login</button>
+    <button class="tbtn" onclick="load()">↺ Refresh</button>
+  </div>
+</div>
+
+<div class="stats">
+  <div class="sc"><div class="scl">Universe</div><div class="scv a" id="sU">--</div></div>
+  <div class="sc"><div class="scl">🟣 Golden</div><div class="scv p" id="sG">--</div></div>
+  <div class="sc"><div class="scl">▲ BUY</div><div class="scv g" id="sB">--</div></div>
+  <div class="sc"><div class="scl">▼ SELL</div><div class="scv r" id="sS">--</div></div>
+  <div class="sc"><div class="scl">Vol Spikes</div><div class="scv y" id="sSp">--</div></div>
+  <div class="sc"><div class="scl">Strong Buy</div><div class="scv g" id="sSB">--</div></div>
+  <div class="sc"><div class="scl">Watchlist</div><div class="scv y" id="sWL">--</div></div>
+  <div class="sc"><div class="scl">Errors</div><div class="scv r" id="sE">--</div></div>
+  <div class="sc"><div class="scl">Last Scan</div><div class="scv sm" id="sT">--</div></div>
+</div>
+
+<!--
+<div class="fundnote">
+  📊 <b>Scoring (tech only, auto-computed):</b>
+  Checks: Golden Cross · EMA 21 above 50 · MACD Bull · MACD Above Signal · Vol Spike + Price Up · RSI 45–75.
+  Score 5–6 = STRONG BUY &nbsp;|&nbsp; 3–4 = WATCHLIST &nbsp;|&nbsp; <3 = SKIP.<br>
+  🔌 <b>Fundamental signals</b> (FII/DII/promoter/earnings/bulk deals) show <b>N/A</b> until you wire in Screener.in / Trendlyne / BSE bulk deals APIs.
+</div>
+-->
+
+<div class="legend">
+  <b style="color:var(--muted);font-size:10px">RATING:</b>
+  <span class="lb sb">STRONG BUY</span> 5–6 tech signals &nbsp;
+  <span class="lb wl">WATCHLIST</span> 3–4 signals &nbsp;
+  <span class="lb sk">SKIP</span> &lt;3 or red flags &nbsp;
+  <span style="font-size:10px">🟩 = signal ON &nbsp; ⬜ = signal OFF &nbsp; (hover for label)</span>
+</div>
+
+<div class="controls">
+  <input id="search" placeholder="Search symbol or sector (IT, BANK, PHARMA...)"/>
+  <select id="tf">
+    <option value="ALL" selected>All Timeframes</option>
+    <option value="1m">1 Min</option>
+    <option value="5m">5 Min</option>
+    <option value="10m">10 Min</option>
+    <option value="15m">15 Min</option>
+    <option value="30m">30 Min</option>
+    <option value="1h">1 Hour</option>
+    <option value="1d">1 Day</option>
+  </select>
+  <select id="sigF">
+    <option value="ALL">All Signals</option>
+    <option value="BUY">BUY only</option>
+    <option value="SELL">SELL only</option>
+  </select>
+  <select id="sortBy">
+    <option value="techScore">Tech Score</option>
+    <option value="goldenCross">Golden Cross first</option>
+    <option value="volumeChange">Vol Change</option>
+    <option value="chgPct">% Change</option>
+    <option value="emaGap">EMA Gap</option>
+    <option value="rsi">RSI</option>
+  </select>
+</div>
+
+<div id="errBar" class="errbar" style="display:none"></div>
+<div class="meta">
+  <span id="rowCount">Showing --</span>
+  <span id="lastScan">Last scan: --</span>
+</div>
+
+<div class="tabs">
+  <div class="tab tg active" data-set="GOLDEN">🟣 Golden Cross</div>
+  <div class="tab tb" data-set="BUY">▲ BUY</div>
+  <div class="tab ts" data-set="SELL">▼ SELL</div>
+  <div class="tab" data-set="ALL">All Stocks</div>
+</div>
+
+<div class="tw">
+<table>
+  <thead><tr>
+    <th onclick="setSort('symbol')">Stock / Sector / Change%</th>
+    <th onclick="setSort('volume')">Volume</th>
+    <th onclick="setSort('price')">CMP</th>
+    <th onclick="setSort('emaGap')">EMA</th>
+    <th>MACD</th>
+    <th>Day H/L</th>
+    <th>Week H/L</th>
+    <th onclick="setSort('techScore')">Score</th>
+    <th title="6 tech checks — hover squares for label">Checks</th>
+    <th>Green Flag</th>
+    <th>Red Flag</th>
+    <th>Rating</th>
+  </tr></thead>
+  <tbody id="tbody"></tbody>
+</table>
+</div>
+<div id="empty" class="empty" style="display:none">No results for current filter.</div>
+<div id="scanning" class="scanning" style="display:none">⚙ Scan in progress — this takes 3–5 minutes on first run. Refresh in a moment.</div>
+
+</div><!-- /wrap -->
+</div><!-- /APP -->
+
+<script>
+if("Notification" in window) Notification.requestPermission().catch(()=>{});
+function notify(t,b){try{if(Notification.permission==="granted") new Notification(t,{body:b});}catch(_){}}
+
+let expandedStocks = new Set();
+function toggleGroup(sym) {
+    if (expandedStocks.has(sym)) expandedStocks.delete(sym);
+    else expandedStocks.add(sym);
+    render();
+}
+
+
+let activeSet="GOLDEN", data=null, sortCol="techScore", sortAsc=false, nextAt=null;
+const seen=new Set();
+
+async function checkAuth(){
+  try{
+    const s=await fetch("/api/status").then(r=>r.json());
+    if(!s.authenticated){show("LS");hide("APP");}
+    else{hide("LS");show("APP");document.getElementById("sU").textContent=s.universe;load();}
+  }catch(e){console.error(e);}
+}
+function show(id){document.getElementById(id).style.display=id==="LS"?"flex":"block";}
+function hide(id){document.getElementById(id).style.display="none";}
+
+async function doLogin(){
+  const btn=document.querySelector(".lbtn");
+  if(btn){btn.textContent="Logging in...";btn.disabled=true;}
+  try{
+    const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    const d=await r.json();
+    if(d.ok){setTimeout(()=>window.location.reload(),1500);}
+    else{alert("Login failed: "+d.error);}
+  }catch(e){alert("Login error: "+e.message);}
+  finally{if(btn){btn.textContent="🔐 Login with Groww API";btn.disabled=false;}}
+}
+
+document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+  t.classList.add("active");activeSet=t.dataset.set;render();
+}));
+["search","tf","sigF","sortBy"].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el){el.addEventListener("change",()=>{if(id==="tf")load();else render();});el.addEventListener("input",render);}
+});
+function setSort(c){if(sortCol===c)sortAsc=!sortAsc;else{sortCol=c;sortAsc=false;}render();}
+
+function isOpen(){
+  const ist=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Kolkata"}));
+  const h=ist.getHours(),m=ist.getMinutes(),d=ist.getDay();
+  return d>0&&d<6&&(h>9||(h===9&&m>=15))&&(h<15||(h===15&&m<=30));
+}
+function tick(){
+  const o=isOpen();
+  const li=document.getElementById("liveInd"),mt=document.getElementById("mktTxt");
+  if(li)li.className=o?"live":"live dead";
+  if(mt)mt.textContent=o?"Market Open":"Market Closed";
+  if(nextAt){
+    const s=Math.max(0,Math.floor((nextAt-Date.now())/1000));
+    const tp=document.getElementById("timerPill");
+    if(tp)tp.textContent="Next: "+Math.floor(s/60)+"m "+String(s%60).padStart(2,"0")+"s";
+  }
+}
+
+async function load(){
+  try{
+    const res=await fetch("/api/state");
+    if(res.status===401){checkAuth();return;}
+    const next=await res.json();
+    data=next; 
+    // Set nextAt 30s from now for the countdown timer
+    nextAt=Date.now()+30000;
+    const tf=document.getElementById("tf")?.value||"ALL";
+    let all=[], buys=[], sells=[], golden=[];
+    if (tf === "ALL") {
+        const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
+        allTfs.forEach(t => {
+            all.push(...(next.data[t+"_ALL"]||[]));
+            buys.push(...(next.data[t+"_BUY"]||[]));
+            sells.push(...(next.data[t+"_SELL"]||[]));
+            golden.push(...(next.data[t+"_GOLDEN"]||[]));
+        });
+    } else {
+        all=next.data[tf+"_ALL"]||[]; buys=next.data[tf+"_BUY"]||[]; sells=next.data[tf+"_SELL"]||[]; golden=next.data[tf+"_GOLDEN"]||[];
+    }
+    const spikes=all.filter(r=>r.volSpike).length;
+    const sbCount=all.filter(r=>r.rating==="STRONG BUY").length;
+    const wlCount=all.filter(r=>r.rating==="WATCHLIST").length;
+    const g=id=>document.getElementById(id);
+    if(g("sG"))g("sG").textContent=golden.length;
+    if(g("sB"))g("sB").textContent=buys.length;
+    if(g("sS"))g("sS").textContent=sells.length;
+    if(g("sSp"))g("sSp").textContent=spikes;
+    if(g("sSB"))g("sSB").textContent=sbCount;
+    if(g("sWL"))g("sWL").textContent=wlCount;
+    if(g("sE"))g("sE").textContent=next.errors?.length||0;
+    if(g("sT"))g("sT").textContent=next.lastUpdated?new Date(next.lastUpdated).toLocaleTimeString("en-IN",{timeZone:"Asia/Kolkata"}):"Scanning...";
+    if(g("lastScan"))g("lastScan").textContent="Last: "+(next.lastUpdated?new Date(next.lastUpdated).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"}):"--");
+    const eb=g("errBar");
+    if(eb){eb.style.display=next.errors?.length?"block":"none";if(next.errors?.length)eb.textContent="Errors ("+next.errors.length+"): "+next.errors.slice(0,4).join(" | ");}
+    golden.forEach(r=>{if(r.isNew){const k=r.symbol+"|"+r.tf;if(!seen.has(k)){seen.add(k);notify("🟣 Golden Cross — "+r.symbol+" ("+r.tf+")","EMA 21 > EMA 50 | Score: "+r.techScore+"/6 | "+r.rating);}}});
+    document.getElementById("scanning").style.display="none";
+    render();
+  }catch(e){
+    console.error("Load error:", e);
+    const sn=document.getElementById("scanning");
+    if(sn) sn.style.display="block";
+  }
+}
+
+let lastScanState = false;
+async function pollStatus(){
+  try {
+    const s = await fetch("/api/status").then(r=>r.json());
+    const sn = document.getElementById("scanning");
+    if(sn) sn.style.display = s.scanning ? "block" : "none";
+    
+    // Refresh UI during scan if it's currently scanning
+    if (s.scanning) {
+        load();
+    }
+    
+    // If scanning just finished, trigger a full final load
+    if (lastScanState === true && s.scanning === false) {
+      console.log("Scan finished, reloading data...");
+      load();
+    }
+    lastScanState = s.scanning;
+    
+    // Update market status indicator
+    const li=document.getElementById("liveInd"), mt=document.getElementById("mktTxt");
+    const o=isOpen();
+    if(li)li.className=o?"live":"live dead";
+    if(mt)mt.textContent=o?"Market Open":"Market Closed";
+  } catch(e) {
+    console.error("Status poll error:", e);
+  }
+}
+
+function renderRow(r, isSub) {
+  const cc=r.chgPct>=0?"up":"dn", chg=(r.chgPct>=0?"+":"")+r.chgPct.toFixed(2)+"%";
+  const statusTxt = r.goldenCross ? "<span class='ea lb sb'>CROSS 21>50 UP</span>" : (r.deathCross ? "<span class='eb lb sk'>CROSS 21<50 DOWN</span>" : (r.ema21above ? "<span class='ea'>EMA 21 > 50</span>" : "<span class='eb'>EMA 21 < 50</span>"));
+  const emaTxt = "<div class='ema-cell'>" + genSparkline(r.priceHist, r.ema21Hist, r.ema50Hist) + statusTxt + "<span class='ema-val "+cc+"'>Gap: "+Math.abs(r.emaGap).toFixed(2)+"%</span></div>";
+  const macdTxt = r.macdAbove ? "<span class='up'>▲ Bull <small>("+r.macdVal.toFixed(2)+")</small></span>" : "<span class='dn'>▼ Bear <small>("+r.macdVal.toFixed(2)+")</small></span>";
+  const volTxt=r.volSpike?"<span class='spike'>⚡"+fmtV(r.volume)+"</span>":fmtV(r.volume);
+  const badge = (r.goldenCross?"<span class='bgc'>🟣GC</span>":"") + (r.isNew?"<span class='bnew'>NEW</span>":"");
+  const rowClass = isSub ? "sub-row" : (r.goldenCross?"gc-row":r.isNew?"new-row":"");
+  const symHtml = isSub ? "<div class='sym'><small>"+r.tf+"</small></div>" : "<div><div class='sym'>"+r.symbol+badge+"</div><div class='sec'>"+(r.sector||"NSE")+" <span class='"+cc+"'>"+chg+"</span></div></div>";
+  const ratCls=r.rating==="STRONG BUY"?"rat-sb":r.rating==="WATCHLIST"?"rat-wl":"rat-sk";
+  return "<tr class='"+rowClass+"'><td>"+symHtml+"</td><td>"+volTxt+"<div class='sec'>"+r.volChange.toFixed(1)+"% chg</div></td><td>₹"+r.price.toFixed(2)+(isSub?"":" <small>("+r.tf+")</small>")+"</td><td>"+emaTxt+"</td><td>"+macdTxt+"</td>"
+    + "<td class='sec'>"+(r.dayHigh?.toFixed(1)||"—")+" / "+(r.dayLow?.toFixed(1)||"—")+"</td><td class='sec'>"+(r.week52High?.toFixed(1)||"—")+" / "+(r.week52Low?.toFixed(1)||"—")+"</td><td><b>"+r.techScore+"</b><small class='sec'>/6</small></td>"
+    + "<td><div class='checks'>"+Object.keys(r.checks||{}).map(k=>"<span class='ck "+(r.checks[k]?"on":"off")+"' title='"+k+"'></span>").join("")+"</div></td>"
+    + "<td>"+(r.techScore>0?"<span class='ea' style='font-size:10px;font-weight:bold'>⚑ "+r.techScore+"</span>":"—")+"</td><td>"+(r.redCount>0?"<span class='rf'>⚑ "+r.redCount+"</span>":"—")+"</td><td><span class='"+ratCls+"'>"+r.rating+"</span></td></tr>";
+}
+
+function render(){
+  if(!data)return;
+  const tbody=document.getElementById("tbody"), empty=document.getElementById("empty"), tf=document.getElementById("tf")?.value||"ALL", sigF=document.getElementById("sigF")?.value||"ALL", q=(document.getElementById("search")?.value||"").trim().toUpperCase(), sortBy=document.getElementById("sortBy")?.value||sortCol;
+  let rawRows = [];
+  if (tf === "ALL") { ["1m", "5m", "10m", "15m", "30m", "1h", "1d"].forEach(t => { rawRows.push(...(data.data[t+"_"+activeSet]||[])); }); }
+  else { rawRows = (data.data[tf+"_"+activeSet]||[]).slice(); }
+  if(sigF!=="ALL") rawRows = rawRows.filter(r=>r.signal===sigF);
+  if(q) rawRows = rawRows.filter(r=>r.symbol.includes(q)||r.sector?.includes(q));
+  const tfOrder = {"1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7};
+  const getStats = (g) => ({ maxS: Math.max(...g.map(r=>r.techScore)), maxV: Math.max(...g.map(r=>Math.abs(r.volChange))), sym: g[0].symbol });
+  if (tf === "ALL") {
+      const groups = new Map();
+      rawRows.forEach(r => { if(!groups.has(r.symbol)) groups.set(r.symbol, []); groups.get(r.symbol).push(r); });
+      const sorted = [...groups.values()].sort((a,b) => {
+          const sA=getStats(a), sB=getStats(b);
+          if (sortBy === "symbol") return sA.sym.localeCompare(sB.sym);
+          if (sortBy === "techScore") return sB.maxS - sA.maxS;
+          if (sortBy === "volumeChange") return sB.maxV - sA.maxV;
+          return sB.maxS - sA.maxS;
+      });
+      let html = "";
+      sorted.forEach(g => {
+          const s=getStats(g), isExp=expandedStocks.has(s.sym), f=g[0], cc=f.chgPct>=0?"up":"dn", chg=(f.chgPct>=0?"+":"")+f.chgPct.toFixed(2)+"%";
+          html += "<tr class='group-master "+(isExp?"expanded":"")+"' onclick='toggleGroup(""+s.sym+"")'><td><div class='sym'><span class='toggle-icon'>▶</span>"+s.sym+" <span class='sec'>("+g.length+" TFs)</span></div></td>"
+            + "<td>Avg Vol: "+(g.reduce((acc,rr)=>acc+rr.volChange,0)/g.length).toFixed(1)+"%</td><td>Max Score: "+s.maxS+"/6</td><td colspan='9'><div class='sec'>"+f.sector+" · "+chg+" · Click to expand</div></td></tr>";
+          if (isExp) g.sort((a,b)=>tfOrder[a.tf]-tfOrder[b.tf]).forEach(r=>html+=renderRow(r,true));
+      });
+      tbody.innerHTML = html;
+  } else {
+      rawRows.sort((a,b) => { if(sortBy==="symbol") return sortAsc?a.symbol.localeCompare(b.symbol):b.symbol.localeCompare(a.symbol); const va=+a[sortBy]||0, vb=+b[sortBy]||0; return sortAsc?va-vb:vb-va; });
+      tbody.innerHTML = rawRows.map(r=>renderRow(r,false)).join("");
+  }
+  const uCount = new Set(rawRows.map(r=>r.symbol)).size, tCount = data.universe || 0;
+  document.getElementById("rowCount").textContent = (tf==="ALL") ? "Stocks: "+uCount+" of "+tCount+" ("+rawRows.length+" signals)" : "Stocks: "+rawRows.length+" of "+tCount;
+  if(!rawRows.length){ tbody.innerHTML=""; empty.style.display="block"; } else { empty.style.display="none"; }
+}
+
+function fmtV(v){
+  if(!v)return"—";
+  if(v>=10000000)return(v/10000000).toFixed(1)+"Cr";
+  if(v>=100000)return(v/100000).toFixed(1)+"L";
+  if(v>=1000)return(v/1000).toFixed(0)+"K";
+  return String(v);
+}
+
+setInterval(tick,1000);
+setInterval(pollStatus,5000); // Check status every 5s for faster refresh
+setInterval(load,60000); // Full data reload every 60s as backup
+tick();
+pollStatus(); // Initial status check
+checkAuth();
+</script>
+</body>
+</html>

@@ -78,7 +78,6 @@ async function login() {
             timeout: 15000,
         });
         console.log("Groww auth response:", JSON.stringify(res.data).substring(0, 200));
-        // Groww returns the token in the "token" field
         const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
         if (!token) throw new Error("No token in response: " + JSON.stringify(res.data));
         saveSession(token);
@@ -110,13 +109,12 @@ function fmtGroww(d) {
     return `${ist.getFullYear()}-${p(ist.getMonth() + 1)}-${p(ist.getDate())} ${p(ist.getHours())}:${p(ist.getMinutes())}:${p(ist.getSeconds())}`;
 }
 
-// Rate limiter: Groww allows 10 req/sec for market data
 const rl = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function startScan() {
     while (true) {
         await scanAll();
-        await sleep(60000); // 1 minute interval
+        await sleep(60000);
     }
 }
 async function rateLimit() {
@@ -131,7 +129,6 @@ async function rateLimit() {
 async function fetchCandles(symbol, tf) {
     await ensureSession();
     const to = new Date(), from = new Date(to - TF_DAYS[tf] * 86400000);
-    // Groww uses interval_in_minutes for both intraday and daily
     const intervalMap = {
         "1m": 1, "5m": 5, "10m": 10, "15m": 15,
         "30m": 30, "1h": 60, "1d": 1440
@@ -193,7 +190,6 @@ function rsi(closes, period = 14) {
 
 // ── Universe ──────────────────────────────────────────────────────────────────
 const UNIVERSE = [
-    // --- Nifty 50 & Mainstream ---
     "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
     "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "BPCL",
     "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY",
@@ -206,7 +202,6 @@ const UNIVERSE = [
     "TATAMOTORS", "TATASTEEL", "TECHM", "TITAN", "ULTRACEMCO", "WIPRO",
     "BANKBARODA", "PNB", "AUBANK", "FEDERALBNK", "CANBK",
     "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA",
-    // --- Added from Watchlists ---
     "BEL", "MOTHERSON", "GAIL", "IRFC", "MARKSANS", "SJVN", "IOC", "AMBUJACEM", "TVSMOTOR",
     "UNIONBANK", "IDBI", "INDIANB", "IOB", "YESBANK", "CENTRALBK",
     "MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "HAL",
@@ -456,14 +451,13 @@ async function scanAll() {
         for (const sym of UNIVERSE) {
             await scanSymbol(sym, next.data, next.errors);
 
-            // Incremental sort and update global state
             for (const tf of Object.keys(TF_MAP)) {
                 next.data[`${tf}_BUY`].sort(sortFn);
                 next.data[`${tf}_GOLDEN`].sort(sortFn);
                 next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
             }
             next.lastUpdated = new Date().toISOString();
-            state = JSON.parse(JSON.stringify(next)); // Deep copy to prevent race conditions while UI reads
+            state = JSON.parse(JSON.stringify(next));
         }
         console.log(`Scan done | Errors: ${state.errors.length}`);
     } finally { scanning = false; }
@@ -607,6 +601,37 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 .ema-cell{display:flex;flex-direction:column;gap:2px;}
 .ema-val{font-size:10px;font-weight:600;display:flex;align-items:center;gap:4px;}
 
+/* ── Grouped / expandable rows (All Timeframes mode) ── */
+.grp-hdr td{
+  cursor:pointer;
+  background:var(--card2);
+  border-bottom:1px solid var(--border);
+  user-select:none;
+}
+.grp-hdr:hover td{background:rgba(255,255,255,.03);}
+.grp-arrow{
+  display:inline-block;
+  transition:transform .18s;
+  margin-right:7px;
+  color:var(--accent);
+  font-size:10px;
+}
+.grp-hdr.open .grp-arrow{transform:rotate(90deg);}
+.grp-tf-badge{
+  font-size:9px;
+  background:rgba(0,212,170,.1);
+  border:1px solid rgba(0,212,170,.2);
+  color:var(--accent);
+  border-radius:3px;
+  padding:1px 5px;
+  margin-right:3px;
+  font-family:var(--mono);
+}
+.grp-child{display:none;}
+.grp-child.show{display:table-row;}
+.grp-child td:first-child{padding-left:32px;}
+.grp-child td{background:rgba(0,0,0,.15);}
+
 @media(max-width:700px){.controls{flex-direction:column;}.sc{min-width:80px;}}
 </style>
 </head>
@@ -651,15 +676,6 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
   <div class="sc"><div class="scl">Errors</div><div class="scv r" id="sE">--</div></div>
   <div class="sc"><div class="scl">Last Scan</div><div class="scv sm" id="sT">--</div></div>
 </div>
-
-<!--
-<div class="fundnote">
-  📊 <b>Scoring (tech only, auto-computed):</b>
-  Checks: Golden Cross · EMA 21 above 50 · MACD Bull · MACD Above Signal · Vol Spike + Price Up · RSI 45–75.
-  Score 5–6 = STRONG BUY &nbsp;|&nbsp; 3–4 = WATCHLIST &nbsp;|&nbsp; <3 = SKIP.<br>
-  🔌 <b>Fundamental signals</b> (FII/DII/promoter/earnings/bulk deals) show <b>N/A</b> until you wire in Screener.in / Trendlyne / BSE bulk deals APIs.
-</div>
--->
 
 <div class="legend">
   <b style="color:var(--muted);font-size:10px">RATING:</b>
@@ -795,8 +811,7 @@ async function load(){
     const res=await fetch("/api/state");
     if(res.status===401){checkAuth();return;}
     const next=await res.json();
-    data=next; 
-    // Set nextAt 30s from now for the countdown timer
+    data=next;
     nextAt=Date.now()+30000;
     const tf=document.getElementById("tf")?.value||"ALL";
     let all=[], buys=[], sells=[], golden=[];
@@ -842,32 +857,28 @@ async function pollStatus(){
     const s = await fetch("/api/status").then(r=>r.json());
     const sn = document.getElementById("scanning");
     if(sn) sn.style.display = s.scanning ? "block" : "none";
-    
-    // Refresh UI during scan if it's currently scanning
-    if (s.scanning) {
-        load();
-    }
-    
-    // If scanning just finished, trigger a full final load
-    if (lastScanState === true && s.scanning === false) {
-      console.log("Scan finished, reloading data...");
-      load();
-    }
+    if (s.scanning) { load(); }
+    if (lastScanState === true && s.scanning === false) { console.log("Scan finished, reloading data..."); load(); }
     lastScanState = s.scanning;
-    
-    // Update market status indicator
     const li=document.getElementById("liveInd"), mt=document.getElementById("mktTxt");
     const o=isOpen();
     if(li)li.className=o?"live":"live dead";
     if(mt)mt.textContent=o?"Market Open":"Market Closed";
-  } catch(e) {
-    console.error("Status poll error:", e);
-  }
+  } catch(e) { console.error("Status poll error:", e); }
+}
+
+// ── Toggle grouped row expand/collapse ────────────────────────────────────────
+function toggleGrp(gi) {
+  const hdr = document.getElementById("grp-hdr-" + gi);
+  const isOpen = hdr.classList.toggle("open");
+  document.querySelectorAll(".grp-child-" + gi).forEach(tr => {
+    tr.classList.toggle("show", isOpen);
+  });
 }
 
 function render(){
   if(!data)return;
-  
+
   const genSparkline = (pHist, e21Hist, e50Hist) => {
     if(!pHist || !e21Hist || !e50Hist || pHist.length < 2) return "";
     const w = 100, h = 30;
@@ -875,13 +886,11 @@ function render(){
     const min = Math.min(...all), max = Math.max(...all), range = max - min || 1;
     const getX = i => (i / (pHist.length - 1)) * w;
     const getY = v => h - ((v - min) / range) * h;
-    
     const mkPath = (arr, cls) => {
         let d = "M " + getX(0) + " " + getY(arr[0]);
         for(let i=1; i<arr.length; i++) d += " L " + getX(i) + " " + getY(arr[i]);
         return "<path class='" + cls + "' d='" + d + "' />";
     };
-    
     return "<svg class='sparkline' viewBox='0 0 " + w + " " + h + "'>"
       + mkPath(pHist, 'spark-p')
       + mkPath(e50Hist, 'spark-50')
@@ -897,22 +906,19 @@ function render(){
   let rows = [];
   if (tf === "ALL") {
       const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
-      allTfs.forEach(t => {
-          rows.push(...(data.data[t+"_"+activeSet]||[]));
-      });
+      allTfs.forEach(t => { rows.push(...(data.data[t+"_"+activeSet]||[])); });
   } else {
       rows=(data.data[tf+"_"+activeSet]||[]).slice();
   }
-  
+
   if(sigF!=="ALL") rows=rows.filter(r=>r.signal===sigF);
   if(q) rows=rows.filter(r=>r.symbol.includes(q)||r.sector?.includes(q));
 
-  const tfOrder = {"1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7};
+  const tfOrder = {"1m":1,"5m":2,"10m":3,"15m":4,"30m":5,"1h":6,"1d":7};
+
   rows.sort((a,b)=>{
     if (tf === "ALL") {
-        // Primary sort: Symbol
         if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
-        // Secondary sort: Timeframe
         return tfOrder[a.tf] - tfOrder[b.tf];
     }
     if(sortBy==="symbol") return sortAsc?a.symbol.localeCompare(b.symbol):b.symbol.localeCompare(a.symbol);
@@ -923,64 +929,159 @@ function render(){
 
   const uniqueStocksInRows = new Set(rows.map(r => r.symbol)).size;
   const totalStocks = data.universe || 0;
-  
+
   if (tf === "ALL") {
-    document.getElementById("rowCount").textContent = "Stocks: " + uniqueStocksInRows + " of " + totalStocks + " (" + rows.length + " signals)";
+    document.getElementById("rowCount").textContent = "Stocks: " + uniqueStocksInRows + " of " + totalStocks + " (" + rows.length + " signals) — click a row to expand timeframes";
   } else {
     document.getElementById("rowCount").textContent = "Stocks: " + rows.length + " of " + totalStocks;
   }
-  
+
   const tbody=document.getElementById("tbody");
   const empty=document.getElementById("empty");
   if(!rows.length){tbody.innerHTML="";empty.style.display="block";return;}
   empty.style.display="none";
 
-  tbody.innerHTML=rows.map(r=>{
-    const sc=r.signal==="BUY"?"sb":r.signal==="SELL"?"ss":"sn";
-    const cc=r.chgPct>=0?"up":"dn";
-    const chg=(r.chgPct>=0?"+":"")+r.chgPct.toFixed(2)+"%";
-    let emaTxt = "";
-    
-    const gapTxt = "<span class='ema-val " + cc + "'>Gap: " + Math.abs(r.emaGap).toFixed(2) + "%</span>";
-    let statusTxt = "";
-    if (r.goldenCross) {
-        statusTxt = "<span class='ea lb sb' style='display:inline-block'>CROSS 21>50 UP</span>";
-    } else if (r.deathCross) {
-        statusTxt = "<span class='eb lb sk' style='display:inline-block'>CROSS 21<50 DOWN</span>";
-    } else {
-        statusTxt = r.ema21above ? "<span class='ea'>EMA 21 > 50</span>" : "<span class='eb'>EMA 21 < 50</span>";
+  // ── Single-timeframe view (unchanged behaviour) ───────────────────────────
+  if (tf !== "ALL") {
+    tbody.innerHTML=rows.map(r=>{
+      const sc=r.signal==="BUY"?"sb":r.signal==="SELL"?"ss":"sn";
+      const cc=r.chgPct>=0?"up":"dn";
+      const chg=(r.chgPct>=0?"+":"")+r.chgPct.toFixed(2)+"%";
+      let emaTxt="";
+      const gapTxt="<span class='ema-val "+cc+"'>Gap: "+Math.abs(r.emaGap).toFixed(2)+"%</span>";
+      let statusTxt="";
+      if(r.goldenCross) statusTxt="<span class='ea lb sb' style='display:inline-block'>CROSS 21>50 UP</span>";
+      else if(r.deathCross) statusTxt="<span class='eb lb sk' style='display:inline-block'>CROSS 21<50 DOWN</span>";
+      else statusTxt=r.ema21above?"<span class='ea'>EMA 21 > 50</span>":"<span class='eb'>EMA 21 < 50</span>";
+      emaTxt="<div class='ema-cell'>"+genSparkline(r.priceHist,r.ema21Hist,r.ema50Hist)+statusTxt+gapTxt+"</div>";
+      const macdVal=r.macdVal!==null?r.macdVal.toFixed(2):"—";
+      const macdTxt=r.macdAbove
+        ?"<span class='up'>▲ Bull <small style='opacity:0.6'>("+macdVal+")</small></span>"
+        :"<span class='dn'>▼ Bear <small style='opacity:0.6'>("+macdVal+")</small></span>";
+      const volTxt=r.volSpike?"<span class='spike'>⚡"+fmtV(r.volume)+"</span>":fmtV(r.volume);
+      const gcBadge=r.goldenCross?"<span class='bgc'>🟣GC</span>":"";
+      const newBadge=r.isNew&&r.signal!=="NONE"?"<span class='bnew'>NEW</span>":"";
+      const checkKeys=Object.keys(r.checks||{});
+      const boxes=checkKeys.map(k=>"<span class='ck "+(r.checks[k]?"on":"off")+"' title='"+k+"'></span>").join("");
+      const gf=r.techScore>0?"<span class='ea' style='font-size:10px;font-weight:bold'>⚑ "+r.techScore+"</span>":"—";
+      const rf=r.redCount>0?"<span class='rf'>⚑ "+r.redCount+"</span>":"—";
+      const ratCls=r.rating==="STRONG BUY"?"rat-sb":r.rating==="WATCHLIST"?"rat-wl":"rat-sk";
+      return "<tr class='"+(r.goldenCross?"gc-row":r.isNew?"new-row":"")+"'>"
+        +"<td><div class='sym'>"+r.symbol+" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcBadge+newBadge+"</div><div class='sec'>"+r.sector+" · <span class='"+cc+"'>"+chg+"</span></div></td>"
+        +"<td>"+volTxt+"</td>"
+        +"<td>₹"+r.price.toFixed(2)+"</td>"
+        +"<td>"+emaTxt+"</td>"
+        +"<td>"+macdTxt+"</td>"
+        +"<td style='font-size:11px;color:var(--muted)'>"+(r.dayH?r.dayH.toFixed(1):"--")+" / "+(r.dayL?r.dayL.toFixed(1):"--")+"</td>"
+        +"<td style='font-size:11px;color:var(--muted)'>"+(r.weekH?r.weekH.toFixed(1):"--")+" / "+(r.weekL?r.weekL.toFixed(1):"--")+"</td>"
+        +"<td style='text-align:center'><b>"+r.techScore+"</b><span style='color:var(--muted)'>/6</span></td>"
+        +"<td><div class='checks'>"+boxes+"</div></td>"
+        +"<td>"+gf+"</td>"
+        +"<td>"+rf+"</td>"
+        +"<td><span class='"+ratCls+"'>"+r.rating+"</span></td>"
+        +"</tr>";
+    }).join("");
+    return;
+  }
+
+  // ── All-Timeframes view — grouped & expandable ────────────────────────────
+  // Build ordered group list preserving symbol order from sorted rows
+  const groupOrder = [];
+  const groupMap = {};
+  rows.forEach(r => {
+    if (!groupMap[r.symbol]) {
+      groupMap[r.symbol] = [];
+      groupOrder.push(r.symbol);
     }
-    
-    emaTxt = "<div class='ema-cell'>" + genSparkline(r.priceHist, r.ema21Hist, r.ema50Hist) + statusTxt + gapTxt + "</div>";
-    const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : "—";
-    const macdTxt = r.macdAbove 
-      ? "<span class='up'>▲ Bull <small style='opacity:0.6'>(" + macdVal + ")</small></span>" 
-      : "<span class='dn'>▼ Bear <small style='opacity:0.6'>(" + macdVal + ")</small></span>";
-    const volTxt=r.volSpike?"<span class='spike'>⚡"+fmtV(r.volume)+"</span>":fmtV(r.volume);
-    const gcBadge=r.goldenCross?"<span class='bgc'>🟣GC</span>":"";
-    const newBadge=r.isNew&&r.signal!=="NONE"?"<span class='bnew'>NEW</span>":"";
-    const rsiTxt=r.rsi!==null?r.rsi:"—";
-    const rsiCls=r.rsi>75?"r":r.rsi<35?"y":"";
-    const checkKeys=Object.keys(r.checks||{});
-    const boxes=checkKeys.map(k=>"<span class='ck "+(r.checks[k]?"on":"off")+"' title='"+k+"'></span>").join("");
-    const gf=r.techScore>0?"<span class='ea' style='font-size:10px;font-weight:bold'>⚑ "+r.techScore+"</span>":"—";
-    const rf=r.redCount>0?"<span class='rf'>⚑ "+r.redCount+"</span>":"—";
-    const ratCls=r.rating==="STRONG BUY"?"rat-sb":r.rating==="WATCHLIST"?"rat-wl":"rat-sk";
-    return "<tr class='"+(r.goldenCross?"gc-row":r.isNew?"new-row":"")+"'>"
-      +"<td><div class='sym'>"+r.symbol+" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcBadge+newBadge+"</div><div class='sec'>"+r.sector+" · <span class='"+cc+"'>"+chg+"</span></div></td>"
-      +"<td>"+volTxt+"</td>"
-      +"<td>₹"+r.price.toFixed(2)+"</td>"
-      +"<td>"+emaTxt+"</td>"
-      +"<td>"+macdTxt+"</td>"
-      +"<td style='font-size:11px;color:var(--muted)'>"+(r.dayH?r.dayH.toFixed(1):"--")+" / "+(r.dayL?r.dayL.toFixed(1):"--")+"</td>"
-      +"<td style='font-size:11px;color:var(--muted)'>"+(r.weekH?r.weekH.toFixed(1):"--")+" / "+(r.weekL?r.weekL.toFixed(1):"--")+"</td>"
-      +"<td style='text-align:center'><b>"+r.techScore+"</b><span style='color:var(--muted)'>/6</span></td>"
-      +"<td><div class='checks'>"+boxes+"</div></td>"
-      +"<td>"+gf+"</td>"
-      +"<td>"+rf+"</td>"
-      +"<td><span class='"+ratCls+"'>"+r.rating+"</span></td>"
-      +"</tr>";
-  }).join("");
+    groupMap[r.symbol].push(r);
+  });
+
+  let html = "";
+  groupOrder.forEach((sym, gi) => {
+    const symRows = groupMap[sym];
+    const first = symRows[0];
+
+    // Summary values for the header
+    const hasGC    = symRows.some(r => r.goldenCross);
+    const hasDC    = symRows.some(r => r.deathCross);
+    const hasNew   = symRows.some(r => r.isNew && r.signal !== "NONE");
+    const bestScore= Math.max(...symRows.map(r => r.techScore));
+    const hasBuy   = symRows.some(r => r.signal === "BUY");
+    const hasSell  = symRows.some(r => r.signal === "SELL");
+    const cc       = first.chgPct >= 0 ? "up" : "dn";
+    const chg      = (first.chgPct >= 0 ? "+" : "") + first.chgPct.toFixed(2) + "%";
+    const ratCls   = bestScore >= 5 ? "rat-sb" : bestScore >= 3 ? "rat-wl" : "rat-sk";
+    const ratTxt   = bestScore >= 5 ? "STRONG BUY" : bestScore >= 3 ? "WATCHLIST" : "SKIP";
+    const gcBadge  = hasGC  ? "<span class='bgc'>🟣GC</span>" : "";
+    const newBadge = hasNew ? "<span class='bnew'>NEW</span>" : "";
+
+    // Small TF pills showing which timeframes this symbol appears in
+    const tfPills = symRows.map(r => "<span class='grp-tf-badge'>"+r.tf+"</span>").join("");
+
+    // Signal summary
+    const sigSummary = hasBuy && hasSell
+      ? "<span class='sb' style='font-size:10px'>BUY</span> <span style='color:var(--muted);font-size:10px'>&</span> <span class='ss' style='font-size:10px'>SELL</span>"
+      : hasBuy  ? "<span class='sb' style='font-size:10px'>BUY</span>"
+      : hasSell ? "<span class='ss' style='font-size:10px'>SELL</span>"
+      : "<span class='sn' style='font-size:10px'>NONE</span>";
+
+    // Header row
+    html += "<tr class='grp-hdr"+(hasGC?" gc-row":"")+"' id='grp-hdr-"+gi+"' onclick='toggleGrp("+gi+")'>"
+      + "<td colspan='12' style='padding:10px 14px;'>"
+      + "<span class='grp-arrow'>▶</span>"
+      + "<span class='sym' style='display:inline-block;margin-right:8px'>"+sym+gcBadge+newBadge+"</span>"
+      + "<span style='color:var(--muted);font-size:10px;margin-right:10px'>"+first.sector+"</span>"
+      + "<span class='"+cc+"' style='font-size:10px;margin-right:10px'>"+chg+"</span>"
+      + sigSummary
+      + "<span style='margin-left:10px'>"+tfPills+"</span>"
+      + "<span style='float:right;margin-right:8px'><span class='"+ratCls+"'>"+ratTxt+" ("+bestScore+"/6)</span></span>"
+      + "<span style='float:right;margin-right:16px;color:var(--text);font-size:12px;font-family:var(--mono)'>₹"+first.price.toFixed(2)+"</span>"
+      + "</td></tr>";
+
+    // Child rows (one per timeframe) — hidden by default
+    symRows.forEach(r => {
+      const sc2   = r.signal==="BUY"?"sb":r.signal==="SELL"?"ss":"sn";
+      const cc2   = r.chgPct>=0?"up":"dn";
+      const chg2  = (r.chgPct>=0?"+":"")+r.chgPct.toFixed(2)+"%";
+      const gapTxt= "<span class='ema-val "+cc2+"'>Gap: "+Math.abs(r.emaGap).toFixed(2)+"%</span>";
+      let statusTxt="";
+      if(r.goldenCross) statusTxt="<span class='ea lb sb' style='display:inline-block'>CROSS 21>50 UP</span>";
+      else if(r.deathCross) statusTxt="<span class='eb lb sk' style='display:inline-block'>CROSS 21<50 DOWN</span>";
+      else statusTxt=r.ema21above?"<span class='ea'>EMA 21 > 50</span>":"<span class='eb'>EMA 21 < 50</span>";
+      const emaTxt="<div class='ema-cell'>"+genSparkline(r.priceHist,r.ema21Hist,r.ema50Hist)+statusTxt+gapTxt+"</div>";
+      const macdVal=r.macdVal!==null?r.macdVal.toFixed(2):"—";
+      const macdTxt=r.macdAbove
+        ?"<span class='up'>▲ Bull <small style='opacity:0.6'>("+macdVal+")</small></span>"
+        :"<span class='dn'>▼ Bear <small style='opacity:0.6'>("+macdVal+")</small></span>";
+      const volTxt=r.volSpike?"<span class='spike'>⚡"+fmtV(r.volume)+"</span>":fmtV(r.volume);
+      const gcB2  =r.goldenCross?"<span class='bgc'>🟣GC</span>":"";
+      const newB2 =r.isNew&&r.signal!=="NONE"?"<span class='bnew'>NEW</span>":"";
+      const checkKeys=Object.keys(r.checks||{});
+      const boxes=checkKeys.map(k=>"<span class='ck "+(r.checks[k]?"on":"off")+"' title='"+k+"'></span>").join("");
+      const gf=r.techScore>0?"<span class='ea' style='font-size:10px;font-weight:bold'>⚑ "+r.techScore+"</span>":"—";
+      const rf=r.redCount>0?"<span class='rf'>⚑ "+r.redCount+"</span>":"—";
+      const ratCls2=r.rating==="STRONG BUY"?"rat-sb":r.rating==="WATCHLIST"?"rat-wl":"rat-sk";
+
+      html += "<tr class='grp-child grp-child-"+gi+(r.goldenCross?" gc-row":r.isNew?" new-row":"")+"'>"
+        +"<td><div class='sym' style='font-size:12px'>"+r.symbol
+        +" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcB2+newB2+"</div>"
+        +"<div class='sec'>"+r.sector+" · <span class='"+cc2+"'>"+chg2+"</span></div></td>"
+        +"<td>"+volTxt+"</td>"
+        +"<td>₹"+r.price.toFixed(2)+"</td>"
+        +"<td>"+emaTxt+"</td>"
+        +"<td>"+macdTxt+"</td>"
+        +"<td style='font-size:11px;color:var(--muted)'>"+(r.dayH?r.dayH.toFixed(1):"--")+" / "+(r.dayL?r.dayL.toFixed(1):"--")+"</td>"
+        +"<td style='font-size:11px;color:var(--muted)'>"+(r.weekH?r.weekH.toFixed(1):"--")+" / "+(r.weekL?r.weekL.toFixed(1):"--")+"</td>"
+        +"<td style='text-align:center'><b>"+r.techScore+"</b><span style='color:var(--muted)'>/6</span></td>"
+        +"<td><div class='checks'>"+boxes+"</div></td>"
+        +"<td>"+gf+"</td>"
+        +"<td>"+rf+"</td>"
+        +"<td><span class='"+ratCls2+"'>"+r.rating+"</span></td>"
+        +"</tr>";
+    });
+  });
+
+  tbody.innerHTML = html;
 }
 
 function fmtV(v){
@@ -992,10 +1093,10 @@ function fmtV(v){
 }
 
 setInterval(tick,1000);
-setInterval(pollStatus,5000); // Check status every 5s for faster refresh
-setInterval(load,60000); // Full data reload every 60s as backup
+setInterval(pollStatus,5000);
+setInterval(load,60000);
 tick();
-pollStatus(); // Initial status check
+pollStatus();
 checkAuth();
 </script>
 </body>

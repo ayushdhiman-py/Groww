@@ -96,13 +96,10 @@ async function ensureSession() {
 
 // ── Candle fetch (Groww API) ──────────────────────────────────────────────────
 const TF_MAP = {
-    "1m": 1, "5m": 5, "10m": 10, "15m": 15, "30m": 30,
-    "1h": 60, "1d": 1440
+    "1m": "1minute", "5m": "5minute", "10m": "10minute",
+    "15m": "15minute", "30m": "30minute", "1h": "1hour", "1d": "1day"
 };
-const TF_DAYS = {
-    "1m": 2, "5m": 10, "10m": 15, "15m": 20,
-    "30m": 30, "1h": 60, "1d": 365
-};
+const TF_DAYS = { "1m": 5, "5m": 10, "10m": 15, "15m": 20, "30m": 30, "1h": 60, "1d": 365 };
 
 function fmtGroww(d) {
     const ist = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -113,18 +110,12 @@ function fmtGroww(d) {
 // Rate limiter: Groww allows 10 req/sec for market data
 const rl = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-async function startScan() {
-    while (true) {
-        await scanAll();
-        await sleep(60000); // 1 minute interval
-    }
-}
 async function rateLimit() {
     while (true) {
         const now = Date.now();
         while (rl.length && now - rl[0] > 1000) rl.shift();
-        if (rl.length < 2) { rl.push(Date.now()); return; }
-        await sleep(500);
+        if (rl.length < 4) { rl.push(Date.now()); return; }
+        await sleep(250);
     }
 }
 
@@ -133,8 +124,8 @@ async function fetchCandles(symbol, tf) {
     const to = new Date(), from = new Date(to - TF_DAYS[tf] * 86400000);
     // Groww uses interval_in_minutes for both intraday and daily
     const intervalMap = {
-        "1m": 1, "5m": 5, "10m": 10, "15m": 15,
-        "30m": 30, "1h": 60, "1d": 1440
+        "1m": 1, "5m": 5, "10m": 10,
+        "15m": 15, "30m": 30, "1h": 60, "1d": 1440
     };
     const interval = intervalMap[tf];
     const params = {
@@ -193,7 +184,6 @@ function rsi(closes, period = 14) {
 
 // ── Universe ──────────────────────────────────────────────────────────────────
 const UNIVERSE = [
-    // --- Nifty 50 & Mainstream ---
     "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
     "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "BPCL",
     "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY",
@@ -205,34 +195,19 @@ const UNIVERSE = [
     "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TCS", "TATACONSUM",
     "TATAMOTORS", "TATASTEEL", "TECHM", "TITAN", "ULTRACEMCO", "WIPRO",
     "BANKBARODA", "PNB", "AUBANK", "FEDERALBNK", "CANBK",
-    "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA",
-    // --- Added from Watchlists ---
-    "BEL", "MOTHERSON", "GAIL", "IRFC", "MARKSANS", "SJVN", "IOC", "AMBUJACEM", "TVSMOTOR",
-    "UNIONBANK", "IDBI", "INDIANB", "IOB", "YESBANK", "CENTRALBK",
-    "MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "HAL",
-    "LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "HYUNDAI",
-    "MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "VEDL", "HINDZINC",
-    "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "PFC", "SAIL",
-    "NUVAMA", "TAALTECH", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "ASTERDM",
-    "DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND"
+    "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA"
 ];
 
 const SECTOR = {
-    ALWAYS_UP: ["BEL", "MOTHERSON", "EICHERMOT", "GAIL", "IRFC", "PNB", "MARKSANS", "ETERNAL", "SJVN", "IOC", "POWERGRID", "TATASTEEL", "AMBUJACEM", "ICICIBANK", "ONGC", "RELIANCE", "SBIN", "TVSMOTOR"],
-    BANK: ["AUBANK", "BANDHANBNK", "ICICIBANK", "HDFCBANK", "SBIN", "KOTAKBANK", "AXISBANK", "PNB", "BANKBARODA", "UNIONBANK", "IDBI", "CANBK", "INDIANB", "IOB", "INDUSINDBK", "YESBANK", "IDFCFIRSTB", "CENTRALBK", "FEDERALBNK", "BANKINDIA"],
-    DEFENCE: ["MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "BEL", "HAL"],
-    AUTO: ["LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "MOTHERSON", "TVSMOTOR", "EICHERMOT", "HYUNDAI", "BAJAJ-AUTO", "M&M", "MARUTI", "TATAMOTORS", "HEROMOTOCO", "INDIGO"],
-    METAL: ["MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "HINDALCO", "VEDL", "HINDZINC", "TATASTEEL", "JSWSTEEL", "SAIL"],
-    GOVT: ["IRFC", "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "AXISBANK", "CANBK", "PNB", "BANKINDIA", "CENTRALBK", "UNIONBANK", "BANKBARODA", "PFC", "SBIN", "NTPC", "ONGC", "SAIL"],
-    DIVIDEND: ["NUVAMA", "TAALTECH", "ICICIBANK", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "NTPC", "ONGC", "POWERGRID", "ITC", "CANBK", "GAIL", "HINDZINC", "COALINDIA", "VEDL", "ASTERDM"],
-    CLOSE_LOOK: ["DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "MRPL", "COALINDIA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND", "BPCL"],
     IT: ["INFY", "TCS", "HCLTECH", "TECHM", "WIPRO"],
-    PHARMA: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP", "ASTERDM", "MARKSANS"],
-    ENERGY: ["RELIANCE", "ONGC", "BPCL", "NTPC", "POWERGRID", "COALINDIA", "IOC", "GAIL", "PETRONET"],
-    FMCG: ["HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM", "RENUKA", "BALRAMCHIN"],
-    INFRA: ["LT", "GRASIM", "ULTRACEMCO", "ADANIPORTS", "ADANIENT", "AMBUJACEM"],
-    FINANCE: ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "SHRIRAMFIN", "M&MFIN", "LTF", "PFC", "RECLTD", "IRFC", "NUVAMA", "CDSL", "CAMS"],
-    DAILY: ["KOTAKBANK", "CIPLA"]
+    PHARMA: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP"],
+    BANK: ["HDFCBANK", "ICICIBANK", "AXISBANK", "SBIN", "KOTAKBANK", "INDUSINDBK", "BANDHANBNK", "IDFCFIRSTB", "AUBANK", "FEDERALBNK", "BANKBARODA", "PNB", "CANBK", "BANKINDIA"],
+    ENERGY: ["RELIANCE", "ONGC", "BPCL", "NTPC", "POWERGRID", "COALINDIA"],
+    AUTO: ["MARUTI", "TATAMOTORS", "BAJAJ-AUTO", "HEROMOTOCO", "EICHERMOT", "M&M"],
+    METAL: ["TATASTEEL", "JSWSTEEL", "HINDALCO"],
+    FMCG: ["HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM"],
+    INFRA: ["LT", "GRASIM", "ULTRACEMCO", "ADANIPORTS", "ADANIENT"],
+    FINANCE: ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "SHRIRAMFIN"],
 };
 const getSector = s => Object.keys(SECTOR).find(k => SECTOR[k].includes(s)) || "OTHER";
 
@@ -409,11 +384,9 @@ async function scanSymbol(symbol, buckets, errors) {
     for (const tf of Object.keys(TF_MAP)) {
         try {
             await rateLimit();
-            process.stdout.write(`Scanning ${symbol} (${tf})... `);
             const candles = await fetchCandles(symbol, tf);
             const row = buildSignal(candles, tf, symbol);
-            if (!row) { console.log(" (no data)"); continue; }
-            console.log(" ✓");
+            if (!row) continue;
 
             const key = `${symbol}|${tf}`;
             const prev = prevSigs.get(key);
@@ -447,25 +420,20 @@ async function scanAll() {
     console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
     const next = emptyState();
     try {
+        await pool(UNIVERSE, 2, sym => scanSymbol(sym, next.data, next.errors));
         const sortFn = (a, b) => {
             if (a.goldenCross !== b.goldenCross) return a.goldenCross ? -1 : 1;
             if (b.techScore !== a.techScore) return b.techScore - a.techScore;
             return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
         };
-
-        for (const sym of UNIVERSE) {
-            await scanSymbol(sym, next.data, next.errors);
-
-            // Incremental sort and update global state
-            for (const tf of Object.keys(TF_MAP)) {
-                next.data[`${tf}_BUY`].sort(sortFn);
-                next.data[`${tf}_GOLDEN`].sort(sortFn);
-                next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
-            }
-            next.lastUpdated = new Date().toISOString();
-            state = JSON.parse(JSON.stringify(next)); // Deep copy to prevent race conditions while UI reads
+        for (const tf of Object.keys(TF_MAP)) {
+            next.data[`${tf}_BUY`].sort(sortFn);
+            next.data[`${tf}_GOLDEN`].sort(sortFn);
+            next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
         }
-        console.log(`Scan done | Errors: ${state.errors.length}`);
+        next.lastUpdated = new Date().toISOString();
+        state = next;
+        console.log(`Scan done | Errors: ${next.errors.length}`);
     } finally { scanning = false; }
 }
 
@@ -553,7 +521,7 @@ code{background:#000;padding:2px 6px;border-radius:4px;font-family:var(--mono);c
 .lb{padding:2px 7px;border-radius:4px;font-weight:700;font-family:var(--mono);font-size:10px;}
 .lb.sb{background:rgba(34,197,94,.18);color:var(--green);}
 .lb.wl{background:rgba(245,158,11,.18);color:var(--yellow);}
-.lb.sk{background:rgba(239,68,68,.18);color:var(--red);}
+.lb.sk{background:rgba(239,68,68,.12);color:var(--red);}
 
 /* fund note */
 .fundnote{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.18);border-radius:10px;padding:10px 15px;color:var(--yellow);font-size:11px;margin-bottom:10px;line-height:1.7;}
@@ -795,9 +763,7 @@ async function load(){
     const res=await fetch("/api/state");
     if(res.status===401){checkAuth();return;}
     const next=await res.json();
-    data=next; 
-    // Set nextAt 30s from now for the countdown timer
-    nextAt=Date.now()+30000;
+    data=next; nextAt=Date.now()+30000;
     const tf=document.getElementById("tf")?.value||"ALL";
     let all=[], buys=[], sells=[], golden=[];
     if (tf === "ALL") {
@@ -830,38 +796,8 @@ async function load(){
     document.getElementById("scanning").style.display="none";
     render();
   }catch(e){
-    console.error("Load error:", e);
-    const sn=document.getElementById("scanning");
-    if(sn) sn.style.display="block";
-  }
-}
-
-let lastScanState = false;
-async function pollStatus(){
-  try {
-    const s = await fetch("/api/status").then(r=>r.json());
-    const sn = document.getElementById("scanning");
-    if(sn) sn.style.display = s.scanning ? "block" : "none";
-    
-    // Refresh UI during scan if it's currently scanning
-    if (s.scanning) {
-        load();
-    }
-    
-    // If scanning just finished, trigger a full final load
-    if (lastScanState === true && s.scanning === false) {
-      console.log("Scan finished, reloading data...");
-      load();
-    }
-    lastScanState = s.scanning;
-    
-    // Update market status indicator
-    const li=document.getElementById("liveInd"), mt=document.getElementById("mktTxt");
-    const o=isOpen();
-    if(li)li.className=o?"live":"live dead";
-    if(mt)mt.textContent=o?"Market Open":"Market Closed";
-  } catch(e) {
-    console.error("Status poll error:", e);
+    console.error(e);
+    document.getElementById("scanning").style.display="block";
   }
 }
 
@@ -909,27 +845,15 @@ function render(){
 
   const tfOrder = {"1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7};
   rows.sort((a,b)=>{
-    if (tf === "ALL") {
-        // Primary sort: Symbol
-        if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
-        // Secondary sort: Timeframe
-        return tfOrder[a.tf] - tfOrder[b.tf];
-    }
+    if (tf === "ALL" && a.tf !== b.tf) return tfOrder[a.tf] - tfOrder[b.tf];
     if(sortBy==="symbol") return sortAsc?a.symbol.localeCompare(b.symbol):b.symbol.localeCompare(a.symbol);
     if(sortBy==="goldenCross"){if(a.goldenCross!==b.goldenCross)return a.goldenCross?-1:1;return b.techScore-a.techScore;}
     const va=+a[sortBy]||0, vb=+b[sortBy]||0;
     return sortAsc?va-vb:vb-va;
   });
 
-  const uniqueStocksInRows = new Set(rows.map(r => r.symbol)).size;
-  const totalStocks = data.universe || 0;
-  
-  if (tf === "ALL") {
-    document.getElementById("rowCount").textContent = "Stocks: " + uniqueStocksInRows + " of " + totalStocks + " (" + rows.length + " signals)";
-  } else {
-    document.getElementById("rowCount").textContent = "Stocks: " + rows.length + " of " + totalStocks;
-  }
-  
+  const totalCount = tf === "ALL" ? data.universe * 7 : (data.data[tf+"_"+activeSet]||[]).length;
+  document.getElementById("rowCount").textContent="Showing "+rows.length+" of "+totalCount;
   const tbody=document.getElementById("tbody");
   const empty=document.getElementById("empty");
   if(!rows.length){tbody.innerHTML="";empty.style.display="block";return;}
@@ -992,10 +916,8 @@ function fmtV(v){
 }
 
 setInterval(tick,1000);
-setInterval(pollStatus,5000); // Check status every 5s for faster refresh
-setInterval(load,60000); // Full data reload every 60s as backup
+setInterval(load,30000);
 tick();
-pollStatus(); // Initial status check
 checkAuth();
 </script>
 </body>
