@@ -1,4 +1,4 @@
-# ⚡ Alpha Scanner — EMA 20/50 + Multi-Signal Scoring
+# ⚡ Ayush's Personal Scanner — EMA 21/50 + Multi-Signal Scoring
 
 Nifty 50 + Bank Nifty scanner built on **SmartAPI (Angel One)**.  
 Primary signal: **EMA 20 crossing above EMA 50 (Golden Cross)** across all timeframes.  

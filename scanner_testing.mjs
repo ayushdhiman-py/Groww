@@ -1,5 +1,5 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Alpha Scanner — Groww Trading API
+// Ayush's Personal Scanner — Groww Trading API
 // EMA 20/50 Golden Cross + MACD + Volume + RSI
 // Run: node scanner_testing.mjs
 // Open: http://localhost:4001
@@ -598,7 +598,7 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 <div class="wrap">
 
 <div class="top">
-  <div class="brand"><div class="dot"></div>Alpha <span>Scanner</span></div>
+  <div class="brand"><div class="dot"></div>Ayush's Personal <span>Scanner</span></div>
   <div class="top-r">
     <div class="groww-badge">GROWW API</div>
     <div class="pill"><div class="live" id="liveInd"></div><span id="mktTxt">--</span></div>
@@ -925,7 +925,7 @@ checkAuth();
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
-    console.log(`\n⚡ Alpha Scanner (Groww API) → http://localhost:${PORT}`);
+    console.log(`\n⚡ Ayush's Personal Scanner (Groww API) → http://localhost:${PORT}`);
     if (loadSession()) {
         isAuthenticated = true;
         console.log("Existing Groww session found. Starting scan...\n");
