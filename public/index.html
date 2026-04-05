@@ -92,8 +92,7 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 
 .sym{font-weight:700;font-family:var(--mono);font-size:13px;}
 .sec{font-size:9px;color:var(--muted);}
-.bgc{display:inline-block;background:rgba(167,139,250,.18);border:1px solid rgba(167,139,250,.35);color:var(--purple);padding:1px 5px;border-radius:3px;font-size:8px;font-family:var(--mono);margin-left:4px;vertical-align:middle;}
-.bnew{display:inline-block;background:rgba(0,212,170,.13);border:1px solid rgba(0,212,170,.32);color:var(--accent);padding:1px 5px;border-radius:3px;font-size:8px;font-family:var(--mono);margin-left:3px;vertical-align:middle;}
+.bgc{display:inline-block;background:rgba(167,139,250,0.18);border:1px solid rgba(167,139,250,0.35);color:var(--purple);padding:1px 5px;border-radius:3px;font-size:8px;font-family:var(--mono);margin-left:4px;vertical-align:middle;}
 .sb{color:var(--green);font-weight:700;}.ss{color:var(--red);font-weight:700;}.sn{color:var(--muted);}
 .up{color:var(--green);}.dn{color:var(--red);}
 .ea{color:var(--green);font-size:10px;}.eb{color:var(--red);font-size:10px;}
@@ -208,7 +207,7 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 <div class="tabs">
   <div class="tab tg" data-set="GOLDEN">🟣 Golden Cross</div>
   <div class="tab active" data-set="ALL">All Stocks</div>
-  <div class="tab" data-set="FO">📈 Top F&O (5m Buzz)</div>
+  <div class="tab" data-set="FO">📈 Top F&O (Buzz)</div>
   <div class="tab tb" data-set="BUY">▲ BUY</div>
   <div class="tab ts" data-set="SELL">▼ SELL</div>
   <div class="tab" data-set="SECTORS">📊 Sectors</div>
@@ -251,8 +250,7 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 if("Notification" in window) Notification.requestPermission().catch(()=>{});
 function notify(t,b){try{if(Notification.permission==="granted") new Notification(t,{body:b});}catch(_){}}
 
-let activeSet="ALL", data=null, sortCol="sector", sortAsc=true, nextAt=null;
-let foNextAt=null, foCountdownSec=300;
+let activeSet="GOLDEN", data=null, sortCol="techScore", sortAsc=false, nextAt=null, activeSymbol=null, foCountdownSec=300;
 const seen=new Set();
 
 async function checkAuth(){
@@ -267,19 +265,35 @@ function hide(id){document.getElementById(id).style.display="none";}
 
 async function doLogin(){
   const btn=document.querySelector(".lbtn");
-  if(btn){btn.textContent="Logging in...";btn.disabled=true;}
+  if(btn){btn.textContent="Initiating Login...";btn.disabled=true;}
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     const d=await r.json();
-    if(d.ok){setTimeout(()=>window.location.reload(),1500);}
-    else{alert("Login failed: "+d.error);}
-  }catch(e){alert("Login error: "+e.message);}
-  finally{if(btn){btn.textContent="🔐 Login with Groww API";btn.disabled=false;}}
+    if(d.ok){
+      if(btn) btn.textContent="Login Successful! Redirecting...";
+      setTimeout(()=>window.location.reload(),1500);
+    } else {
+      if(d.error && d.error.toLowerCase().includes("timed out")) {
+        alert("Login Timed Out: Please make sure to approve the request in your Groww app quickly.");
+      } else {
+        alert("Login failed: "+d.error);
+      }
+    }
+  }catch(e){
+    alert("Login error: "+e.message);
+  } finally {
+    if(btn){btn.textContent="🔐 Login with Groww API";btn.disabled=false;}
+  }
 }
 
 document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
-  t.classList.add("active");activeSet=t.dataset.set;render();
+  t.classList.add("active");
+  activeSet=t.dataset.set;
+  if(activeSet==="SECTORS" && !["name","avgChg","stocks","topGainer","topLoser"].includes(sortCol)) {
+    sortCol="name"; sortAsc=true;
+  }
+  render();
 }));
 ["search","tf","sigF","sortBy"].forEach(id=>{
   const el=document.getElementById(id);
@@ -357,7 +371,6 @@ async function load(){
     if(g("lastScan"))g("lastScan").textContent="Last: "+(next.lastUpdated?new Date(next.lastUpdated).toLocaleString("en-IN",{timeZone:"Asia/Kolkata"}):"--");
     const eb=g("errBar");
     if(eb){eb.style.display=next.errors?.length?"block":"none";if(next.errors?.length)eb.textContent="Errors ("+next.errors.length+"): "+next.errors.slice(0,4).join(" | ");}
-    golden.forEach(r=>{if(r.isNew){const k=r.symbol+"|"+r.tf;if(!seen.has(k)){seen.add(k);notify("🟣 Golden Cross — "+r.symbol+" ("+r.tf+")","EMA 21 > EMA 50 | Score: "+r.techScore+"/6 | "+r.rating);}}});
     document.getElementById("scanning").style.display="none";
     render();
   }catch(e){
@@ -430,9 +443,36 @@ function renderSectors() {
         return s;
     });
     if (q) list = list.filter(s => s.name.toUpperCase().includes(q));
-    list.sort((a,b) => b.avgChg - a.avgChg); // highest to lowest
     
-    document.querySelector("thead").innerHTML = "<tr><th style='text-align:left; width:20%'>Sector</th><th style='width:20%'>Average Change</th><th style='width:20%'>Stocks</th><th style='width:20%'>Top Gainer</th><th style='width:20%'>Bottom Loser</th></tr>";
+    // Sort logic
+    const sortBy = sortCol === "sector" ? "name" : sortCol;
+    list.sort((a, b) => {
+        let res = 0;
+        if (sortBy === "name") res = a.name.localeCompare(b.name);
+        else if (sortBy === "topGainer") res = a.topGainer.chgPct - b.topGainer.chgPct;
+        else if (sortBy === "topLoser") res = a.topLoser.chgPct - b.topLoser.chgPct;
+        else {
+            const va = a[sortBy] || 0, vb = b[sortBy] || 0;
+            res = va - vb;
+        }
+        return sortAsc ? res : -res;
+    });
+    
+    document.querySelector("thead").innerHTML = `<tr>
+        <th onclick="setSort('name')" style="text-align:left; width:20%">Sector</th>
+        <th onclick="setSort('avgChg')" style="width:20%">Average Change</th>
+        <th onclick="setSort('stocks')" style="width:20%">Stocks</th>
+        <th onclick="setSort('topGainer')" style="width:20%">Top Gainer</th>
+        <th onclick="setSort('topLoser')" style="width:20%">Bottom Loser</th>
+    </tr>`;
+    
+    document.querySelectorAll("thead th").forEach(th => {
+        let text = th.innerText.replace(/ ▲| ▼/g, "");
+        if(th.getAttribute("onclick") === `setSort('${sortBy}')`) {
+            text += sortAsc ? " ▲" : " ▼";
+        }
+        th.innerText = text;
+    });
     
     const tbody=document.getElementById("tbody");
     const empty=document.getElementById("empty");
@@ -496,16 +536,9 @@ function render(){
           rawRows = data.data[tf+"_ALL"] || [];
       }
 
-      // Dynamically pick top 30 by volume — no hardcoded list
-      const sorted = rawRows.slice().sort((a, b) => b.volume - a.volume);
+      // Dynamically pick top 30 by Volume Change (Buzz) instead of total volume
+      const sorted = rawRows.slice().sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange));
       rows = sorted.slice(0, 30);
-
-      // Enrich with 5m buzz (volume change on the 5m candle) for the buzz ranking
-      const fiveMinRows = data.data["5m_ALL"] || [];
-      const fiveMinMap = {};
-      fiveMinRows.forEach(r => fiveMinMap[r.symbol] = r.volumeChange);
-      rows.forEach(r => { r.fiveMinBuzz = fiveMinMap[r.symbol] || 0; });
-
   } else if (tf === "ALL") {
       const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
       allTfs.forEach(t => {
@@ -522,7 +555,7 @@ function render(){
   rows.sort((a,b)=>{
     let res = 0;
     if (activeSet === "FO" && sortBy === "sector") {
-        res = b.fiveMinBuzz - a.fiveMinBuzz;
+        res = b.volumeChange - a.volumeChange;
     } else if(sortBy==="symbol") {
       res = a.symbol.localeCompare(b.symbol);
     } else if (sortBy==="rating") {
@@ -593,10 +626,10 @@ function render(){
     const macdTxt = r.macdAbove 
       ? "<span class='up'>▲ Bull <small style='opacity:0.6'>(" + macdVal + ")</small></span>" 
       : "<span class='dn'>▼ Bear <small style='opacity:0.6'>(" + macdVal + ")</small></span>";
-    const volIncTxt = r.fiveMinBuzz > 0 ? "<div style='color:var(--green);font-size:10px;font-family:var(--sans)'>+"+fmtV(r.fiveMinBuzz)+" 🡡 (5m buzz)</div>" : "<div style='color:var(--red);font-size:10px;font-family:var(--sans)'>"+fmtV(r.fiveMinBuzz)+" 🡣 (5m buzz)</div>";
-    const volTxt=(r.volSpike?"<span class='spike'>⚡"+fmtV(r.volume)+"</span>":fmtV(r.volume)) + (activeSet==="FO" ? volIncTxt : "");
+    const buzz = r.volumeChange || 0;
+    const volIncTxt = buzz > 0 ? "<div style='color:var(--green);font-size:10px;font-family:var(--sans)'>+"+fmtV(buzz)+" 🡡 ("+r.tf+" buzz)</div>" : "<div style='color:var(--red);font-size:10px;font-family:var(--sans)'>"+fmtV(buzz)+" 🡣 ("+r.tf+" buzz)</div>";
+    const volTxt=(r.volSpike?"<span class='spike'>⚡"+fmtV(r.volume)+"</span>":fmtV(r.volume)) + volIncTxt;
     const gcBadge=r.goldenCross?"<span class='bgc'>🟣GC</span>":"";
-    const newBadge=r.isNew&&r.signal!=="NONE"?"<span class='bnew'>NEW</span>":"";
     const rsiTxt=r.rsi!==null?r.rsi:"—";
     const rsiCls=r.rsi>75?"r":r.rsi<35?"y":"";
     const checkKeys=Object.keys(r.checks||{});
@@ -610,8 +643,8 @@ function render(){
       "<span style='color:var(--muted);'> / </span>" +
       "<span class='rf'>\u2691" + r.redCount + "</span>" +
       "</span>";
-    return "<tr class='"+(r.goldenCross?"gc-row":r.isNew?"new-row":"")+"'>"
-      +"<td><div class='sym'>"+r.symbol+" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcBadge+newBadge+"</div><div class='sec'>"+r.sector+" · <span class='"+cc+"'>"+chg+"</span></div></td>"
+    return "<tr class='"+(r.goldenCross?"gc-row":"")+"'>"
+      +"<td><div class='sym'>"+r.symbol+" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcBadge+"</div><div class='sec'>"+r.sector+" · <span class='"+cc+"'>"+chg+"</span></div></td>"
       +"<td>"+volTxt+"</td>"
       +"<td style='font-family:var(--mono);font-size:11px;'>₹"+r.price.toFixed(2)+"</td>"
       +"<td>"+chartTxt+"</td>"

@@ -24,32 +24,58 @@ export function saveSession(accessToken) {
     fs.writeFileSync(TOKEN_FILE, JSON.stringify(session));
 }
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
 export async function login() {
     const timestamp = Math.floor(Date.now() / 1000).toString();
     const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
     console.log("Logging in to Groww API...");
     console.log("Timestamp:", timestamp, "| Checksum:", checksum.substring(0, 12) + "...");
-    try {
-        const res = await axios.post(TOKEN_URL, {
-            key_type: "approval",
-            checksum,
-            timestamp,
-        }, {
-            headers: {
-                "Authorization": `Bearer ${CREDS.apiKey}`,
-                "Content-Type": "application/json",
-                "X-API-VERSION": "1.0",
-            },
-            timeout: 15000,
-        });
-        console.log("Groww auth response:", JSON.stringify(res.data).substring(0, 200));
-        const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
-        if (!token) throw new Error("No token in response: " + JSON.stringify(res.data));
-        saveSession(token);
-        console.log("Groww login successful ✓");
-    } catch (e) {
-        console.error("Groww login error:", e.response?.status, e.response?.data || e.message);
-        throw new Error(e.response?.data?.message || e.response?.data?.error || e.message);
+
+    let attempts = 0, maxAttempts = 12; // 60 seconds total
+
+    while (attempts < maxAttempts) {
+        try {
+            const res = await axios.post(TOKEN_URL, {
+                key_type: "approval",
+                checksum,
+                timestamp,
+            }, {
+                headers: {
+                    "Authorization": `Bearer ${CREDS.apiKey}`,
+                    "Content-Type": "application/json",
+                    "X-API-VERSION": "1.0",
+                },
+                timeout: 15000,
+            });
+            console.log("Groww auth response:", JSON.stringify(res.data).substring(0, 200));
+            
+            const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
+            if (token) {
+                saveSession(token);
+                console.log("Groww login successful ✓");
+                return;
+            }
+            
+            throw new Error("No token in response: " + JSON.stringify(res.data));
+        } catch (e) {
+            const isApprovalPending = e.response?.status === 403 && 
+                                      (JSON.stringify(e.response?.data).toLowerCase().includes("approval required") || 
+                                       JSON.stringify(e.response?.data).toLowerCase().includes("pending"));
+            
+            if (isApprovalPending) {
+                attempts++;
+                console.warn(`[Attempt ${attempts}] Login approval pending... Please approve in your Groww mobile app.`);
+                if (attempts < maxAttempts) {
+                    await sleep(5000);
+                    continue;
+                }
+                throw new Error("Login timed out: Session approval not received within 60 seconds.");
+            }
+            
+            console.error("Groww login error:", e.response?.status, e.response?.data || e.message);
+            throw new Error(e.response?.data?.message || e.response?.data?.error || e.message);
+        }
     }
 }
 
