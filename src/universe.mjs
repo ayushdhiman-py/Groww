@@ -1,4 +1,7 @@
 export const UNIVERSE = [
+    // ── Indices ────────────────────────────────────────────────────────────────
+    "NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY",
+
     // ── Nifty 50 Core ──────────────────────────────────────────────────────────
     "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
     "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "BPCL",
@@ -113,6 +116,10 @@ for (let i = UNIVERSE.length - 1; i >= 0; i--) {
 }
 
 export const SECTOR = {
+    INDEX: [
+        "NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY"
+    ],
+
     BANKING: [
         "AUBANK", "BANDHANBNK", "ICICIBANK", "HDFCBANK", "SBIN",
         "KOTAKBANK", "AXISBANK", "PNB", "BANKBARODA", "UNIONBANK",

@@ -1,7 +1,8 @@
-import { fetchCandles } from "./groww.mjs";
-import { ema, macd, rsi } from "./indicators.mjs";
+import { fetchCandles, fetchBulkLtp } from "./groww.mjs";
+import { ema, macd, rsi, vwap } from "./indicators.mjs";
 import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
+import { optionsCache } from "./options_feed.mjs";
 
 const rl = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -10,6 +11,7 @@ export let state = emptyState();
 const prevSigs = new Map();
 export let scanning = false;
 export let isAuthenticated = false;
+export let scanProgress = { done: 0, total: UNIVERSE.length };
 
 export function setIsAuthenticated(val) {
     isAuthenticated = val;
@@ -40,7 +42,7 @@ async function rateLimit() {
     }
 }
 
-function buildSignal(candles, tf, symbol) {
+function buildSignal(candles, tf, symbol, ltp = null) {
     const cls = candles.map(c => c.close).filter(Number.isFinite);
     const vol = candles.map(c => c.volume).filter(Number.isFinite);
     if (cls.length < 55 || vol.length < 15) return null;
@@ -48,6 +50,7 @@ function buildSignal(candles, tf, symbol) {
     const e21 = ema(cls, 21), e50 = ema(cls, 50);
     const { macd: ml, signal: sl } = macd(cls, 12, 26, 9);
     const rsiVal = rsi(cls);
+    const vwapVal = vwap(candles);
     const n = cls.length;
 
     const c21 = e21[n - 1], p21 = e21[n - 2];
@@ -69,13 +72,14 @@ function buildSignal(candles, tf, symbol) {
     const volSpike = lastVol > avgVol * 1.5;
 
     const last = candles[candles.length - 1];
-    const chgPct = ((last.close - last.open) / last.open) * 100;
+    const livePrice = ltp || last.close;
+    const chgPct = ((livePrice - last.open) / last.open) * 100;
     const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
 
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
     const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
-    const weekThresh = lastTs - (7 * 86400000);
+    const weekThresh = lastTs - ((tf === "1d" ? 365 : 7) * 86400000);
     let dayH = -Infinity, dayL = Infinity;
     let weekH = -Infinity, weekL = Infinity;
     for (let i = n - 1; i >= 0; i--) {
@@ -97,6 +101,8 @@ function buildSignal(candles, tf, symbol) {
     const ema21Hist = e21.slice(-histLen);
     const ema50Hist = e50.slice(-histLen);
 
+    const aboveVwap = vwapVal !== null && livePrice > vwapVal;
+
     const checks = {
         "Golden Cross (EMA 21>50)": goldenCross,
         "EMA 21 above 50": ema21above,
@@ -104,6 +110,7 @@ function buildSignal(candles, tf, symbol) {
         "MACD above signal": macdAbove,
         "Vol spike + price up": volSpike && chgPct > 0,
         "RSI healthy (45-75)": rsiVal !== null && rsiVal >= 45 && rsiVal <= 75,
+        "Price > VWAP": aboveVwap,
     };
 
     const redFlags = {
@@ -128,7 +135,7 @@ function buildSignal(candles, tf, symbol) {
     return {
         symbol, sector: getSector(symbol), tf, signal,
         goldenCross, deathCross,
-        price: +last.close.toFixed(2), open: +last.open.toFixed(2),
+        price: +livePrice.toFixed(2), open: +last.open.toFixed(2),
         high: +last.high.toFixed(2), low: +last.low.toFixed(2),
         dayH, dayL, weekH, weekL,
         chgPct: +chgPct.toFixed(2),
@@ -139,24 +146,40 @@ function buildSignal(candles, tf, symbol) {
         ema21Hist, ema50Hist, priceHist,
         macdBull, macdBear, macdAbove,
         macdVal: cM !== null ? +cM.toFixed(4) : null,
+        vwap: vwapVal, aboveVwap,
         rsi: rsiVal,
         checks, redFlags,
         techScore, redCount,
         rating,
         ts: last.ts,
         isNew: false, isNewGolden: false,
+        options: optionsCache.get(symbol) || null,
     };
 }
 
-async function scanSymbol(symbol, buckets, errors) {
-    for (const tf of Object.keys(TF_MAP)) {
+const w52Cache = new Map();
+
+async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
+    // Process 1d first to cache the 52-week high/low
+    const tfs = Object.keys(TF_MAP).sort((a, b) => a === "1d" ? -1 : (b === "1d" ? 1 : 0));
+    let okCount = 0;
+    for (const tf of tfs) {
         try {
             await rateLimit();
-            process.stdout.write(`Scanning ${symbol} (${tf})... `);
+            process.stdout.write(`\r\x1b[K⏳ ${progressInfo} ${symbol}: [${okCount}/${tfs.length}] Scanning ${tf}...`);
             const candles = await fetchCandles(symbol, tf);
-            const row = buildSignal(candles, tf, symbol);
-            if (!row) { console.log(" (no data)"); continue; }
-            console.log(" ✓");
+            const row = buildSignal(candles, tf, symbol, ltp);
+            if (!row) continue;
+
+            if (tf === "1d") {
+                w52Cache.set(symbol, { weekH: row.weekH, weekL: row.weekL });
+            } else {
+                const cached = w52Cache.get(symbol);
+                if (cached) {
+                    row.w52H = cached.weekH;
+                    row.w52L = cached.weekL;
+                }
+            }
 
             const key = `${symbol}|${tf}`;
             const prev = prevSigs.get(key);
@@ -168,13 +191,12 @@ async function scanSymbol(symbol, buckets, errors) {
             if (row.signal === "BUY") buckets[`${tf}_BUY`].push(row);
             if (row.signal === "SELL") buckets[`${tf}_SELL`].push(row);
             if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
+            okCount++;
         } catch (e) {
-            if (errors.length === 0) {
-                console.error(`First error — ${symbol}/${tf}:`, e.response?.status, JSON.stringify(e.response?.data || e.message).substring(0, 300));
-                console.error("Request URL:", e.config?.url);
-                console.error("Request params:", JSON.stringify(e.config?.params));
-            }
-            errors.push(`${symbol}/${tf}: ${e.response?.data?.message || e.response?.data?.error || e.message}`);
+            const errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
+            errors.push(`${symbol}/${tf}: ${errMsg}`);
+            // Force a new line for actual errors so they don't get overwritten
+            process.stdout.write(`\n\x1b[31m❌ Error: ${symbol}/${tf} → ${errMsg}\x1b[0m\n`);
         }
     }
 }
@@ -182,8 +204,18 @@ async function scanSymbol(symbol, buckets, errors) {
 export async function scanAll() {
     if (!isAuthenticated || scanning) return;
     scanning = true;
+    scanProgress = { done: 0, total: UNIVERSE.length };
     console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
     const next = emptyState();
+    
+    let ltpMap = {};
+    try {
+        ltpMap = await fetchBulkLtp(UNIVERSE);
+        console.log(`Fetched LTP for ${Object.keys(ltpMap).length} symbols.`);
+    } catch(e) {
+        console.error("Failed to fetch bulk LTP. Falling back to candle close.", e.message);
+    }
+
     try {
         const sortFn = (a, b) => {
             if (a.goldenCross !== b.goldenCross) return a.goldenCross ? -1 : 1;
@@ -192,8 +224,15 @@ export async function scanAll() {
         };
 
         for (const sym of UNIVERSE) {
-            await scanSymbol(sym, next.data, next.errors);
-
+            const pInfo = `[${scanProgress.done + 1}/${UNIVERSE.length}]`;
+            try {
+                await scanSymbol(sym, next.data, next.errors, pInfo, ltpMap[sym]);
+            } catch (e) {
+                console.error(`\n❌ Critical error scanning ${sym}:`, e.message);
+            }
+            scanProgress.done++;
+            
+            // Periodically sync progress to global state (so UI updates)
             for (const tf of Object.keys(TF_MAP)) {
                 next.data[`${tf}_BUY`].sort(sortFn);
                 next.data[`${tf}_GOLDEN`].sort(sortFn);
@@ -202,14 +241,18 @@ export async function scanAll() {
             next.lastUpdated = new Date().toISOString();
             state = JSON.parse(JSON.stringify(next));
         }
-        console.log(`Scan done | Errors: ${state.errors.length}`);
+        process.stdout.write(`\r\x1b[K✅ Scan complete | Time: ${new Date().toLocaleTimeString()} | Total Errors: ${state.errors.length}\n`);
     } finally { scanning = false; }
 }
 
 export async function startScan() {
     while (true) {
-        if (isMarketOpen() || state.lastUpdated === null) {
-            await scanAll();
+        try {
+            if (isMarketOpen() || state.lastUpdated === null) {
+                await scanAll();
+            }
+        } catch (e) {
+            console.error("Critical error in startScan background loop:", e.message);
         }
         await sleep(60000);
     }
