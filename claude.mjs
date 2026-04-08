@@ -482,6 +482,50 @@ app.post("/api/login", async (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
+// ── Indices LTP endpoint ──────────────────────────────────────────────────────
+const INDEX_SYMBOLS = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "SENSEX", "NIFTY MID SELECT"];
+const INDEX_LABELS  = ["NIFTY",   "BANKNIFTY", "FINNIFTY",          "SENSEX", "MIDCPNIFTY"];
+let   indexCache    = { ts: 0, data: [] };
+
+app.get("/api/indices", async (_, res) => {
+    try {
+        if (!isAuthenticated) return res.json([]);
+        // Return cached copy if fresher than 3s
+        if (Date.now() - indexCache.ts < 3000) return res.json(indexCache.data);
+
+        await ensureSession();
+        // Groww uses exchange_symbols like NSE_NIFTY 50, BSE_SENSEX for indices
+        const exchangeSymbols = INDEX_LABELS.map(sym =>
+            sym === "SENSEX" ? "BSE_SENSEX" : `NSE_${sym}`
+        ).join(",");
+
+        const url = `https://api.groww.in/v1/live-data/ltp`;
+        const headers = {
+            "Authorization": `Bearer ${session.accessToken}`,
+            "X-API-VERSION": "1.0",
+            "Accept": "application/json",
+        };
+        const r = await axios.get(url, {
+            params: { segment: "CASH", exchange_symbols: exchangeSymbols },
+            headers, timeout: 10000,
+        });
+        const payload = r.data?.payload || {};
+
+        // Build result array with label names
+        const result = INDEX_LABELS.map((label, i) => {
+            const key = label === "SENSEX" ? "BSE_SENSEX" : `NSE_${label}`;
+            const ltp = payload[key] || payload[label] || null;
+            return { symbol: label, ltp };
+        });
+
+        indexCache = { ts: Date.now(), data: result };
+        res.json(result);
+    } catch (e) {
+        console.error("[Indices] fetch error:", e.message);
+        res.json(indexCache.data.length ? indexCache.data : []);
+    }
+});
+
 // ── UI ────────────────────────────────────────────────────────────────────────
 app.get("/", (_, res) => res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -676,6 +720,9 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
   <div class="sc"><div class="scl">Errors</div><div class="scv r" id="sE">--</div></div>
   <div class="sc"><div class="scl">Last Scan</div><div class="scv sm" id="sT">--</div></div>
 </div>
+
+<!-- Index cards row -->
+<div class="stats" id="indexCardsContainer" style="margin-top:-4px;margin-bottom:12px;min-height:0;"></div>
 
 <div class="legend">
   <b style="color:var(--muted);font-size:10px">RATING:</b>
@@ -1092,12 +1139,52 @@ function fmtV(v){
   return String(v);
 }
 
+// ── Indices bar ──────────────────────────────────────────────────────────────
+let prevIndexLtp = {};
+async function fetchIndices(){
+  try{
+    const rows = await fetch("/api/indices").then(r=>r.json());
+    const ctr = document.getElementById("indexCardsContainer");
+    if(!ctr||!rows||!rows.length) return;
+    let html = "";
+    rows.forEach(idx=>{
+      const ltp = idx.ltp;
+      if(!ltp){
+        html += "<div class='sc' style='opacity:0.4'>"
+          +"<div class='scl'>"+idx.symbol+"</div>"
+          +"<div class='scv sm'>—</div></div>";
+        return;
+      }
+      // Compute % change using prev stored ltp as reference (or first fetch = show ltp only)
+      const prev = prevIndexLtp[idx.symbol];
+      const chgPct = prev ? ((ltp - prev) / prev * 100) : null;
+      prevIndexLtp[idx.symbol] = prevIndexLtp[idx.symbol] || ltp;
+      const isUp = chgPct === null ? null : chgPct >= 0;
+      const cl   = isUp === null ? "a" : (isUp ? "g" : "r");
+      const sgn  = isUp ? "+" : "";
+      const arr  = isUp ? "^" : "v";
+      const rgba = isUp ? "34,197,94" : "239,68,68";
+      const pctHtml = chgPct !== null
+        ? "<span style='font-size:11px;background:rgba("+rgba+",0.15);padding:2px 6px;border-radius:4px;margin-left:6px'>"+arr+" "+sgn+chgPct.toFixed(2)+"%</span>"
+        : "";
+      html += "<div class='sc'>"
+        +"<div class='scl'>"+idx.symbol+"</div>"
+        +"<div class='scv "+cl+"' style='font-size:14px;display:flex;align-items:center;'>"
+        +"Rs "+ltp.toLocaleString("en-IN",{minimumFractionDigits:2})
+        +pctHtml
+        +"</div></div>";
+    });
+    ctr.innerHTML = html;
+  }catch(e){ console.error("indices fetch error:",e); }
+}
+
 setInterval(tick,1000);
 setInterval(pollStatus,5000);
 setInterval(load,60000);
+setInterval(fetchIndices,5000);
 tick();
 pollStatus();
-checkAuth();
+checkAuth().then(()=>fetchIndices());
 </script>
 </body>
 </html>`));

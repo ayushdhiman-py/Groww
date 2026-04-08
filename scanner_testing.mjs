@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import { __dirname } from "./src/config.mjs";
-import { loadSession, login, fetchOptionChain } from "./src/groww.mjs";
+import { loadSession, login, fetchOptionChain, fetchBulkLtp } from "./src/groww.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed } from "./src/options_feed.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
@@ -66,6 +66,38 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
 
     // Nothing available
     return res.status(404).json({ error: "no_data", message: "No option chain data available. Open the market hours to fetch live data." });
+});
+
+// ── Indices LTP endpoint ──────────────────────────────────────────────────────
+const INDEX_SYMBOLS = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "SENSEX", "NIFTY MID SELECT"];
+const INDEX_LABELS  = ["NIFTY",   "BANKNIFTY", "FINNIFTY",          "SENSEX", "MIDCPNIFTY"];
+let   indexCache    = { ts: 0, data: [] };
+
+app.get("/api/indices", async (_, res) => {
+    try {
+        if (!isAuthenticated) return res.json([]);
+        if (Date.now() - indexCache.ts < 3000) return res.json(indexCache.data);
+
+        // Fetch using the central bulk LTP utility
+        // Need to pass exactly what's requested. We use INDEX_SYMBOLS and map back.
+        // Wait, fetchBulkLtp uses Groww format (e.g. BSE_SENSEX, NSE_NIFTY 50)...
+        const rawSymbols = INDEX_LABELS.map(sym => 
+            sym === "SENSEX" ? "BSE_SENSEX" : `NSE_${sym}`
+        );
+        
+        const prices = await fetchBulkLtp(rawSymbols);
+        
+        const result = INDEX_LABELS.map(label => {
+            const ltp = prices[label === "SENSEX" ? "SENSEX" : label] || null;
+            return { symbol: label, ltp };
+        });
+
+        indexCache = { ts: Date.now(), data: result };
+        res.json(result);
+    } catch (e) {
+        console.error("[Indices] fetch error:", e.message);
+        res.json(indexCache.data.length ? indexCache.data : []);
+    }
 });
 
 // Theoretical option chain endpoint — uses Black-Scholes with scanner data

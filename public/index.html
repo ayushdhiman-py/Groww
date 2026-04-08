@@ -1214,6 +1214,57 @@
         min-width: 80px;
       }
     }
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.8);
+      backdrop-filter: blur(5px);
+      z-index: 10000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal-content {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      width: 90%;
+      max-width: 800px;
+      padding: 24px;
+      position: relative;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+      animation: modalIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalIn {
+      from { opacity: 0; transform: translateY(20px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 24px;
+      cursor: pointer;
+      line-height: 1;
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--text);
+    }
   </style>
 </head>
 
@@ -1295,6 +1346,8 @@
           <div class="scv sm" id="sT">--</div>
         </div>
       </div>
+      
+      <div class="stats" id="indexCardsContainer" style="margin-top: -6px; margin-bottom: 14px;"></div>
 
       <details class="guide-details">
         <summary class="guide-summary">
@@ -1557,6 +1610,10 @@
         if (g("lastScan")) g("lastScan").textContent = "Last: " + (next.lastUpdated ? new Date(next.lastUpdated).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "--");
         const eb = g("errBar");
         if (eb) { eb.style.display = next.errors?.length ? "block" : "none"; if (next.errors?.length) eb.textContent = "Errors (" + next.errors.length + "): " + next.errors.slice(0, 4).join(" | "); }
+        
+        // ── Index Cards (fetched from /api/indices) ─────────────────────
+        fetchIndices();
+
         // ── Update tab badges ──────────────────────────────────────────
         const allUniq = new Set(all.map(r => r.symbol)).size;
         const goldUniq = new Set(golden.map(r => r.symbol)).size;
@@ -2026,9 +2083,48 @@
       return String(v);
     }
 
+    // ── Indices bar ──────────────────────────────────────────────────────────────
+    let prevIndexLtp = {};
+    async function fetchIndices() {
+      try {
+        const rows = await fetch("/api/indices").then(r => r.json());
+        const ctr = document.getElementById("indexCardsContainer");
+        if (!ctr || !rows || !rows.length) return;
+        let html = "";
+        rows.forEach(idx => {
+          const ltp = idx.ltp;
+          if (!ltp) {
+            html += "<div class='sc' style='opacity:0.4'>"
+              + "<div class='scl'>" + idx.symbol + "</div>"
+              + "<div class='scv sm'>--</div></div>";
+            return;
+          }
+          const prev = prevIndexLtp[idx.symbol];
+          const chgPct = prev ? ((ltp - prev) / prev * 100) : null;
+          prevIndexLtp[idx.symbol] = prevIndexLtp[idx.symbol] || ltp;
+          const isUp = chgPct === null ? null : chgPct >= 0;
+          const cl = isUp === null ? "a" : (isUp ? "g" : "r");
+          const sgn = isUp ? "+" : "";
+          const arr = isUp ? "^" : "v";
+          const rgba = isUp ? "34,197,94" : "239,68,68";
+          const pctHtml = chgPct !== null
+            ? "<span style='font-size:11px;background:rgba(" + rgba + ",0.15);padding:2px 6px;border-radius:4px;margin-left:6px'>" + arr + " " + sgn + chgPct.toFixed(2) + "%</span>"
+            : "";
+          html += "<div class='sc'>"
+            + "<div class='scl'>" + idx.symbol + "</div>"
+            + "<div class='scv " + cl + "' style='font-size:14px;display:flex;align-items:center;'>"
+            + "Rs " + ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })
+            + pctHtml
+            + "</div></div>";
+        });
+        ctr.innerHTML = html;
+      } catch (e) { console.error("indices fetch error:", e); }
+    }
+
     setInterval(tick, 1000);
     setInterval(pollStatus, 2000);
     setInterval(() => { if (isOpen()) load(); }, 2000);
+    setInterval(fetchIndices, 5000);
 
     // F&O dedicated 5-minute refresh — only during market hours
     foNextAt = Date.now() + 300000;

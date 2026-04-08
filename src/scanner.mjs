@@ -75,28 +75,39 @@ function buildSignal(candles, tf, symbol, ltp = null) {
 
     const last = candles[candles.length - 1];
     const livePrice = ltp || last.close;
-    const chgPct = ((livePrice - last.open) / last.open) * 100;
     const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
 
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
     const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
     const weekThresh = lastTs - ((tf === "1d" ? 365 : 7) * 86400000);
+    
     let dayH = -Infinity, dayL = Infinity;
     let weekH = -Infinity, weekL = Infinity;
+    let prevClose = null;
+    
     for (let i = n - 1; i >= 0; i--) {
         const c = candles[i];
         const ts = normalizeTs(c.ts);
         if (ts < weekThresh) break;
         weekH = Math.max(weekH, c.high);
         weekL = Math.min(weekL, c.low);
-        if (new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" }) === tzStr) {
+        
+        const cTzStr = new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
+        if (cTzStr === tzStr) {
             dayH = Math.max(dayH, c.high);
             dayL = Math.min(dayL, c.low);
+        } else if (prevClose === null) {
+            prevClose = c.close; // Capture exact close of the prior trading day
         }
     }
+    
     if (dayH === -Infinity) { dayH = last.high; dayL = last.low; }
     if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
+    if (prevClose === null && n > 1) prevClose = candles[0].close;
+    if (prevClose === null) prevClose = last.open;
+    
+    const chgPct = ((livePrice - prevClose) / prevClose) * 100;
 
     const histLen = 60;
     const priceHist = cls.slice(-histLen);
@@ -137,7 +148,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
     return {
         symbol, sector: getSector(symbol), tf, signal,
         goldenCross, deathCross,
-        price: +livePrice.toFixed(2), open: +last.open.toFixed(2),
+        price: +livePrice.toFixed(2), open: +last.open.toFixed(2), prevClose: +prevClose.toFixed(2),
         high: +last.high.toFixed(2), low: +last.low.toFixed(2),
         dayH, dayL, weekH, weekL,
         chgPct: +chgPct.toFixed(2),
@@ -186,7 +197,7 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
 
             const key = `${symbol}|${tf}`;
             const prev = prevSigs.get(key);
-            row.isNew = !prev || prev !== row.signal;
+            row.isNew = prev && prev !== row.signal;
             row.isNewGolden = row.goldenCross && row.isNew;
             prevSigs.set(key, row.signal);
 
@@ -260,7 +271,7 @@ export async function startScan() {
                     const row = arr.find(r => r.symbol === sym);
                     if (row && row.open) {
                         row.price = +(ltp.toFixed(2));
-                        row.chgPct = +(((ltp - row.open) / row.open) * 100).toFixed(2);
+                        row.chgPct = +(((ltp - row.prevClose) / row.prevClose) * 100).toFixed(2);
                         if (row.vwap !== null) row.aboveVwap = ltp > row.vwap;
                     }
                 }
