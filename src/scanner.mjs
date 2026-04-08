@@ -1,8 +1,9 @@
 import { fetchCandles, fetchBulkLtp } from "./groww.mjs";
-import { ema, macd, rsi, vwap } from "./indicators.mjs";
+import { ema, macd, rsi, vwap, historicalVolatility } from "./indicators.mjs";
 import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 import { optionsCache } from "./options_feed.mjs";
+import { startFeed } from "./feed.mjs";
 
 const rl = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -51,6 +52,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
     const { macd: ml, signal: sl } = macd(cls, 12, 26, 9);
     const rsiVal = rsi(cls);
     const vwapVal = vwap(candles);
+    const hv = historicalVolatility(cls, 20);
     const n = cls.length;
 
     const c21 = e21[n - 1], p21 = e21[n - 2];
@@ -152,6 +154,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
         techScore, redCount,
         rating,
         ts: last.ts,
+        hv,
         isNew: false, isNewGolden: false,
         options: optionsCache.get(symbol) || null,
     };
@@ -246,6 +249,25 @@ export async function scanAll() {
 }
 
 export async function startScan() {
+    startFeed((updatedPrices) => {
+        if (!state || !state.data) return;
+        for (const [sym, ltp] of updatedPrices.entries()) {
+            for (const tf of Object.keys(TF_MAP)) {
+                const keys = [`${tf}_ALL`, `${tf}_BUY`, `${tf}_SELL`, `${tf}_GOLDEN`];
+                for (const k of keys) {
+                    const arr = state.data[k];
+                    if (!arr) continue;
+                    const row = arr.find(r => r.symbol === sym);
+                    if (row && row.open) {
+                        row.price = +(ltp.toFixed(2));
+                        row.chgPct = +(((ltp - row.open) / row.open) * 100).toFixed(2);
+                        if (row.vwap !== null) row.aboveVwap = ltp > row.vwap;
+                    }
+                }
+            }
+        }
+    });
+
     while (true) {
         try {
             if (isMarketOpen() || state.lastUpdated === null) {
