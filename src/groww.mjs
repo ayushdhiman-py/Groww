@@ -92,10 +92,15 @@ export async function fetchCandles(symbol, tf) {
         "30m": 30, "1h": 60, "1d": 1440
     };
     const interval = intervalMap[tf];
+    const tradingSymbolMap = {
+        "MIDCPNIFTY": "NIFTYMIDSELECT"
+    };
+    const mappedSymbol = tradingSymbolMap[symbol] || symbol;
+
     const params = {
         exchange: symbol === "SENSEX" ? "BSE" : "NSE",
         segment: "CASH",
-        trading_symbol: symbol,
+        trading_symbol: mappedSymbol,
         start_time: from.getTime(),
         end_time: to.getTime(),
         interval_in_minutes: interval

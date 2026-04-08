@@ -134,10 +134,15 @@ async function fetchCandles(symbol, tf) {
         "30m": 30, "1h": 60, "1d": 1440
     };
     const interval = intervalMap[tf];
+    const tradingSymbolMap = {
+        "MIDCPNIFTY": "NIFTYMIDSELECT"
+    };
+    const mappedSymbol = tradingSymbolMap[symbol] || symbol;
+
     const params = {
-        exchange: "NSE",
+        exchange: symbol === "SENSEX" ? "BSE" : "NSE",
         segment: "CASH",
-        trading_symbol: symbol,
+        trading_symbol: mappedSymbol,
         start_time: from.getTime(),
         end_time: to.getTime(),
         interval_in_minutes: interval
@@ -266,23 +271,47 @@ function buildSignal(candles, tf, symbol) {
 
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
+    const livePrice = last.close;
     const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
-    const weekThresh = lastTs - (7 * 86400000);
+    
+    // Day High/Low
     let dayH = -Infinity, dayL = Infinity;
+    // Weekly High/Low (last 7 days)
     let weekH = -Infinity, weekL = Infinity;
+    // 52-Week High/Low (only calculated correctly on 1d TF)
+    let h52w = -Infinity, l52w = Infinity;
+    
+    const weekThresh = lastTs - (7 * 86400000);
+    const yearThresh = lastTs - (365 * 86400000);
+    
     for (let i = n - 1; i >= 0; i--) {
         const c = candles[i];
         const ts = normalizeTs(c.ts);
-        if (ts < weekThresh) break;
-        weekH = Math.max(weekH, c.high);
-        weekL = Math.min(weekL, c.low);
+        
+        // 52-Week logic (only if 1d timeframe)
+        if (tf === "1d" && ts >= yearThresh) {
+            h52w = Math.max(h52w, c.high);
+            l52w = Math.min(l52w, c.low);
+        }
+
+        // Weekly logic
+        if (ts >= weekThresh) {
+            weekH = Math.max(weekH, c.high);
+            weekL = Math.min(weekL, c.low);
+        }
+        
         if (new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" }) === tzStr) {
             dayH = Math.max(dayH, c.high);
             dayL = Math.min(dayL, c.low);
         }
     }
-    if (dayH === -Infinity) { dayH = last.high; dayL = last.low; }
+    
+    // Fallbacks and incorporating livePrice
+    if (dayH === -Infinity) { dayH = Math.max(last.high, livePrice); dayL = Math.min(last.low, livePrice); }
+    else { dayH = Math.max(dayH, livePrice); dayL = Math.min(dayL, livePrice); }
+    
     if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
+    if (h52w === -Infinity && tf === "1d") { h52w = dayH; l52w = dayL; }
 
     const histLen = 20;
     const priceHist = cls.slice(-histLen);
@@ -322,7 +351,7 @@ function buildSignal(candles, tf, symbol) {
         goldenCross, deathCross,
         price: +last.close.toFixed(2), open: +last.open.toFixed(2),
         high: +last.high.toFixed(2), low: +last.low.toFixed(2),
-        dayH, dayL, weekH, weekL,
+        dayH, dayL, weekH, weekL, w52H: h52w, w52L: l52w,
         chgPct: +chgPct.toFixed(2),
         volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
         ema21: c21 !== null ? +c21.toFixed(2) : null,
@@ -399,15 +428,27 @@ let state = emptyState();
 const prevSigs = new Map();
 let scanning = false;
 let isAuthenticated = false;
+const w52Cache = new Map();
 
 async function scanSymbol(symbol, buckets, errors) {
-    for (const tf of Object.keys(TF_MAP)) {
+    const tfs = Object.keys(TF_MAP).sort((a, b) => a === "1d" ? -1 : (b === "1d" ? 1 : 0));
+    for (const tf of tfs) {
         try {
             await rateLimit();
             process.stdout.write(`Scanning ${symbol} (${tf})... `);
             const candles = await fetchCandles(symbol, tf);
             const row = buildSignal(candles, tf, symbol);
             if (!row) { console.log(" (no data)"); continue; }
+
+            if (tf === "1d") {
+                w52Cache.set(symbol, { w52H: row.w52H, w52L: row.w52L });
+            } else {
+                const cached = w52Cache.get(symbol);
+                if (cached) {
+                    row.w52H = cached.w52H;
+                    row.w52L = cached.w52L;
+                }
+            }
             console.log(" ✓");
 
             const key = `${symbol}|${tf}`;
@@ -421,12 +462,9 @@ async function scanSymbol(symbol, buckets, errors) {
             if (row.signal === "SELL") buckets[`${tf}_SELL`].push(row);
             if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
         } catch (e) {
-            if (errors.length === 0) {
-                console.error(`First error — ${symbol}/${tf}:`, e.response?.status, JSON.stringify(e.response?.data || e.message).substring(0, 300));
-                console.error("Request URL:", e.config?.url);
-                console.error("Request params:", JSON.stringify(e.config?.params));
-            }
-            errors.push(`${symbol}/${tf}: ${e.response?.data?.message || e.response?.data?.error || e.message}`);
+            let errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
+            if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
+            errors.push(`${symbol}/${tf}: ${errMsg}`);
         }
     }
 }
@@ -495,9 +533,14 @@ app.get("/api/indices", async (_, res) => {
 
         await ensureSession();
         // Groww uses exchange_symbols like NSE_NIFTY 50, BSE_SENSEX for indices
-        const exchangeSymbols = INDEX_LABELS.map(sym =>
-            sym === "SENSEX" ? "BSE_SENSEX" : `NSE_${sym}`
-        ).join(",");
+        const exchangeSymbols = INDEX_LABELS.map(sym => {
+            if (sym === "SENSEX") return "BSE_SENSEX";
+            if (sym === "MIDCPNIFTY") return "NSE_NIFTY MID SELECT";
+            if (sym === "BANKNIFTY") return "NSE_NIFTY BANK";
+            if (sym === "FINNIFTY") return "NSE_NIFTY FIN SERVICE";
+            if (sym === "NIFTY") return "NSE_NIFTY 50";
+            return `NSE_${sym}`;
+        }).join(",");
 
         const url = `https://api.groww.in/v1/live-data/ltp`;
         const headers = {
@@ -513,8 +556,15 @@ app.get("/api/indices", async (_, res) => {
 
         // Build result array with label names
         const result = INDEX_LABELS.map((label, i) => {
-            const key = label === "SENSEX" ? "BSE_SENSEX" : `NSE_${label}`;
-            const ltp = payload[key] || payload[label] || null;
+            const keyMap = {
+                "SENSEX": "BSE_SENSEX",
+                "MIDCPNIFTY": "NSE_NIFTY MID SELECT",
+                "BANKNIFTY": "NSE_NIFTY BANK",
+                "FINNIFTY": "NSE_NIFTY FIN SERVICE",
+                "NIFTY": "NSE_NIFTY 50"
+            };
+            const key = keyMap[label] || `NSE_${label}`;
+            const ltp = payload[key] || payload[label.toUpperCase()] || null;
             return { symbol: label, ltp };
         });
 
@@ -1020,7 +1070,7 @@ function render(){
         +"<td>"+emaTxt+"</td>"
         +"<td>"+macdTxt+"</td>"
         +"<td style='font-size:11px;color:var(--muted)'>"+(r.dayH?r.dayH.toFixed(1):"--")+" / "+(r.dayL?r.dayL.toFixed(1):"--")+"</td>"
-        +"<td style='font-size:11px;color:var(--muted)'>"+(r.weekH?r.weekH.toFixed(1):"--")+" / "+(r.weekL?r.weekL.toFixed(1):"--")+"</td>"
+        +"<td style='font-size:11px;color:var(--muted)'>"+(r.w52H?r.w52H.toFixed(1):"--")+" / "+(r.w52L?r.w52L.toFixed(1):"--")+"</td>"
         +"<td style='text-align:center'><b>"+r.techScore+"</b><span style='color:var(--muted)'>/6</span></td>"
         +"<td><div class='checks'>"+boxes+"</div></td>"
         +"<td>"+gf+"</td>"
@@ -1118,7 +1168,7 @@ function render(){
         +"<td>"+emaTxt+"</td>"
         +"<td>"+macdTxt+"</td>"
         +"<td style='font-size:11px;color:var(--muted)'>"+(r.dayH?r.dayH.toFixed(1):"--")+" / "+(r.dayL?r.dayL.toFixed(1):"--")+"</td>"
-        +"<td style='font-size:11px;color:var(--muted)'>"+(r.weekH?r.weekH.toFixed(1):"--")+" / "+(r.weekL?r.weekL.toFixed(1):"--")+"</td>"
+        +"<td style='font-size:11px;color:var(--muted)'>"+(r.w52H?r.w52H.toFixed(1):"--")+" / "+(r.w52L?r.w52L.toFixed(1):"--")+"</td>"
         +"<td style='text-align:center'><b>"+r.techScore+"</b><span style='color:var(--muted)'>/6</span></td>"
         +"<td><div class='checks'>"+boxes+"</div></td>"
         +"<td>"+gf+"</td>"

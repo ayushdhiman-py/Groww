@@ -80,18 +80,33 @@ function buildSignal(candles, tf, symbol, ltp = null) {
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
     const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
-    const weekThresh = lastTs - ((tf === "1d" ? 365 : 7) * 86400000);
     
+    // Day High/Low
     let dayH = -Infinity, dayL = Infinity;
+    // Weekly High/Low (last 7 days)
     let weekH = -Infinity, weekL = Infinity;
+    // 52-Week High/Low (only calculated correctly on 1d TF)
+    let h52w = -Infinity, l52w = Infinity;
+    
     let prevClose = null;
+    const weekThresh = lastTs - (7 * 86400000);
+    const yearThresh = lastTs - (365 * 86400000);
     
     for (let i = n - 1; i >= 0; i--) {
         const c = candles[i];
         const ts = normalizeTs(c.ts);
-        if (ts < weekThresh) break;
-        weekH = Math.max(weekH, c.high);
-        weekL = Math.min(weekL, c.low);
+        
+        // 52-Week logic (only if 1d timeframe)
+        if (tf === "1d" && ts >= yearThresh) {
+            h52w = Math.max(h52w, c.high);
+            l52w = Math.min(l52w, c.low);
+        }
+
+        // Weekly logic
+        if (ts >= weekThresh) {
+            weekH = Math.max(weekH, c.high);
+            weekL = Math.min(weekL, c.low);
+        }
         
         const cTzStr = new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
         if (cTzStr === tzStr) {
@@ -102,9 +117,14 @@ function buildSignal(candles, tf, symbol, ltp = null) {
         }
     }
     
-    if (dayH === -Infinity) { dayH = last.high; dayL = last.low; }
+    // Fallbacks and incorporating livePrice
+    if (dayH === -Infinity) { dayH = Math.max(last.high, livePrice); dayL = Math.min(last.low, livePrice); }
+    else { dayH = Math.max(dayH, livePrice); dayL = Math.min(dayL, livePrice); }
+    
     if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
-    if (prevClose === null && n > 1) prevClose = candles[0].close;
+    if (h52w === -Infinity && tf === "1d") { h52w = dayH; l52w = dayL; }
+    
+    if (prevClose === null && n > 1) prevClose = candles[n - 2].close;
     if (prevClose === null) prevClose = last.open;
     
     const chgPct = ((livePrice - prevClose) / prevClose) * 100;
@@ -150,7 +170,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
         goldenCross, deathCross,
         price: +livePrice.toFixed(2), open: +last.open.toFixed(2), prevClose: +prevClose.toFixed(2),
         high: +last.high.toFixed(2), low: +last.low.toFixed(2),
-        dayH, dayL, weekH, weekL,
+        dayH, dayL, weekH, weekL, h52w, l52w,
         chgPct: +chgPct.toFixed(2),
         volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
         ema21: c21 !== null ? +c21.toFixed(2) : null,
@@ -168,6 +188,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
         hv,
         isNew: false, isNewGolden: false,
         options: optionsCache.get(symbol) || null,
+        w52H: h52w, w52L: l52w,
     };
 }
 
@@ -186,12 +207,12 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
             if (!row) continue;
 
             if (tf === "1d") {
-                w52Cache.set(symbol, { weekH: row.weekH, weekL: row.weekL });
+                w52Cache.set(symbol, { w52H: row.w52H, w52L: row.w52L });
             } else {
                 const cached = w52Cache.get(symbol);
                 if (cached) {
-                    row.w52H = cached.weekH;
-                    row.w52L = cached.weekL;
+                    row.w52H = cached.w52H;
+                    row.w52L = cached.w52L;
                 }
             }
 
@@ -207,7 +228,8 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
             if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
             okCount++;
         } catch (e) {
-            const errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
+            let errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
+            if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
             errors.push(`${symbol}/${tf}: ${errMsg}`);
             // Force a new line for actual errors so they don't get overwritten
             process.stdout.write(`\n\x1b[31m❌ Error: ${symbol}/${tf} → ${errMsg}\x1b[0m\n`);
