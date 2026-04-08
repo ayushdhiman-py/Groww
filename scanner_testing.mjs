@@ -88,7 +88,8 @@ app.get("/api/indices", async (_, res) => {
         const prices = await fetchBulkLtp(rawSymbols);
         
         const result = INDEX_LABELS.map(label => {
-            const ltp = prices[label === "SENSEX" ? "SENSEX" : label] || null;
+            const lookupLabel = label === "MIDCPNIFTY" ? "NIFTYMIDSELECT" : label === "SENSEX" ? "SENSEX" : label;
+            const ltp = prices[lookupLabel] || null;
             return { symbol: label, ltp };
         });
 

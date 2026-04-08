@@ -2099,9 +2099,22 @@
               + "<div class='scv sm'>--</div></div>";
             return;
           }
-          const prev = prevIndexLtp[idx.symbol];
-          const chgPct = prev ? ((ltp - prev) / prev * 100) : null;
-          prevIndexLtp[idx.symbol] = prevIndexLtp[idx.symbol] || ltp;
+          
+          let chgPct = null;
+          // Try to get true daily change from scanner's data
+          if (typeof data !== "undefined" && data && data.data && data.data["1d_ALL"]) {
+            const rowInfo = data.data["1d_ALL"].find(r => r.symbol === idx.symbol);
+            if (rowInfo && typeof rowInfo.chgPct === "number") {
+              chgPct = rowInfo.chgPct;
+            }
+          }
+          
+          if (chgPct === null) {
+            const prev = prevIndexLtp[idx.symbol];
+            chgPct = prev ? ((ltp - prev) / prev * 100) : null;
+            prevIndexLtp[idx.symbol] = prevIndexLtp[idx.symbol] || ltp;
+          }
+
           const isUp = chgPct === null ? null : chgPct >= 0;
           const cl = isUp === null ? "a" : (isUp ? "g" : "r");
           const sgn = isUp ? "+" : "";
