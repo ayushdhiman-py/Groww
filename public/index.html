@@ -367,33 +367,128 @@
       flex-shrink: 0;
     }
 
-    .controls-wrap select {
+    /* ── Custom Timeframe Dropdown ───────────────────────────────── */
+    .custom-select {
+      position: relative;
+      min-width: 130px;
+      user-select: none;
+    }
+
+    .custom-select-trigger {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px 7px 10px;
       background: rgba(255, 255, 255, 0.03);
-      color: var(--text);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 7px 30px 7px 12px;
       font-size: 12px;
-      font-family: var(--sans);
       font-weight: 600;
-      outline: none;
+      font-family: var(--sans);
+      color: var(--text);
       cursor: pointer;
-      appearance: none;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23526a85' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-      background-repeat: no-repeat;
-      background-position: right 10px center;
       transition: all 0.2s ease;
+      white-space: nowrap;
     }
 
-    .controls-wrap select:hover {
+    .custom-select-trigger:hover {
       border-color: var(--accent);
-      background-color: rgba(0, 212, 170, 0.05);
+      background: rgba(0, 212, 170, 0.06);
     }
 
-    .controls-wrap select:focus {
+    .custom-select.open .custom-select-trigger {
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15);
+      background: rgba(0, 212, 170, 0.08);
+      box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.12);
     }
+
+    .tf-icon {
+      font-size: 14px;
+      opacity: 0.6;
+    }
+
+    .tf-chevron {
+      margin-left: auto;
+      font-size: 10px;
+      opacity: 0.5;
+      transition: transform 0.2s ease;
+    }
+
+    .custom-select.open .tf-chevron {
+      transform: rotate(180deg);
+      opacity: 1;
+    }
+
+    .custom-select-options {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      z-index: 1000;
+      opacity: 0;
+      visibility: hidden;
+      transform: translateY(-8px);
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .custom-select.open .custom-select-options {
+      opacity: 1;
+      visibility: visible;
+      transform: translateY(0);
+    }
+
+    .option {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .option::before {
+      content: attr(data-value);
+      font-size: 9px;
+      font-family: var(--mono);
+      font-weight: 700;
+      padding: 2px 5px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.05);
+      color: var(--muted);
+      min-width: 24px;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .option:hover {
+      background: rgba(0, 212, 170, 0.08);
+      color: var(--text);
+    }
+
+    .option.active {
+      background: rgba(0, 212, 170, 0.12);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .option.active::before {
+      background: rgba(0, 212, 170, 0.2);
+      color: var(--accent);
+    }
+
+    /* Hide native select fallback */
+    #tf { display: none; }
 
     /* Indices toggle inside controls */
     .controls-wrap .idx-tg {
@@ -1532,16 +1627,23 @@
       <div class="controls-wrap">
         <input id="search" placeholder="Search symbol, sector, or signal…" oninput="render()" />
         <div class="controls-right">
-          <select id="tf" onchange="load()">
-            <option value="ALL">All Timeframes</option>
-            <option value="1m">1 Min</option>
-            <option value="5m">5 Min</option>
-            <option value="10m">10 Min</option>
-            <option value="15m">15 Min</option>
-            <option value="30m">30 Min</option>
-            <option value="1h">1 Hour</option>
-            <option value="1d" selected>1 Day</option>
-          </select>
+          <div class="custom-select" id="tfDropdown">
+            <div class="custom-select-trigger" onclick="toggleTfDropdown()">
+              <span class="tf-icon">⏱</span>
+              <span id="tfSelected">1 Day</span>
+              <span class="tf-chevron">▾</span>
+            </div>
+            <div class="custom-select-options" id="tfOptions">
+              <div class="option" data-value="ALL" onclick="selectTf('ALL', this)">All Timeframes</div>
+              <div class="option" data-value="1m" onclick="selectTf('1m', this)">1 Min</div>
+              <div class="option" data-value="5m" onclick="selectTf('5m', this)">5 Min</div>
+              <div class="option" data-value="10m" onclick="selectTf('10m', this)">10 Min</div>
+              <div class="option" data-value="15m" onclick="selectTf('15m', this)">15 Min</div>
+              <div class="option" data-value="30m" onclick="selectTf('30m', this)">30 Min</div>
+              <div class="option" data-value="1h" onclick="selectTf('1h', this)">1 Hour</div>
+              <div class="option active" data-value="1d" onclick="selectTf('1d', this)">1 Day</div>
+            </div>
+          </div>
           <label class="idx-tg" title="Include Indices in main list">
             <input type="checkbox" id="idxTgl" checked onchange="toggleIndices()"/>
             <span class="idx-tg-s"></span>
@@ -1709,6 +1811,39 @@
       showIndices = document.getElementById("idxTgl").checked;
       render();
     }
+
+    // ── Custom Timeframe Dropdown ─────────────────────────────────
+    function toggleTfDropdown() {
+      const el = document.getElementById("tfDropdown");
+      el.classList.toggle("open");
+    }
+
+    function selectTf(value, optionEl) {
+      // Update native select value for load() to read
+      const nativeTf = document.getElementById("tf");
+      if (nativeTf) nativeTf.value = value;
+
+      // Update active state
+      document.querySelectorAll("#tfOptions .option").forEach(o => o.classList.remove("active"));
+      optionEl.classList.add("active");
+
+      // Update trigger text
+      document.getElementById("tfSelected").textContent = optionEl.textContent;
+
+      // Close dropdown
+      document.getElementById("tfDropdown").classList.remove("open");
+
+      // Trigger load
+      load();
+    }
+
+    // Close dropdown on outside click
+    document.addEventListener("click", (e) => {
+      const dd = document.getElementById("tfDropdown");
+      if (dd && !dd.contains(e.target)) {
+        dd.classList.remove("open");
+      }
+    });
 
     function isOpen() {
       const ist = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
