@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import { createHash } from "crypto";
 import { __dirname } from "./src/config.mjs";
-import { loadSession, login, fetchBulkLtp } from "./src/groww.mjs";
+import { loadSession, login, fetchBulkLtp, fetchOptionChain } from "./src/groww.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
 import { livePrices } from "./src/feed.mjs";
@@ -90,7 +90,82 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         return res.json(result);
     }
 
-    // 3. Generate theoretical option chain from scanner data (Black-Scholes)
+    // 3. Fetch REAL option chain from Groww API
+    try {
+        const rawChain = await fetchOptionChain(sym);
+
+        if (rawChain) {
+            const fetchedAt = new Date().toISOString();
+
+            // Parse and format real data
+            const strikeData = rawChain.strikes || rawChain.strikeData || [];
+            const calls = [];
+            const puts = [];
+
+            // Extract top 5 by volume/OI
+            strikeData.forEach(s => {
+                if (s.callOption) {
+                    calls.push({
+                        strikePrice: s.strikePrice || s.strike,
+                        ltp: s.callOption?.lastPrice || s.callOption?.ltp || 0,
+                        openInterest: s.callOption?.openInterest || s.callOption?.oi || 0,
+                        oiChange: s.callOption?.changeInOI || s.callOption?.oiChange || 0,
+                        volume: s.callOption?.totalTradedVolume || s.callOption?.volume || 0,
+                        greeks: {
+                            delta: s.callOption?.delta || 0,
+                            gamma: s.callOption?.gamma || 0,
+                            theta: s.callOption?.theta || 0,
+                            vega: s.callOption?.vega || 0,
+                            iv: (s.callOption?.impliedVolatility || s.callOption?.iv || 0) * 100,
+                        },
+                        type: "CE",
+                    });
+                }
+                if (s.putOption) {
+                    puts.push({
+                        strikePrice: s.strikePrice || s.strike,
+                        ltp: s.putOption?.lastPrice || s.putOption?.ltp || 0,
+                        openInterest: s.putOption?.openInterest || s.putOption?.oi || 0,
+                        oiChange: s.putOption?.changeInOI || s.putOption?.oiChange || 0,
+                        volume: s.putOption?.totalTradedVolume || s.putOption?.volume || 0,
+                        greeks: {
+                            delta: s.putOption?.delta || 0,
+                            gamma: s.putOption?.gamma || 0,
+                            theta: s.putOption?.theta || 0,
+                            vega: s.putOption?.vega || 0,
+                            iv: (s.putOption?.impliedVolatility || s.putOption?.iv || 0) * 100,
+                        },
+                        type: "PE",
+                    });
+                }
+            });
+
+            // Sort by volume and pick top 5
+            const topCalls = calls.sort((a, b) => b.volume - a.volume).slice(0, 5);
+            const topPuts = puts.sort((a, b) => b.volume - a.volume).slice(0, 5);
+
+            const result = {
+                symbol: sym,
+                spot: rawChain.underlyingValue || rawChain.spot || 0,
+                expiry: rawChain.expiryDate || rawChain.expiry,
+                topCalls,
+                topPuts,
+                callOptions: calls,
+                putOptions: puts,
+                strikes: {},
+                theoretical: false,
+                source: "live",
+                fetchedAt,
+            };
+
+            setCachedOptionChain(sym, result);
+            return res.json(result);
+        }
+    } catch (err) {
+        console.error(`[OptionChain] Groww API error for ${sym}:`, err.message);
+    }
+
+    // 4. Fallback: Generate theoretical option chain from scanner data (Black-Scholes)
     let rowData = null;
     for (const tf of ["5m", "15m", "1h", "1d"]) {
         const found = (state.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
@@ -98,7 +173,6 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
     }
 
     if (rowData) {
-        // Days to next Thursday (NSE weekly expiry)
         const now = new Date();
         const day = now.getDay();
         const daysToThursday = ((4 - day + 7) % 7) || 7;
@@ -124,8 +198,8 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         return res.json(result);
     }
 
-    // 4. Nothing available (scanner hasn't processed this symbol yet)
-    return res.status(404).json({ error: "no_data", message: `Scanner hasn't processed ${sym} yet. Please wait for the next scan cycle.` });
+    // 5. Nothing available
+    return res.status(404).json({ error: "no_data", message: `Option chain not available for ${sym}.` });
 });
 
 // ── Indices LTP endpoint ──────────────────────────────────────────────────────
