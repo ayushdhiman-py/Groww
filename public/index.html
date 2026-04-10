@@ -186,7 +186,35 @@
       font-weight: 700;
     }
 
-    .brand span { color: var(--accent); }
+    .brand span.scanner-text { color: var(--accent); transition: color 0.4s ease; }
+    .brand.market-closed span.scanner-text { color: #ef4444; }
+    .brand.market-open span.scanner-text { color: #22c55e; }
+
+    /* ── Brand Dot ──────────────────────────────────────────────── */
+    .dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 12px var(--accent);
+      animation: pulse 2s infinite;
+      transition: all 0.4s ease;
+    }
+
+    .brand.market-closed .dot {
+      background: #ef4444;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.6);
+    }
+
+    .brand.market-open .dot {
+      background: #22c55e;
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.6);
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(1.4); }
+    }
 
     /* ── Market Status Capsule ──────────────────────────────────── */
     .market-capsule {
@@ -200,7 +228,7 @@
       font-size: 11px;
       font-weight: 700;
       font-family: var(--sans);
-      color: var(--red);
+      color: #ef4444 !important;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
@@ -211,7 +239,7 @@
     .market-capsule.open {
       background: rgba(34, 197, 94, 0.15);
       border-color: rgba(34, 197, 94, 0.3);
-      color: var(--green);
+      color: #22c55e !important;
       box-shadow: 0 0 12px rgba(34, 197, 94, 0.2);
       animation: capsulePulseGreen 2s infinite;
     }
@@ -220,14 +248,14 @@
       width: 7px;
       height: 7px;
       border-radius: 50%;
-      background: var(--red);
-      box-shadow: 0 0 6px var(--red);
+      background: #ef4444;
+      box-shadow: 0 0 6px #ef4444;
       transition: all 0.4s ease;
     }
 
     .market-capsule.open .market-capsule-dot {
-      background: var(--green);
-      box-shadow: 0 0 8px var(--green);
+      background: #22c55e;
+      box-shadow: 0 0 8px #22c55e;
     }
 
     .market-capsule-text {
@@ -236,12 +264,12 @@
 
     @keyframes capsulePulseRed {
       0%, 100% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.2); }
-      50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.35); }
+      50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
     }
 
     @keyframes capsulePulseGreen {
       0%, 100% { box-shadow: 0 0 12px rgba(34, 197, 94, 0.2); }
-      50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.35); }
+      50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); }
     }
 
     .dot {
@@ -1568,14 +1596,14 @@
     <div class="wrap">
 
       <div class="top">
-        <div class="brand">
-          <div class="dot"></div>Ayush's <span>Scanner</span>
-        </div>
-        <div class="top-actions">
+        <div class="brand" id="brandEl">
+          <div class="dot" id="brandDot"></div>Ayush's <span class="scanner-text" id="scannerText">Scanner</span>
           <div class="market-capsule" id="marketCapsule">
             <span class="market-capsule-dot" id="marketDot"></span>
             <span class="market-capsule-text" id="marketText">--</span>
           </div>
+        </div>
+        <div class="top-actions">
           <button class="action-btn" onclick="load()" title="Refresh Data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
@@ -1882,8 +1910,13 @@
     }
     function tick() {
       const o = isOpen();
+      const brand = document.getElementById("brandEl");
       const capsule = document.getElementById("marketCapsule");
       const txt = document.getElementById("marketText");
+      
+      if (brand) {
+        brand.className = o ? "brand market-open" : "brand market-closed";
+      }
       if (capsule) capsule.className = o ? "market-capsule open" : "market-capsule";
       if (txt) txt.textContent = o ? "Open" : "Closed";
 
