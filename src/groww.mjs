@@ -308,3 +308,49 @@ export async function fetchOptionChain(symbol) {
         return null;
     }
 }
+
+// ── Portfolio API ────────────────────────────────────────────────────────
+
+export async function fetchHoldings() {
+    await ensureSession();
+    const url = `https://api.groww.in/v1/holdings/user`;
+
+    const headers = {
+        "Authorization": `Bearer ${session.accessToken}`,
+        "X-API-VERSION": "1.0",
+        "Accept": "application/json",
+    };
+
+    await rateLimit();
+    try {
+        const res = await axios.get(url, { headers, timeout: 15000 });
+        return res.data?.payload?.holdings || [];
+    } catch (e) {
+        if (e.response?.status === 429) triggerBackoff(10);
+        console.error(`[Groww API] Holdings Fetch Error:`, e.response?.data || e.message);
+        return [];
+    }
+}
+
+export async function fetchPositions(segment = null) {
+    await ensureSession();
+    let url = `https://api.groww.in/v1/positions/user`;
+    if (segment) url += `?segment=${segment}`;
+
+    const headers = {
+        "Authorization": `Bearer ${session.accessToken}`,
+        "X-API-VERSION": "1.0",
+        "Accept": "application/json",
+    };
+
+    await rateLimit();
+    try {
+        const res = await axios.get(url, { headers, timeout: 15000 });
+        return res.data?.payload?.positions || [];
+    } catch (e) {
+        if (e.response?.status === 429) triggerBackoff(10);
+        console.error(`[Groww API] Positions Fetch Error:`, e.response?.data || e.message);
+        return [];
+    }
+}
+

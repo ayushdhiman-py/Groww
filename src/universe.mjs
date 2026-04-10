@@ -83,14 +83,14 @@ export const UNIVERSE = [
     // ── Chemicals & Specialty ─────────────────────────────────────────────────
     "PIDILITIND", "DEEPAKNTR", "ASTRAL", "ATUL", "SRF",
     "ALKYLAMINE", "NAVINFLUOR", "AARTIIND", "FLUOROCHEM", "GALAXYSURF",
-    "CLEAN", "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL",
+    "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL",
 
     // ── Paints ────────────────────────────────────────────────────────────────
     "BERGEPAINT", "ASIANPAINT",
 
     // ── Capital Goods & Industrials ───────────────────────────────────────────
     "SIEMENS", "ABB", "CUMMINSIND", "POLYCAB", "DIXON",
-    "HITACHI", "VOLTAS", "CROMPTON",
+    "VOLTAS", "CROMPTON",
 
     // ── Real Estate ───────────────────────────────────────────────────────────
     "DLF", "GODREJPROP", "OBEROIRLTY", "LODHA", "PRESTIGE",
@@ -211,7 +211,7 @@ export const SECTOR = {
     CHEMICALS: [
         "PIDILITIND", "DEEPAKNTR", "ASTRAL", "ATUL", "SRF",
         "ALKYLAMINE", "NAVINFLUOR", "AARTIIND", "FLUOROCHEM", "GALAXYSURF",
-        "CLEAN", "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL"
+        "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL"
     ],
 
     PAINTS: [
@@ -220,7 +220,7 @@ export const SECTOR = {
 
     CAPITAL_GOODS: [
         "SIEMENS", "ABB", "CUMMINSIND", "POLYCAB", "DIXON",
-        "HITACHI", "VOLTAS", "CROMPTON"
+        "VOLTAS", "CROMPTON"
     ],
 
     REAL_ESTATE: [

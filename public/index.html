@@ -513,6 +513,14 @@
       gap: 4px;
     }
 
+    .option:first-child {
+      border-bottom: 1px solid rgba(0, 212, 170, 0.15);
+      margin-bottom: 2px;
+      padding-bottom: 6px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+
     .option {
       padding: 10px 12px;
       text-align: center;
@@ -999,6 +1007,319 @@
 
     /* tbody tr.gc-row:hover removed */
 
+    /* ── Portfolio Section Headers ──────────────────────────────────── */
+    tr.section-header td {
+      padding: 0;
+      background: transparent;
+      border: none;
+    }
+
+    .section-header-content {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      margin: 8px 0 4px 0;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .section-header-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .section-header-title {
+      font-family: var(--mono);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.5px;
+    }
+
+    .section-header-pnl {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    /* ── Main Section Dividers (Equity, F&O, Commodity) ───────────── */
+    tr.main-section-divider td {
+      padding: 16px 0 8px 0;
+      background: transparent;
+      border: none;
+    }
+
+    .main-divider {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 0 16px;
+    }
+
+    .main-divider::before,
+    .main-divider::after {
+      content: '';
+      flex: 1;
+      height: 2px;
+      border-radius: 1px;
+    }
+
+    .main-divider.equity::before,
+    .main-divider.equity::after {
+      background: linear-gradient(90deg, transparent, rgba(0, 212, 170, 0.5), rgba(0, 212, 170, 0.2));
+    }
+
+    .main-divider.fno::before,
+    .main-divider.fno::after {
+      background: linear-gradient(90deg, transparent, rgba(167, 139, 250, 0.5), rgba(167, 139, 250, 0.2));
+    }
+
+    .main-divider.commodity::before,
+    .main-divider.commodity::after {
+      background: linear-gradient(90deg, transparent, rgba(245, 158, 11, 0.5), rgba(245, 158, 11, 0.2));
+    }
+
+    .main-divider-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 800;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .main-divider-label.equity {
+      color: var(--accent);
+    }
+
+    .main-divider-label.fno {
+      color: var(--purple);
+    }
+
+    .main-divider-label.commodity {
+      color: var(--yellow);
+    }
+
+    .main-divider-icon {
+      font-size: 18px;
+    }
+
+    /* ── Sub-section Dividers (Open/Closed within each section) ───── */
+    tr.sub-section-divider td {
+      padding: 10px 0 6px 0;
+      background: transparent;
+      border: none;
+    }
+
+    .sub-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 24px;
+    }
+
+    .sub-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, rgba(255, 255, 255, 0.08), transparent);
+    }
+
+    .sub-divider-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+    }
+
+    .sub-divider-pnl {
+      margin-left: 8px;
+      font-size: 9px;
+      font-weight: 500;
+    }
+
+    /* ── Closed Position Row ───────────────────────────────────────── */
+    tbody tr.closed-position-row {
+      opacity: 0.6;
+      background: rgba(255, 255, 255, 0.008);
+    }
+
+    tbody tr.closed-position-row td {
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.03);
+    }
+
+    /* ── Portfolio Summary Card ────────────────────────────────────── */
+    .portfolio-summary {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+
+    /* Overview bar */
+    .ps-overview {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: linear-gradient(135deg, rgba(13, 18, 32, 0.9), rgba(17, 25, 39, 0.7));
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      backdrop-filter: blur(8px);
+      box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .ps-overview-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .ps-overview-stats {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+
+    .ps-overview-stat {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+
+    .ps-overview-stat .ps-label {
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+
+    .ps-overview-stat .ps-value {
+      font-size: 14px;
+      font-weight: 700;
+      font-family: var(--mono);
+      color: var(--text);
+    }
+
+    .ps-overview-stat .ps-value.profit { color: var(--green); }
+    .ps-overview-stat .ps-value.loss { color: var(--red); }
+
+    /* Section cards grid */
+    .ps-sections {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 12px;
+    }
+
+    .ps-section-card {
+      padding: 14px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      background: rgba(255, 255, 255, 0.015);
+      backdrop-filter: blur(4px);
+    }
+
+    .ps-section-card.equity {
+      border-color: rgba(0, 212, 170, 0.2);
+      background: linear-gradient(135deg, rgba(0, 212, 170, 0.04), rgba(0, 212, 170, 0.01));
+    }
+
+    .ps-section-card.fno {
+      border-color: rgba(167, 139, 250, 0.2);
+      background: linear-gradient(135deg, rgba(167, 139, 250, 0.04), rgba(167, 139, 250, 0.01));
+    }
+
+    .ps-section-card.commodity {
+      border-color: rgba(245, 158, 11, 0.2);
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.04), rgba(245, 158, 11, 0.01));
+    }
+
+    .ps-section-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .ps-section-icon {
+      font-size: 16px;
+    }
+
+    .ps-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text);
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .ps-section-pnl {
+      margin-left: auto;
+      font-size: 13px;
+      font-weight: 700;
+      font-family: var(--mono);
+    }
+
+    .ps-section-pnl.profit { color: var(--green); }
+    .ps-section-pnl.loss { color: var(--red); }
+
+    .ps-section-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .ps-stat {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .ps-stat .ps-label {
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .ps-stat .ps-value {
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--mono);
+      color: var(--text);
+    }
+
+    .ps-stat .ps-value.profit { color: var(--green); }
+    .ps-stat .ps-value.loss { color: var(--red); }
+
+    .ps-stat.highlight {
+      grid-column: span 2;
+      padding-top: 6px;
+      border-top: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .ps-stat.highlight .ps-value {
+      font-size: 15px;
+      font-weight: 700;
+    }
+
     tbody tr.new-row {
       background: rgba(0, 212, 170, .03);
     }
@@ -1161,14 +1482,6 @@
       padding: 40px;
       text-align: center;
       color: var(--muted);
-    }
-
-    .scanning {
-      padding: 30px;
-      text-align: center;
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: 12px;
     }
 
     /* Tooltip CSS removed */
@@ -1672,6 +1985,7 @@
             </div>
             <div class="custom-select-options" id="tfOptions">
               <div class="option-grid">
+                <div class="option" data-value="ALL" onclick="selectTf('ALL', this)">ALL</div>
                 <div class="option" data-value="1m" onclick="selectTf('1m', this)">1m</div>
                 <div class="option" data-value="5m" onclick="selectTf('5m', this)">5m</div>
                 <div class="option" data-value="10m" onclick="selectTf('10m', this)">10m</div>
@@ -1728,7 +2042,15 @@
           <span class="tab-label">Sectors</span>
           <span class="tab-badge" id="badge-SECTORS">—</span>
         </div>
+        <div class="tab" data-set="PORTFOLIO">
+          <span class="tab-icon">💼</span>
+          <span class="tab-label">Portfolio</span>
+          <span class="tab-badge" id="badge-PORTFOLIO">—</span>
+        </div>
       </div>
+
+      <!-- Portfolio Summary Card (only visible on Portfolio tab) -->
+      <div id="portfolioSummary" class="portfolio-summary" style="display:none;"></div>
 
       <div class="tw">
         <table>
@@ -1750,9 +2072,6 @@
         </table>
       </div>
       <div id="empty" class="empty" style="display:none">No results for current filter.</div>
-      <div id="scanning" class="scanning" style="display:none">⚙ Scan in progress — this takes 3–5 minutes on first run.
-        Refresh in a moment.</div>
-
     </div><!-- /wrap -->
   </div><!-- /APP -->
 
@@ -1819,6 +2138,17 @@
       // Clear expanded F&O row when switching away from F&O tab
       if (activeSet !== "FO") {
         expandedFoSymbol = null;
+      }
+      // Stop portfolio auto-refresh when switching away from portfolio tab
+      if (activeSet !== "PORTFOLIO") {
+        stopPortfolioRefresh();
+        const summaryEl = document.getElementById("portfolioSummary");
+        if (summaryEl) summaryEl.style.display = "none";
+      }
+      // Load portfolio data if portfolio tab is selected
+      if (activeSet === "PORTFOLIO") {
+        loadPortfolio();
+        return;
       }
       // Restore saved sort for incoming tab
       const sv = tabSort[activeSet] || [{ col: "techScore", asc: false }];
@@ -1925,8 +2255,6 @@
         updateStatsAndRender();
       } catch (e) {
         console.error("Load error:", e);
-        const sn = document.getElementById("scanning");
-        if (sn) sn.style.display = "block";
       }
     }
 
@@ -2053,7 +2381,6 @@
 
       fetchIndices();
       updateBadges();
-      document.getElementById("scanning").style.display = "none";
 
       if (isFoExpanded()) {
         const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
@@ -2071,17 +2398,6 @@
     async function pollStatus() {
       try {
         const s = await fetch("/api/status").then(r => r.json());
-        const sn = document.getElementById("scanning");
-
-        // Update progress during scanning
-        if (s.scanning && s.scanProgress) {
-          const { done, total } = s.scanProgress;
-          const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-          if (sn) sn.textContent = `Scanning... ${done}/${total} stocks (${pct}%)`;
-          if (sn) sn.style.display = "block";
-        } else {
-          if (sn) sn.style.display = "none";
-        }
 
         // Start data polling interval during scan (every 3s)
         if (s.scanning && !scanDataInterval) {
@@ -2196,12 +2512,467 @@
       document.getElementById("rowCount").textContent = "Sectors: " + list.length;
     }
 
+    let portfolioData = null;
+    let portfolioRefreshInterval = null;
+
+    async function loadPortfolio() {
+      try {
+        // Always fetch fresh portfolio data from backend (backend fetches fresh LTP each time)
+        const res = await fetch("/api/portfolio?fresh=1&t=" + Date.now());
+        if (!res.ok) throw new Error("Failed to fetch portfolio data");
+        portfolioData = await res.json();
+        renderPortfolio();
+
+        // Start auto-refresh every 5s while on portfolio tab
+        if (!portfolioRefreshInterval) {
+          portfolioRefreshInterval = setInterval(async () => {
+            try {
+              const ltpRes = await fetch("/api/ltp?t=" + Date.now());
+              if (!ltpRes.ok) return;
+              const liveLtp = await ltpRes.json();
+
+              // Update holdings with fresh LTP
+              if (portfolioData && portfolioData.holdings) {
+                let changed = false;
+                portfolioData.holdings = portfolioData.holdings.map(h => {
+                  // Try exact match first, then try NSE_ prefix
+                  const freshPrice = liveLtp[h.trading_symbol] || liveLtp["NSE_" + h.trading_symbol];
+                  if (freshPrice && freshPrice !== h.current_price) {
+                    const newCurrentValue = freshPrice * h.quantity;
+                    const investedValue = h.average_price * h.quantity;
+                    const newPnl = newCurrentValue - investedValue;
+                    const newPnlPercent = investedValue !== 0 ? (newPnl / investedValue) * 100 : 0;
+                    changed = true;
+                    return {
+                      ...h,
+                      current_price: +freshPrice.toFixed(2),
+                      current_value: +newCurrentValue.toFixed(2),
+                      pnl: +newPnl.toFixed(2),
+                      pnl_percent: +newPnlPercent.toFixed(2)
+                    };
+                  }
+                  return h;
+                });
+
+                if (changed) {
+                  // Recalculate summary
+                  const totalInvested = portfolioData.holdings.reduce((s, h) => s + h.invested_value, 0);
+                  const totalCurrent = portfolioData.holdings.reduce((s, h) => s + h.current_value, 0);
+                  const totalHoldingsPnL = totalCurrent - totalInvested;
+                  portfolioData.summary.total_holdings_invested = +totalInvested.toFixed(2);
+                  portfolioData.summary.total_holdings_current = +totalCurrent.toFixed(2);
+                  portfolioData.summary.total_holdings_pnl = +totalHoldingsPnL.toFixed(2);
+                  portfolioData.summary.total_portfolio_pnl = +(totalHoldingsPnL + portfolioData.summary.total_positions_pnl).toFixed(2);
+                }
+
+                renderPortfolio();
+              }
+            } catch (e) {
+              // Silently ignore refresh errors
+            }
+          }, 5000);
+        }
+      } catch (e) {
+        console.error("[Portfolio] Load error:", e.message);
+      }
+    }
+
+    function renderPortfolio() {
+      if (!portfolioData) {
+        loadPortfolio();
+        document.getElementById("tbody").innerHTML = "";
+        document.getElementById("empty").style.display = "block";
+        document.getElementById("empty").textContent = "Loading portfolio...";
+        return;
+      }
+
+      const { holdings, positions, summary } = portfolioData;
+
+      // Custom table header for portfolio
+      document.getElementById("tableHeader").innerHTML = `<tr>
+        <th style="text-align:left; width:20%">Symbol</th>
+        <th style="width:10%">Qty</th>
+        <th style="width:12%">Avg Price</th>
+        <th style="width:12%">Current Price</th>
+        <th style="width:14%">Current Value</th>
+        <th style="width:14%">P&L</th>
+        <th style="width:18%">Type / Segment</th>
+      </tr>`;
+
+      const tbody = document.getElementById("tbody");
+      const empty = document.getElementById("empty");
+
+      // ── Group items by segment and status ──────────────────────────
+      const equityOpen = holdings.map(h => ({
+        symbol: h.trading_symbol,
+        quantity: h.quantity,
+        avg_price: h.average_price,
+        current_price: h.current_price,
+        current_value: h.current_value,
+        pnl: h.pnl,
+        pnl_percent: h.pnl_percent,
+        section: "equity",
+        status: "open",
+        type: "Holding"
+      }));
+
+      const equityClosed = []; // Holdings are never "closed" (you still own them)
+
+      const fnoPositions = positions.filter(p => p.segment === "FNO");
+      const fnoOpen = fnoPositions.filter(p => !p.is_closed && (p.quantity || 0) > 0).map(p => ({
+        symbol: p.trading_symbol,
+        quantity: p.quantity || 0,
+        avg_price: +(p.entry_price || p.net_price || 0).toFixed(2),
+        current_price: p.current_price || 0,
+        current_value: +((p.current_price || 0) * (p.quantity || 0)).toFixed(2),
+        pnl: p.pnl || 0,
+        pnl_percent: (p.quantity || 0) > 0 && (p.entry_price || p.net_price) > 0 ? ((p.pnl || 0) / ((p.entry_price || p.net_price) * (p.quantity || 0))) * 100 : null,
+        section: "fno",
+        status: "open",
+        type: "Position"
+      }));
+
+      const fnoClosed = fnoPositions.filter(p => p.is_closed || (p.quantity || 0) === 0).map(p => ({
+        symbol: p.trading_symbol,
+        quantity: 0,
+        avg_price: +(p.entry_price || p.net_price || 0).toFixed(2),
+        current_price: null,
+        current_value: 0,
+        pnl: p.pnl || 0,
+        pnl_percent: null,
+        section: "fno",
+        status: "closed",
+        type: "Position"
+      }));
+
+      const commodityPositions = positions.filter(p => p.segment === "COMMODITY");
+      const commodityOpen = commodityPositions.filter(p => !p.is_closed && (p.quantity || 0) > 0).map(p => ({
+        symbol: p.trading_symbol,
+        quantity: p.quantity || 0,
+        avg_price: +(p.entry_price || p.net_price || 0).toFixed(2),
+        current_price: p.current_price || 0,
+        current_value: +((p.current_price || 0) * (p.quantity || 0)).toFixed(2),
+        pnl: p.pnl || 0,
+        pnl_percent: (p.quantity || 0) > 0 && (p.entry_price || p.net_price) > 0 ? ((p.pnl || 0) / ((p.entry_price || p.net_price) * (p.quantity || 0))) * 100 : null,
+        section: "commodity",
+        status: "open",
+        type: "Position"
+      }));
+
+      const commodityClosed = commodityPositions.filter(p => p.is_closed || (p.quantity || 0) === 0).map(p => ({
+        symbol: p.trading_symbol,
+        quantity: 0,
+        avg_price: +(p.entry_price || p.net_price || 0).toFixed(2),
+        current_price: null,
+        current_value: 0,
+        pnl: p.pnl || 0,
+        pnl_percent: null,
+        section: "commodity",
+        status: "closed",
+        type: "Position"
+      }));
+
+      // Also include cash positions in equity open/closed
+      const cashPositions = positions.filter(p => p.segment === "CASH");
+      cashPositions.filter(p => !p.is_closed && (p.quantity || 0) > 0).forEach(p => {
+        equityOpen.push({
+          symbol: p.trading_symbol,
+          quantity: p.quantity || 0,
+          avg_price: +(p.entry_price || p.net_price || 0).toFixed(2),
+          current_price: p.current_price || 0,
+          current_value: +((p.current_price || 0) * (p.quantity || 0)).toFixed(2),
+          pnl: p.pnl || 0,
+          pnl_percent: (p.quantity || 0) > 0 && (p.entry_price || p.net_price) > 0 ? ((p.pnl || 0) / ((p.entry_price || p.net_price) * (p.quantity || 0))) * 100 : null,
+          section: "equity",
+          status: "open",
+          type: "Position"
+        });
+      });
+      cashPositions.filter(p => p.is_closed || (p.quantity || 0) === 0).forEach(p => {
+        equityClosed.push({
+          symbol: p.trading_symbol,
+          quantity: 0,
+          avg_price: +(p.entry_price || p.net_price || 0).toFixed(2),
+          current_price: null,
+          current_value: 0,
+          pnl: p.pnl || 0,
+          pnl_percent: null,
+          section: "equity",
+          status: "closed",
+          type: "Position"
+        });
+      });
+
+      // Sort each group by P&L descending
+      [equityOpen, equityClosed, fnoOpen, fnoClosed, commodityOpen, commodityClosed].forEach(g => g.sort((a, b) => b.pnl - a.pnl));
+
+      const hasAny = equityOpen.length || equityClosed.length || fnoOpen.length || fnoClosed.length || commodityOpen.length || commodityClosed.length;
+
+      if (!hasAny) {
+        tbody.innerHTML = "";
+        empty.style.display = "block";
+        empty.textContent = "No holdings or positions found.";
+        return;
+      }
+
+      empty.style.display = "none";
+
+      // Update the external summary card
+      const summaryEl = document.getElementById("portfolioSummary");
+      if (summaryEl) {
+        summaryEl.style.display = "flex";
+
+        // Calculate per-section metrics
+        const equityPnl = equityOpen.reduce((s, i) => s + i.pnl, 0) + equityClosed.reduce((s, i) => s + i.pnl, 0);
+        const equityInvested = equityOpen.reduce((s, i) => s + (i.avg_price * i.quantity), 0);
+        const equityCurrent = equityOpen.reduce((s, i) => s + i.current_value, 0);
+        const fnoPnl = fnoOpen.reduce((s, i) => s + i.pnl, 0) + fnoClosed.reduce((s, i) => s + i.pnl, 0);
+        const fnoOpenCount = fnoOpen.length;
+        const fnoClosedCount = fnoClosed.length;
+        const commPnl = commodityOpen.reduce((s, i) => s + i.pnl, 0) + commodityClosed.reduce((s, i) => s + i.pnl, 0);
+        const commOpenCount = commodityOpen.length;
+        const commClosedCount = commodityClosed.length;
+
+        const totalPnl = equityPnl + fnoPnl + commPnl;
+        const pnlSign = (v) => v >= 0 ? "+" : "";
+        const pnlClass = (v) => v >= 0 ? "profit" : "loss";
+
+        summaryEl.innerHTML = `
+          <!-- Overall Portfolio Overview -->
+          <div class="ps-overview">
+            <span class="ps-overview-title">💼 Portfolio Overview</span>
+            <div class="ps-overview-stats">
+              <div class="ps-overview-stat">
+                <span class="ps-label">Invested</span>
+                <span class="ps-value">₹${summary.total_holdings_invested.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div class="ps-overview-stat">
+                <span class="ps-label">Current</span>
+                <span class="ps-value">₹${summary.total_holdings_current.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div class="ps-overview-stat">
+                <span class="ps-label">Total P&L</span>
+                <span class="ps-value ${pnlClass(totalPnl)}">${pnlSign(totalPnl)}₹${totalPnl.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Section Cards -->
+          <div class="ps-sections">
+            <!-- Equity Card -->
+            <div class="ps-section-card equity">
+              <div class="ps-section-header">
+                <span class="ps-section-icon">📈</span>
+                <span class="ps-section-title">Equity</span>
+                <span class="ps-section-pnl ${pnlClass(equityPnl)}">${pnlSign(equityPnl)}₹${equityPnl.toFixed(2)}</span>
+              </div>
+              <div class="ps-section-stats">
+                <div class="ps-stat">
+                  <span class="ps-label">Invested</span>
+                  <span class="ps-value">₹${equityInvested.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Current</span>
+                  <span class="ps-value">₹${equityCurrent.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Holdings</span>
+                  <span class="ps-value">${holdings.length}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Cash Pos.</span>
+                  <span class="ps-value">${Math.max(0, equityOpen.length + equityClosed.length - holdings.length)}</span>
+                </div>
+                <div class="ps-stat highlight">
+                  <span class="ps-label">Open P&L</span>
+                  <span class="ps-value ${pnlClass(equityOpen.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(equityOpen.reduce((s, i) => s + i.pnl, 0))}₹${equityOpen.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- F&O Card -->
+            <div class="ps-section-card fno">
+              <div class="ps-section-header">
+                <span class="ps-section-icon">◈</span>
+                <span class="ps-section-title">Futures & Options</span>
+                <span class="ps-section-pnl ${pnlClass(fnoPnl)}">${pnlSign(fnoPnl)}₹${fnoPnl.toFixed(2)}</span>
+              </div>
+              <div class="ps-section-stats">
+                <div class="ps-stat">
+                  <span class="ps-label">Open</span>
+                  <span class="ps-value">${fnoOpenCount}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Closed</span>
+                  <span class="ps-value">${fnoClosedCount}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Unrealised P&L</span>
+                  <span class="ps-value ${pnlClass(fnoOpen.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(fnoOpen.reduce((s, i) => s + i.pnl, 0))}₹${fnoOpen.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Realised P&L</span>
+                  <span class="ps-value ${pnlClass(fnoClosed.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(fnoClosed.reduce((s, i) => s + i.pnl, 0))}₹${fnoClosed.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Commodity Card (only if exists) -->
+            ${commodityOpen.length || commodityClosed.length ? `
+            <div class="ps-section-card commodity">
+              <div class="ps-section-header">
+                <span class="ps-section-icon">⚙</span>
+                <span class="ps-section-title">Commodity</span>
+                <span class="ps-section-pnl ${pnlClass(commPnl)}">${pnlSign(commPnl)}₹${commPnl.toFixed(2)}</span>
+              </div>
+              <div class="ps-section-stats">
+                <div class="ps-stat">
+                  <span class="ps-label">Open</span>
+                  <span class="ps-value">${commOpenCount}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Closed</span>
+                  <span class="ps-value">${commClosedCount}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Unrealised P&L</span>
+                  <span class="ps-value ${pnlClass(commOpen.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(commOpen.reduce((s, i) => s + i.pnl, 0))}₹${commOpen.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
+                </div>
+                <div class="ps-stat">
+                  <span class="ps-label">Realised P&L</span>
+                  <span class="ps-value ${pnlClass(commClosed.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(commClosed.reduce((s, i) => s + i.pnl, 0))}₹${commClosed.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
+                </div>
+              </div>
+            </div>` : ''}
+          </div>
+        `;
+      }
+
+      // ── Build section HTML ─────────────────────────────────────────
+      const buildMainDivider = (label, icon, sectionType) => `
+        <tr class="main-section-divider">
+          <td colspan="7">
+            <div class="main-divider ${sectionType}">
+              <span class="main-divider-icon">${icon}</span>
+              <span class="main-divider-label ${sectionType}">${label}</span>
+            </div>
+          </td>
+        </tr>`;
+
+      const buildSubDivider = (label, pnl) => {
+        const pnlSign = pnl >= 0 ? '+' : '';
+        const pnlColor = pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        return `
+          <tr class="sub-section-divider">
+            <td colspan="7">
+              <div class="sub-divider">
+                <span class="sub-divider-label">
+                  <span>▸</span>
+                  ${label}
+                  <span class="sub-divider-pnl" style="color: ${pnlColor};">${pnlSign}₹${pnl.toFixed(2)}</span>
+                </span>
+              </div>
+            </td>
+          </tr>`;
+      };
+
+      const buildRows = (items) => items.map(item => {
+        const pnlClass = item.pnl >= 0 ? "up" : "dn";
+        const pnlSign = item.pnl >= 0 ? "+" : "";
+        let pctDisplay = '';
+        if (item.pnl_percent !== null) {
+          pctDisplay = ` <span style="font-size: 10px;">(${pnlSign}${item.pnl_percent.toFixed(2)}%)</span>`;
+        }
+
+        const isClosed = item.status === "closed";
+        let priceCell = isClosed ? `<span style="color: var(--muted); font-size: 10px; font-style: italic;">Closed</span>` : `₹${item.avg_price.toFixed(2)}`;
+        let currentPriceCell = isClosed ? `<span style="color: var(--muted); font-size: 10px; font-style: italic;">—</span>` : `₹${(item.current_price || 0).toFixed(2)}`;
+        let currentValueCell = isClosed ? `<span style="color: var(--muted); font-size: 10px;">Realised</span>` : `₹${(item.current_value || 0).toFixed(2)}`;
+
+        return `<tr class="${isClosed ? 'closed-position-row' : ''}">
+          <td style="font-weight: 700; font-family: var(--mono);">${item.symbol}</td>
+          <td style="text-align: center; font-family: var(--mono);">${item.quantity}</td>
+          <td style="text-align: right; font-family: var(--mono);">${priceCell}</td>
+          <td style="text-align: right; font-family: var(--mono);">${currentPriceCell}</td>
+          <td style="text-align: right; font-family: var(--mono);">${currentValueCell}</td>
+          <td style="text-align: right; font-family: var(--mono);" class="${pnlClass}">
+            ${pnlSign}₹${item.pnl.toFixed(2)}${pctDisplay}
+          </td>
+          <td style="text-align: center;">
+            <span style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: ${item.type === 'Holding' ? 'rgba(167, 139, 250, 0.15)' : 'rgba(0, 212, 170, 0.15)'}; color: ${item.type === 'Holding' ? 'var(--purple)' : 'var(--accent)'};">
+              ${item.type}${isClosed ? ' · Closed' : ''}
+            </span>
+          </td>
+        </tr>`;
+      }).join('');
+
+      let html = '';
+
+      // ── EQUITY SECTION ─────────────────────────────────────────────
+      if (equityOpen.length || equityClosed.length) {
+        html += buildMainDivider("EQUITY", "📈", "equity");
+        if (equityOpen.length) {
+          const eqOpenPnl = equityOpen.reduce((s, i) => s + i.pnl, 0);
+          html += buildSubDivider("Open Positions", eqOpenPnl);
+          html += buildRows(equityOpen);
+        }
+        if (equityClosed.length) {
+          const eqClosedPnl = equityClosed.reduce((s, i) => s + i.pnl, 0);
+          html += buildSubDivider("Closed Positions", eqClosedPnl);
+          html += buildRows(equityClosed);
+        }
+      }
+
+      // ── F&O SECTION ────────────────────────────────────────────────
+      if (fnoOpen.length || fnoClosed.length) {
+        html += buildMainDivider("FUTURES & OPTIONS", "◈", "fno");
+        if (fnoOpen.length) {
+          const fnoOpenPnl = fnoOpen.reduce((s, i) => s + i.pnl, 0);
+          html += buildSubDivider("Open Positions", fnoOpenPnl);
+          html += buildRows(fnoOpen);
+        }
+        if (fnoClosed.length) {
+          const fnoClosedPnl = fnoClosed.reduce((s, i) => s + i.pnl, 0);
+          html += buildSubDivider("Closed Positions", fnoClosedPnl);
+          html += buildRows(fnoClosed);
+        }
+      }
+
+      // ── COMMODITY SECTION ──────────────────────────────────────────
+      if (commodityOpen.length || commodityClosed.length) {
+        html += buildMainDivider("COMMODITY", "⚙", "commodity");
+        if (commodityOpen.length) {
+          const commOpenPnl = commodityOpen.reduce((s, i) => s + i.pnl, 0);
+          html += buildSubDivider("Open Positions", commOpenPnl);
+          html += buildRows(commodityOpen);
+        }
+        if (commodityClosed.length) {
+          const commClosedPnl = commodityClosed.reduce((s, i) => s + i.pnl, 0);
+          html += buildSubDivider("Closed Positions", commClosedPnl);
+          html += buildRows(commodityClosed);
+        }
+      }
+
+      tbody.innerHTML = html;
+      document.getElementById("rowCount").textContent = `Portfolio: ${equityOpen.length + equityClosed.length + fnoOpen.length + fnoClosed.length + commodityOpen.length + commodityClosed.length} items (${summary.holdings_count} holdings, ${summary.positions_count} positions)`;
+      document.getElementById("badge-PORTFOLIO").textContent = equityOpen.length + equityClosed.length + fnoOpen.length + fnoClosed.length + commodityOpen.length + commodityClosed.length;
+    }
+
+    // Stop portfolio refresh when switching away from portfolio tab
+    function stopPortfolioRefresh() {
+      if (portfolioRefreshInterval) {
+        clearInterval(portfolioRefreshInterval);
+        portfolioRefreshInterval = null;
+      }
+    }
+
 
     function render() {
       if (!data) return;
       if (activeSet === "SECTORS") { renderSectors(); return; }
+      if (activeSet === "PORTFOLIO") { renderPortfolio(); return; }
 
-      // Restore default table header when switching from sectors to other tabs
+      // Restore default table header when switching from sectors/portfolio to other tabs
       document.getElementById("tableHeader").innerHTML = `<tr>
         <th onclick="setSort('symbol', event)">Stock / Sector</th>
         <th onclick="setSort('price', event)">CMP</th>
@@ -2839,22 +3610,19 @@
     document.addEventListener('keydown', (e) => {
       // Don't trigger if user is typing in input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-      
+
       const key = e.key.toLowerCase();
-      
+
       switch(key) {
         case 'r':
-          // Refresh data
           e.preventDefault();
           load();
           break;
         case '/':
-          // Focus search
           e.preventDefault();
           document.getElementById('search')?.focus();
           break;
         case 'escape':
-          // Collapse expanded F&O row or close modal
           if (document.getElementById('chartModal').style.display === 'flex') {
             closeModal();
           } else if (expandedFoSymbol) {
@@ -2864,27 +3632,31 @@
           break;
         case '1':
           e.preventDefault();
-          document.querySelector('[data-set="ALL"]')?.click();
+          document.querySelector('[data-set="GOLDEN"]')?.click();
           break;
         case '2':
           e.preventDefault();
-          document.querySelector('[data-set="GOLDEN"]')?.click();
+          document.querySelector('[data-set="ALL"]')?.click();
           break;
         case '3':
           e.preventDefault();
-          document.querySelector('[data-set="BUY"]')?.click();
+          document.querySelector('[data-set="FO"]')?.click();
           break;
         case '4':
           e.preventDefault();
-          document.querySelector('[data-set="SELL"]')?.click();
+          document.querySelector('[data-set="BUY"]')?.click();
           break;
         case '5':
           e.preventDefault();
-          document.querySelector('[data-set="FO"]')?.click();
+          document.querySelector('[data-set="SELL"]')?.click();
           break;
-        case '6':
+        case '7':
           e.preventDefault();
           document.querySelector('[data-set="SECTORS"]')?.click();
+          break;
+        case '8':
+          e.preventDefault();
+          document.querySelector('[data-set="PORTFOLIO"]')?.click();
           break;
       }
     });

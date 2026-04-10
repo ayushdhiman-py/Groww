@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import { createHash } from "crypto";
 import { __dirname } from "./src/config.mjs";
-import { loadSession, login, fetchBulkLtp, fetchOptionChain } from "./src/groww.mjs";
+import { loadSession, login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions } from "./src/groww.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
 import { livePrices } from "./src/feed.mjs";
@@ -317,6 +317,156 @@ app.get("/api/theoretical-chain/:symbol", (req, res) => {
         source: "Black-Scholes (Historical Volatility)",
     });
 });
+
+// ── Portfolio endpoint — fetch holdings + positions with LTP ──────────────
+app.get("/api/portfolio", async (req, res) => {
+    if (!isAuthenticated) return res.status(401).json({ error: "Not authenticated" });
+
+    try {
+        // Fetch holdings (long-term investments)
+        const holdings = await fetchHoldings();
+
+        // Fetch positions for all segments
+        const [cashPositions, fnoPositions, commodityPositions] = await Promise.all([
+            fetchPositions("CASH"),
+            fetchPositions("FNO"),
+            fetchPositions("COMMODITY")
+        ]);
+
+        // Get current LTP for holdings (equity/cash segment)
+        const holdingSymbols = holdings.map(h => h.trading_symbol);
+        const cashPositionSymbols = cashPositions.map(p => p.trading_symbol);
+        const isFnoSymbol = (sym) => /\d{2}(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2,4}(CE|PE)/i.test(sym);
+        const equitySymbols = [...new Set([...holdingSymbols, ...cashPositionSymbols])].filter(s => !isFnoSymbol(s));
+
+        // Get open F&O positions and fetch their LTP from FNO segment
+        const openFnoPositions = fnoPositions.filter(p => (p.quantity || 0) > 0);
+        const fnoSymbols = [...new Set(openFnoPositions.map(p => p.trading_symbol))];
+
+        // Get open commodity positions
+        const openCommodityPositions = commodityPositions.filter(p => (p.quantity || 0) > 0);
+        const commoditySymbols = [...new Set(openCommodityPositions.map(p => p.trading_symbol))];
+
+        let equityLtpMap = {};
+        let fnoLtpMap = {};
+        let commodityLtpMap = {};
+
+        if (equitySymbols.length > 0) {
+            try {
+                equityLtpMap = await fetchBulkLtp(equitySymbols, "CASH");
+            } catch (e) {
+                console.error("[Portfolio] Equity LTP fetch error:", e.message);
+            }
+        }
+
+        if (fnoSymbols.length > 0) {
+            try {
+                console.log(`[Portfolio] Fetching F&O LTP for:`, fnoSymbols);
+                fnoLtpMap = await fetchBulkLtp(fnoSymbols, "FNO");
+                console.log(`[Portfolio] F&O LTP result:`, fnoLtpMap);
+            } catch (e) {
+                console.error("[Portfolio] F&O LTP fetch error:", e.message);
+            }
+        }
+
+        if (commoditySymbols.length > 0) {
+            try {
+                console.log(`[Portfolio] Fetching Commodity LTP for:`, commoditySymbols);
+                commodityLtpMap = await fetchBulkLtp(commoditySymbols, "COMMODITY");
+                console.log(`[Portfolio] Commodity LTP result:`, commodityLtpMap);
+            } catch (e) {
+                console.error("[Portfolio] Commodity LTP fetch error:", e.message);
+            }
+        }
+
+        const ltpMap = { ...equityLtpMap, ...fnoLtpMap, ...commodityLtpMap };
+
+        // Calculate holdings with current values and P&L
+        const holdingsWithPnL = holdings.map(h => {
+            const currentPrice = ltpMap[h.trading_symbol] || h.average_price;
+            const currentValue = currentPrice * h.quantity;
+            const investedValue = h.average_price * h.quantity;
+            const pnl = currentValue - investedValue;
+            const pnlPercent = investedValue !== 0 ? (pnl / investedValue) * 100 : 0;
+
+            return {
+                ...h,
+                current_price: +currentPrice.toFixed(2),
+                current_value: +currentValue.toFixed(2),
+                invested_value: +investedValue.toFixed(2),
+                pnl: +pnl.toFixed(2),
+                pnl_percent: +pnlPercent.toFixed(2),
+                type: "holding"
+            };
+        });
+
+        // Calculate positions with proper unrealised P&L for open positions
+        const formatPosition = (p, segment = "CASH") => {
+            const qty = p.quantity || 0;
+            const isClosed = qty === 0;
+            const entryPrice = p.net_price || 0;
+            const currentPrice = ltpMap[p.trading_symbol] || entryPrice;
+
+            let unrealisedPnl = 0;
+            if (isClosed) {
+                // Closed position: only realised P&L
+                unrealisedPnl = p.realised_pnl || 0;
+            } else {
+                // Open position: calculate unrealised P&L
+                // For long: (current - entry) * qty
+                // For short: (entry - current) * qty
+                if (qty > 0) {
+                    unrealisedPnl = (currentPrice - entryPrice) * qty;
+                } else {
+                    // Net short position
+                    unrealisedPnl = (entryPrice - currentPrice) * Math.abs(qty);
+                }
+                // Add any realised P&L from partial closes
+                unrealisedPnl += (p.realised_pnl || 0);
+            }
+
+            return {
+                ...p,
+                current_price: +currentPrice.toFixed(2),
+                entry_price: +entryPrice.toFixed(2),
+                pnl: +unrealisedPnl.toFixed(2),
+                is_closed: isClosed,
+                type: "position",
+                segment: segment
+            };
+        };
+
+        const allPositions = [
+            ...cashPositions.map(p => formatPosition(p, "CASH")),
+            ...fnoPositions.map(p => formatPosition(p, "FNO")),
+            ...commodityPositions.map(p => formatPosition(p, "COMMODITY"))
+        ];
+
+        // Calculate totals
+        const totalInvested = holdingsWithPnL.reduce((sum, h) => sum + h.invested_value, 0);
+        const totalCurrent = holdingsWithPnL.reduce((sum, h) => sum + h.current_value, 0);
+        const totalHoldingsPnL = totalCurrent - totalInvested;
+        const totalPositionsPnL = allPositions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+
+        res.json({
+            holdings: holdingsWithPnL,
+            positions: allPositions,
+            summary: {
+                total_holdings_invested: +totalInvested.toFixed(2),
+                total_holdings_current: +totalCurrent.toFixed(2),
+                total_holdings_pnl: +totalHoldingsPnL.toFixed(2),
+                total_positions_pnl: +totalPositionsPnL.toFixed(2),
+                total_portfolio_pnl: +(totalHoldingsPnL + totalPositionsPnL).toFixed(2),
+                holdings_count: holdingsWithPnL.length,
+                positions_count: allPositions.length
+            }
+        });
+    } catch (e) {
+        console.error("[Portfolio] Error:", e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
