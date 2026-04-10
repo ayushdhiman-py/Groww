@@ -1,7 +1,39 @@
+# Dependencies
 node_modules/
+
+# Temporary files
+tmp/
+*.tmp
+
+# Extras (old versions)
+extras/
+
+# Development files
+claude.mjs
+test_chain.mjs
+scanner_testing.mjs.bak
+
+# Environment
+.env
+.env.local
+
+# Session files (security)
 .groww_session.json
-*.txt
+
+# OS files
 .DS_Store
 Thumbs.db
-package-lock.json
-README.md
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+build/

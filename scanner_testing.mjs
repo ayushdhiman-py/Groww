@@ -470,9 +470,17 @@ app.get("/api/portfolio", async (req, res) => {
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
-    console.clear();
-    console.log(`\n⚡ Ayush's Scanner (Groww API) → http://localhost:${PORT}`);
+    // Don't clear console in production (cloud hosting)
+    if (process.env.NODE_ENV !== 'production') {
+        console.clear();
+    }
     
+    console.log(`\n⚡ Ayush's Scanner (Groww API) → http://localhost:${PORT}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    
+    // Mark server as ready for health checks
+    process.env.SERVER_READY = 'true';
+
     if (loadSession()) {
         setIsAuthenticated(true);
         console.log("✅ Session active. Starting background scan...\n");
@@ -483,4 +491,15 @@ app.listen(PORT, async () => {
         startScan();
         startOptionsFeed();
     }
+});
+
+// Graceful shutdown for cloud platforms
+process.on('SIGTERM', () => {
+    console.log('\n🛑 SIGTERM received. Shutting down gracefully...');
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('\n🛑 SIGINT received. Shutting down gracefully...');
+    process.exit(0);
 });

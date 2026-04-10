@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ayush-groww-scanner
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: node scanner_testing.mjs
+    envVars:
+      - key: NODE_VERSION
+        value: 18.x
+      - key: GROWW_API_KEY
+        sync: false
+      - key: GROWW_API_SECRET
+        sync: false
+      - key: PORT
+        value: 10000
+    healthCheckPath: /api/status
+    autoDeploy: true
