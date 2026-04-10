@@ -1,12 +1,33 @@
 import path from "path";
 import { fileURLToPath } from "url";
+import { createRequire } from "module";
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const TOKEN_FILE = path.join(__dirname, "..", ".groww_session.json");
 
+// ── Environment Variable Loading (Local + Production) ─────────────────────────
+// Render: Sets process.env.* automatically from dashboard
+// Local: Load from .env file if it exists
+
+const require = createRequire(import.meta.url);
+
+// Try to load dotenv for local development (won't affect Render)
+try {
+    const dotenvPath = path.join(__dirname, "..", ".env");
+    const fs = await import("fs");
+    if (fs.existsSync(dotenvPath)) {
+        const dotenv = require("dotenv");
+        dotenv.config({ path: dotenvPath });
+        console.log("[Config] ✅ Loaded .env file for local development");
+    }
+} catch (e) {
+    // dotenv not installed or .env doesn't exist - that's fine for Render
+    if (e.code !== "MODULE_NOT_FOUND" && !e.message.includes("dotenv")) {
+        console.log("[Config] Note: Running without .env file (Render hosting mode)");
+    }
+}
+
 // ── Environment Variable Handling ──────────────────────────────────────────────
-// Render sets process.env.* automatically from Environment Variables section.
-// No dotenv needed. No file loading needed.
 
 // Helper: Get env var with trimming and required check
 const getEnv = (key, fallback) => {

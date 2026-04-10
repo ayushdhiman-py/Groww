@@ -1646,10 +1646,15 @@
       background: linear-gradient(90deg, var(--accent), rgba(0, 212, 170, 0.6));
     }
 
-    /* Tab switch fade */
+    /* Tab switch fade - disabled to prevent row rendering issues */
 
     #tbody {
-      transition: opacity 0.12s ease;
+      /* transition: opacity 0.12s ease; */
+      display: table-row-group !important;
+    }
+
+    tbody tr.main-row {
+      display: table-row !important;
     }
 
     .spark-p {
@@ -1940,10 +1945,6 @@
           <div class="scl">Errors</div>
           <div class="scv r" id="sE">--</div>
         </div>
-        <div class="sc">
-          <div class="scl">Last Scan</div>
-          <div class="scv sm" id="sT">--</div>
-        </div>
       </div>
       
       <div class="stats" id="indexCardsContainer" style="margin-top: -6px; margin-bottom: 14px;"></div>
@@ -2007,7 +2008,6 @@
       <div id="errBar" class="errbar" style="display:none"></div>
       <div class="meta">
         <span id="rowCount">Showing --</span>
-        <span id="lastScan">Last scan: --</span>
         <span id="lastUpdatedBadge" style="color:var(--accent);font-weight:600;">Updated --</span>
       </div>
 
@@ -2091,7 +2091,8 @@
     if ("Notification" in window) Notification.requestPermission().catch(() => { });
     function notify(t, b) { try { if (Notification.permission === "granted") new Notification(t, { body: b }); } catch (_) { } }
 
-    let activeSet = "GOLDEN", data = null, sortStack = [{ col: 'techScore', asc: false }], tabSort = {}, nextAt = null, showIndices = true;
+    let activeSet = "ALL", data = null, sortStack = [{ col: 'techScore', asc: false }], tabSort = {}, nextAt = null, showIndices = true;
+    let currentTF = "1d"; // Track current timeframe globally
     const seen = new Set();
     let expandedFoSymbol = null; // Track which F&O row is expanded
     let lastFoSymbols = null; // Track which stocks were in F&O list to avoid unnecessary re-renders
@@ -2100,8 +2101,15 @@
       try {
         const s = await fetch("/api/status").then(r => r.json());
         if (!s.authenticated) { show("LS"); hide("APP"); }
-        else { hide("LS"); show("APP"); document.getElementById("sU").textContent = s.universe; load(); }
-      } catch (e) { console.error(e); }
+        else { 
+          hide("LS"); 
+          show("APP"); 
+          document.getElementById("sU").textContent = s.universe; 
+          load(); 
+        }
+      } catch (e) { 
+        console.error("[checkAuth] Error:", e); 
+      }
     }
     function show(id) { document.getElementById(id).style.display = id === "LS" ? "flex" : "block"; }
     function hide(id) { document.getElementById(id).style.display = "none"; }
@@ -2135,6 +2143,7 @@
       document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
       t.classList.add("active");
       activeSet = t.dataset.set;
+      
       // Clear expanded F&O row when switching away from F&O tab
       if (activeSet !== "FO") {
         expandedFoSymbol = null;
@@ -2155,8 +2164,9 @@
       sortStack = Array.isArray(sv) ? [...sv] : [sv];
       // Clear cached F&O symbols so next render picks fresh list
       lastFoSymbols = null;
-      // Always fetch fresh data when switching tabs
-      load();
+      
+      // Render immediately with existing data (don't wait for network)
+      requestAnimationFrame(render);
     }));
     ["search", "tf"].forEach(id => {
       const el = document.getElementById(id);
@@ -2187,9 +2197,7 @@
     }
 
     function selectTf(value, optionEl) {
-      // Update native select value for load() to read
-      const nativeTf = document.getElementById("tf");
-      if (nativeTf) nativeTf.value = value;
+      currentTF = value; // Update global variable
 
       // Update active state
       document.querySelectorAll("#tfOptions .option").forEach(o => o.classList.remove("active"));
@@ -2253,6 +2261,13 @@
         data = next;
         nextAt = Date.now() + 5000;
         updateStatsAndRender();
+        
+        // Show scanning progress in rowCount
+        const statusRes = await fetch("/api/status").then(r => r.json());
+        if (statusRes.scanning) {
+          const rcEl = document.getElementById("rowCount");
+          if (rcEl) rcEl.textContent = `Stocks: scanning... ${statusRes.scanProgress?.done || 0}/${statusRes.scanProgress?.total || 0} updating`;
+        }
       } catch (e) {
         console.error("Load error:", e);
       }
@@ -2269,7 +2284,7 @@
 
         // Update prices in state
         let anyChanged = false;
-        const tf = document.getElementById("tf")?.value || "1d";
+        const tf = currentTF;
         const timeframes = tf === "ALL" ? ["1m", "5m", "10m", "15m", "30m", "1h", "1d"] : [tf];
 
         for (const t of timeframes) {
@@ -2316,14 +2331,16 @@
 
     function updateLastUpdatedBadge() {
       const el = document.getElementById("lastUpdatedBadge");
-      if (el) {
-        const now = new Date();
-        el.textContent = `Updated ${now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+      if (el && data?.lastUpdated) {
+        const d = new Date(data.lastUpdated);
+        const date = d.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "numeric", year: "numeric" });
+        const time = d.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+        el.textContent = `Updated ${date} - ${time}`;
       }
     }
 
     function updateBadges() {
-      const tf = document.getElementById("tf")?.value || "1d";
+      const tf = currentTF;
       let all = [], buys = [], sells = [], golden = [];
       if (tf === "ALL") {
         ["1m", "5m", "10m", "15m", "30m", "1h", "1d"].forEach(t => {
@@ -2338,7 +2355,7 @@
         sells = data.data[tf + "_SELL"] || [];
         golden = data.data[tf + "_GOLDEN"] || [];
       }
-      
+
       const setBadge = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
       setBadge('badge-GOLDEN', new Set(golden.map(r => r.symbol)).size || '—');
       setBadge('badge-ALL', new Set(all.map(r => r.symbol)).size || '—');
@@ -2346,11 +2363,13 @@
       setBadge('badge-SELL', new Set(sells.map(r => r.symbol)).size || '—');
       setBadge('badge-FO', 30);
       setBadge('badge-SECTORS', new Set(all.map(r => r.sector).filter(Boolean)).size || '—');
+      
+      console.log(`[Badges] GOLDEN=${golden.length}, ALL=${all.length}, BUY=${buys.length}, SELL=${sells.length}`);
     }
 
     function updateStatsAndRender() {
-      if (!data) return;
-      const tf = document.getElementById("tf")?.value || "1d";
+      if (!data) { return; }
+      const tf = currentTF;
       let all = [], buys = [], sells = [], golden = [];
       if (tf === "ALL") {
         const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
@@ -2363,6 +2382,14 @@
       } else {
         all = data.data[tf + "_ALL"] || []; buys = data.data[tf + "_BUY"] || []; sells = data.data[tf + "_SELL"] || []; golden = data.data[tf + "_GOLDEN"] || [];
       }
+      
+      // Calculate actual unique stocks scanned
+      const actualUniqueStocks = new Set(all.map(r => r.symbol)).size;
+      const universeCount = data.universe || actualUniqueStocks; // Fallback to actual if universe not set
+      
+      // Update universe stat with actual scanned count
+      const sU = document.getElementById("sU");
+      if (sU) sU.textContent = actualUniqueStocks || universeCount;
       const spikes = all.filter(r => r.volSpike).length;
       const sbCount = all.filter(r => r.rating === "STRONG BUY").length;
       const wlCount = all.filter(r => r.rating === "MODERATE").length;
@@ -2374,13 +2401,12 @@
       if (g("sSB")) g("sSB").textContent = sbCount;
       if (g("sWL")) g("sWL").textContent = wlCount;
       if (g("sE")) g("sE").textContent = data.errors?.length || 0;
-      if (g("sT")) g("sT").textContent = data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" }) : "Scanning...";
-      if (g("lastScan")) g("lastScan").textContent = "Last: " + (data.lastUpdated ? new Date(data.lastUpdated).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "--");
       const eb = g("errBar");
       if (eb) { eb.style.display = data.errors?.length ? "block" : "none"; if (data.errors?.length) eb.textContent = "Errors (" + data.errors.length + "): " + data.errors.slice(0, 4).join(" | "); }
 
       fetchIndices();
       updateBadges();
+      updateLastUpdatedBadge();
 
       if (isFoExpanded()) {
         const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
@@ -2399,10 +2425,10 @@
       try {
         const s = await fetch("/api/status").then(r => r.json());
 
-        // Start data polling interval during scan (every 3s)
+        // If scanning, poll /api/state every 3s to show progress
         if (s.scanning && !scanDataInterval) {
           scanDataInterval = setInterval(() => {
-            fetch("/api/status").then(r => r.json()).then(st => {
+            fetch("/api/state").then(r => r.json()).then(st => {
               if (st.lastUpdated && st.lastUpdated !== lastUpdatedTs) {
                 lastUpdatedTs = st.lastUpdated;
                 load();
@@ -2411,15 +2437,17 @@
           }, 3000);
         }
 
-        // Stop data polling and do final load when scan ends
+        // When scan ends, do a final load
         if (lastScanState === true && s.scanning === false) {
           if (scanDataInterval) { clearInterval(scanDataInterval); scanDataInterval = null; }
+          lastUpdatedTs = null; // Force a fresh load
           load();
         }
         lastScanState = s.scanning;
 
-        // If data is empty and scan isn't running, fetch data (covers case where page loaded between scans)
-        if (!data && !s.scanning) {
+        // If no data yet and scan isn't running, keep trying every poll cycle
+        const hasData = data && data.data && (data.data["1d_ALL"]?.length > 0);
+        if (!hasData && !s.scanning && !scanDataInterval) {
           load();
         }
       } catch (e) {
@@ -2432,7 +2460,7 @@
     function renderSectors() {
       const q = (document.getElementById("search")?.value || "").trim().toUpperCase();
       let allRows = [];
-      const tf = document.getElementById("tf")?.value || "1d";
+      const tf = currentTF;
       if (tf === "ALL") {
         allRows = data.data["1d_ALL"] || [];
       } else {
@@ -2509,7 +2537,7 @@
           "</tr>";
       }).join("");
 
-      document.getElementById("rowCount").textContent = "Sectors: " + list.length;
+      document.getElementById("rowCount").textContent = `Sectors: ${list.length}`;
     }
 
     let portfolioData = null;
@@ -2968,7 +2996,7 @@
 
 
     function render() {
-      if (!data) return;
+      if (!data) { return; }
       if (activeSet === "SECTORS") { renderSectors(); return; }
       if (activeSet === "PORTFOLIO") { renderPortfolio(); return; }
 
@@ -3007,20 +3035,17 @@
           + "</svg>";
       };
 
-      const tf = document.getElementById("tf")?.value || "1d";
+      const tf = currentTF;
       const q = (document.getElementById("search")?.value || "").trim().toUpperCase();
 
       let rows = [];
       if (activeSet === "FO") {
         let rawRows = [];
         if (tf === "ALL") {
-          // For ALL timeframes, use 5m as the base for F&O
           rawRows = data.data["5m_ALL"] || [];
         } else {
           rawRows = data.data[tf + "_ALL"] || [];
         }
-
-        // Dynamically pick top 30 by Volume Change (Buzz) instead of total volume
         const sorted = rawRows.slice().sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange));
         rows = sorted.slice(0, 30);
       } else if (tf === "ALL") {
@@ -3030,6 +3055,18 @@
         });
       } else {
         rows = (data.data[tf + "_" + activeSet] || []).slice();
+      }
+
+      console.log(`[render] ✅ Tab="${activeSet}", TF="${tf}", Rows=${rows.length}`);
+      if (tf !== "ALL" && activeSet !== "FO") {
+        const key = `${tf}_${activeSet}`;
+        console.log(`  → Key: "${key}", Available: ${data.data[key]?.length || 0}`);
+      } else if (activeSet === "FO") {
+        const foKey = tf === "ALL" ? "5m_ALL" : `${tf}_ALL`;
+        console.log(`  → F&O: Top 30 of ${data.data[foKey]?.length || 0} from "${foKey}"`);
+      } else if (tf === "ALL") {
+        const allCounts = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"].map(t => `${t}:${data.data[t + "_" + activeSet]?.length || 0}`).join(", ");
+        console.log(`  → ALL TF counts: ${allCounts}`);
       }
 
       if (q) {
@@ -3045,6 +3082,7 @@
 
       // Apply sortStack for ALL cases
       const tfOrder = { "1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7 };
+      const ratingOrder = { "STRONG BUY": 5, "MODERATE": 3, "SKIP": 1, "WEAK BUY": 2, "NEUTRAL": 0 };
       rows.sort((a,b)=>{
         // For ALL timeframe, first group by symbol, then by tf
         if (tf === "ALL") {
@@ -3057,6 +3095,11 @@
           if(s.col === "symbol"){
             const res = va.localeCompare(vb);
             if(res !== 0) return s.asc ? res : -res;
+          } else if(s.col === "rating"){
+            // Rating is a string - use predefined order
+            const ra = ratingOrder[va] || 0;
+            const rb = ratingOrder[vb] || 0;
+            if(ra !== rb) return s.asc ? ra - rb : rb - ra;
           } else {
             va = (va !== null && va !== undefined) ? +va : 0;
             vb = (vb !== null && vb !== undefined) ? +vb : 0;
@@ -3093,14 +3136,18 @@
         const ss = String(foCountdownSec % 60).padStart(2, "0");
         document.getElementById("rowCount").textContent = `F&O: ${uniqueStocksInRows} stocks · Next refresh: ${mm}m ${ss}s`;
       } else if (tf === "ALL") {
-        document.getElementById("rowCount").textContent = "Stocks: " + uniqueStocksInRows + " of " + totalStocks + " (" + rows.length + " signals)";
+        document.getElementById("rowCount").textContent = `Stocks: ${uniqueStocksInRows} of ${totalStocks} (${rows.length} signals)`;
       } else {
-        document.getElementById("rowCount").textContent = "Stocks: " + rows.length + " of " + totalStocks;
+        document.getElementById("rowCount").textContent = `Stocks: ${rows.length} of ${totalStocks}`;
       }
 
       const tbody = document.getElementById("tbody");
       const empty = document.getElementById("empty");
-      if (!rows.length) { tbody.innerHTML = ""; empty.style.display = "block"; return; }
+      if (!rows.length) {
+        tbody.innerHTML = "";
+        empty.style.display = "block";
+        return;
+      }
       empty.style.display = "none";
 
       // max volume in current view — used to scale the mini bar relatively

@@ -5,8 +5,8 @@
   "type": "module",
   "main": "src/scanner.mjs",
   "scripts": {
-    "start": "node src/scanner.mjs",
-    "dev": "node --watch src/scanner.mjs"
+    "start": "node scanner_testing.mjs",
+    "dev": "node --watch scanner_testing.mjs"
   },
   "dependencies": {
     "axios": "^1.7.0",
