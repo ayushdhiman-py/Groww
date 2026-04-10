@@ -188,40 +188,60 @@
 
     .brand span { color: var(--accent); }
 
-    .market-badge {
-      display: inline-flex;
+    /* ── Market Status Capsule ──────────────────────────────────── */
+    .market-capsule {
+      display: flex;
       align-items: center;
-      gap: 5px;
-      padding: 3px 8px;
-      background: rgba(239, 68, 68, 0.1);
-      border: 1px solid rgba(239, 68, 68, 0.2);
-      border-radius: 6px;
-      font-size: 10px;
+      gap: 6px;
+      padding: 7px 14px;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      font-size: 11px;
       font-weight: 700;
-      font-family: var(--mono);
+      font-family: var(--sans);
       color: var(--red);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      transition: all 0.3s ease;
+      box-shadow: 0 0 12px rgba(239, 68, 68, 0.2);
+      transition: all 0.4s ease;
+      animation: capsulePulseRed 2s infinite;
     }
 
-    .market-badge.open {
-      background: rgba(34, 197, 94, 0.1);
-      border-color: rgba(34, 197, 94, 0.2);
+    .market-capsule.open {
+      background: rgba(34, 197, 94, 0.15);
+      border-color: rgba(34, 197, 94, 0.3);
       color: var(--green);
+      box-shadow: 0 0 12px rgba(34, 197, 94, 0.2);
+      animation: capsulePulseGreen 2s infinite;
     }
 
-    .market-dot {
-      width: 6px;
-      height: 6px;
+    .market-capsule-dot {
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: var(--red);
-      transition: background 0.3s ease;
+      box-shadow: 0 0 6px var(--red);
+      transition: all 0.4s ease;
     }
 
-    .market-badge.open .market-dot {
+    .market-capsule.open .market-capsule-dot {
       background: var(--green);
-      box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .market-capsule-text {
+      white-space: nowrap;
+    }
+
+    @keyframes capsulePulseRed {
+      0%, 100% { box-shadow: 0 0 12px rgba(239, 68, 68, 0.2); }
+      50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.35); }
+    }
+
+    @keyframes capsulePulseGreen {
+      0%, 100% { box-shadow: 0 0 12px rgba(34, 197, 94, 0.2); }
+      50% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.35); }
     }
 
     .dot {
@@ -1550,12 +1570,12 @@
       <div class="top">
         <div class="brand">
           <div class="dot"></div>Ayush's <span>Scanner</span>
-          <span class="market-badge" id="marketBadge">
-            <span class="market-dot" id="marketDot"></span>
-            <span id="marketText">--</span>
-          </span>
         </div>
         <div class="top-actions">
+          <div class="market-capsule" id="marketCapsule">
+            <span class="market-capsule-dot" id="marketDot"></span>
+            <span class="market-capsule-text" id="marketText">--</span>
+          </div>
           <button class="action-btn" onclick="load()" title="Refresh Data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
@@ -1862,9 +1882,9 @@
     }
     function tick() {
       const o = isOpen();
-      const badge = document.getElementById("marketBadge");
+      const capsule = document.getElementById("marketCapsule");
       const txt = document.getElementById("marketText");
-      if (badge) badge.className = o ? "market-badge open" : "market-badge";
+      if (capsule) capsule.className = o ? "market-capsule open" : "market-capsule";
       if (txt) txt.textContent = o ? "Open" : "Closed";
 
       const rfBtn = document.querySelector(".action-btn[onclick='load()']");
