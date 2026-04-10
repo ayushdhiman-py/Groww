@@ -324,58 +324,136 @@
       color: var(--muted);
     }
 
-    /* controls */
-    .controls {
+    /* ── Unified Controls Bar (same width as table) ────────────────── */
+    .controls-wrap {
       display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
       align-items: center;
+      gap: 0;
+      margin-bottom: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 6px 8px;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
     }
 
-    .controls input,
-    .controls select {
-      background: var(--card);
+    .controls-wrap #search {
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 13px;
+      font-family: var(--sans);
+      padding: 8px 14px;
+      outline: none;
+      border-right: 1px solid var(--border);
+      margin-right: 8px;
+    }
+
+    .controls-wrap #search::placeholder {
+      color: var(--muted);
+      opacity: 0.7;
+    }
+
+    .controls-wrap #search:focus {
+      color: var(--accent);
+    }
+
+    .controls-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .controls-wrap select {
+      background: rgba(255, 255, 255, 0.03);
       color: var(--text);
       border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 9px 14px;
+      border-radius: 8px;
+      padding: 7px 30px 7px 12px;
       font-size: 12px;
       font-family: var(--sans);
+      font-weight: 600;
       outline: none;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
-    }
-
-    .controls input:focus,
-    .controls select:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15);
-    }
-
-    .controls input {
-      flex: 1;
-      min-width: 220px;
-      max-width: 420px;
-    }
-
-    .controls select {
-      min-width: 140px;
       cursor: pointer;
       appearance: none;
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23526a85' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
       background-repeat: no-repeat;
-      background-position: right 12px center;
-      padding-right: 32px;
+      background-position: right 10px center;
+      transition: all 0.2s ease;
     }
 
-    .controls select:hover {
-      border-color: rgba(0, 212, 170, 0.4);
+    .controls-wrap select:hover {
+      border-color: var(--accent);
+      background-color: rgba(0, 212, 170, 0.05);
     }
 
-    .controls .idx-wrap {
-      margin-left: auto;
+    .controls-wrap select:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15);
+    }
+
+    /* Indices toggle inside controls */
+    .controls-wrap .idx-tg {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 8px;
+      height: 32px;
       display: flex;
       align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .controls-wrap .idx-tg:hover {
+      border-color: rgba(0, 212, 170, 0.4);
+      color: var(--text);
+    }
+
+    .controls-wrap .idx-tg input { display: none; }
+
+    .controls-wrap .idx-tg-s {
+      width: 28px;
+      height: 14px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 99px;
+      position: relative;
+      transition: 0.3s;
+      flex-shrink: 0;
+    }
+
+    .controls-wrap .idx-tg-s::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 10px;
+      height: 10px;
+      background: var(--muted);
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+
+    .controls-wrap .idx-tg input:checked + .idx-tg-s {
+      background: rgba(0, 212, 170, 0.15);
+    }
+
+    .controls-wrap .idx-tg input:checked + .idx-tg-s::after {
+      left: 16px;
+      background: var(--accent);
+      box-shadow: 0 0 6px var(--accent);
+    }
+
+    .controls-wrap .idx-tg input:checked ~ .idx-tg-l {
+      color: var(--accent);
     }
 
     /* legend */
@@ -1248,10 +1326,10 @@
     .p-lo { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 
     @media(max-width:700px) {
-      .controls { flex-direction: column; gap: 8px; }
-      .controls input { min-width: 100%; max-width: 100%; }
-      .controls select { min-width: 100%; }
-      .controls .idx-wrap { margin-left: 0; }
+      .controls-wrap { flex-direction: column; gap: 6px; padding: 8px; }
+      .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; }
+      .controls-right { width: 100%; justify-content: space-between; }
+      .controls-wrap select { flex: 1; }
       .sc { min-width: 80px; }
 
       /* Mobile responsive table */
@@ -1451,19 +1529,19 @@
         </div>
       </details>
 
-      <div class="controls">
+      <div class="controls-wrap">
         <input id="search" placeholder="Search symbol, sector, or signal…" oninput="render()" />
-        <select id="tf" onchange="load()">
-          <option value="ALL">All Timeframes</option>
-          <option value="1m">1 Min</option>
-          <option value="5m">5 Min</option>
-          <option value="10m">10 Min</option>
-          <option value="15m">15 Min</option>
-          <option value="30m">30 Min</option>
-          <option value="1h">1 Hour</option>
-          <option value="1d" selected>1 Day</option>
-        </select>
-        <div class="idx-wrap">
+        <div class="controls-right">
+          <select id="tf" onchange="load()">
+            <option value="ALL">All Timeframes</option>
+            <option value="1m">1 Min</option>
+            <option value="5m">5 Min</option>
+            <option value="10m">10 Min</option>
+            <option value="15m">15 Min</option>
+            <option value="30m">30 Min</option>
+            <option value="1h">1 Hour</option>
+            <option value="1d" selected>1 Day</option>
+          </select>
           <label class="idx-tg" title="Include Indices in main list">
             <input type="checkbox" id="idxTgl" checked onchange="toggleIndices()"/>
             <span class="idx-tg-s"></span>
