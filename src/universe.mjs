@@ -45,11 +45,11 @@ export const UNIVERSE = [
 
     // ── Metals & Mining ───────────────────────────────────────────────────────
     "VEDL", "HINDZINC", "SAIL", "NATIONALUM", "HINDCOPPER",
-    "NMDC", "MOIL", "GMDC", "GRAPHITE", "APLAPOLLO",
+    "NMDC", "MOIL", "GMDCLTD", "GRAPHITE", "APLAPOLLO",
 
     // ── Cement ────────────────────────────────────────────────────────────────
     "AMBUJACEM", "JSWCEMENT", "ULTRACEMCO", "SHREECEM", "JKCEMENT",
-    "RAMCOCEM", "ORIENTCEM", "INDIACEM", "HEIDELBERG", "PRISMJOHNSN", "DALBHARAT",
+    "RAMCOCEM", "ORIENTCEM", "INDIACEM", "HEIDELBERG", "PRISMJOHN", "DALBHARAT",
 
     // ── Infra & Engineering ───────────────────────────────────────────────────
     "PGINVIT", "RVNL", "IRCON", "RITES", "NBCC",
@@ -160,13 +160,13 @@ export const SECTOR = {
 
     METAL: [
         "HINDALCO", "VEDL", "HINDZINC", "TATASTEEL", "JSWSTEEL",
-        "SAIL", "NATIONALUM", "HINDCOPPER", "NMDC", "MOIL", "GMDC",
+        "SAIL", "NATIONALUM", "HINDCOPPER", "NMDC", "MOIL", "GMDCLTD",
         "GRAPHITE", "APLAPOLLO"
     ],
 
     CEMENT: [
         "AMBUJACEM", "JSWCEMENT", "ULTRACEMCO", "SHREECEM", "JKCEMENT",
-        "RAMCOCEM", "ORIENTCEM", "INDIACEM", "HEIDELBERG", "PRISMJOHNSN",
+        "RAMCOCEM", "ORIENTCEM", "INDIACEM", "HEIDELBERG", "PRISMJOHN",
         "DALBHARAT", "GRASIM"
     ],
 
