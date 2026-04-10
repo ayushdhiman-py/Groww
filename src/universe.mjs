@@ -31,7 +31,7 @@ export const UNIVERSE = [
 
     // ── Defence ───────────────────────────────────────────────────────────────
     "BEL", "HAL", "GRSE", "COCHINSHIP", "BDL",
-    "SOLARINDS", "MAZDOCK", "BHEL", "BEML", "IDEAFORGE", "ASTRAMICRO",
+    "SOLARINDS", "MAZDOCK", "BHEL", "BEML", "ASTRAMICRO",
 
     // ── Auto & Components ─────────────────────────────────────────────────────
     "MOTHERSON", "TVSMOTOR", "EXIDEIND", "ESCORTS", "ENDURANCE",
@@ -62,41 +62,41 @@ export const UNIVERSE = [
     "MANKIND", "IPCALAB", "LAURUSLABS", "NATCOPHARM", "GRANULES", "CONCORDBIO",
 
     // ── Healthcare & Diagnostics ──────────────────────────────────────────────
-    "APOLLOHOSP", "MAXHEALTH", "MEDANTA", "FORTIS", "NARAYANA", "RAINBOW",
+    "APOLLOHOSP", "MAXHEALTH", "MEDANTA", "FORTIS", "RAINBOW",
     "LALPATHLAB", "METROPOLIS", "THYROCARE",
 
     // ── IT Services ───────────────────────────────────────────────────────────
     "LTIM", "PERSISTENT", "MPHASIS", "LTTS",
-    "COFORGE", "TATAELXSI", "KPITTECH", "ROUTE", "TANLA", "TEJANETWORKS",
+    "COFORGE", "TATAELXSI", "KPITTECH", "TANLA",
 
     // ── Telecom ───────────────────────────────────────────────────────────────
-    "BHARTIARTL", "IDEA", "TTML", "RAILTEL", "INDUS", "STERLITE", "HFCL", "TATACOMM",
+    "BHARTIARTL", "IDEA", "TTML", "RAILTEL", "INDUSTOWER", "STLTECH", "HFCL", "TATACOMM",
 
     // ── FMCG & Consumer Staples ───────────────────────────────────────────────
     "HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM",
     "DABUR", "GODREJCP", "MARICO", "BALRAMCHIN", "COLPAL",
-    "EIDPARRY", "DHAMPUR", "TRIVENI",
+    "EIDPARRY", "DHAMPURSUG", "TRIVENI",
 
     // ── QSR & Entertainment ───────────────────────────────────────────────────
     "JUBLFOOD", "WESTLIFE", "SAPPHIRE", "PVRINOX",
 
     // ── Chemicals & Specialty ─────────────────────────────────────────────────
     "PIDILITIND", "DEEPAKNTR", "ASTRAL", "ATUL", "SRF",
-    "ALKYLAMINE", "NAVINFLUOR", "AARTI", "FLUOROCHEM", "GALAXYSURF",
-    "CLEANSCIENCE", "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL",
+    "ALKYLAMINE", "NAVINFLUOR", "AARTIIND", "FLUOROCHEM", "GALAXYSURF",
+    "CLEAN", "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL",
 
     // ── Paints ────────────────────────────────────────────────────────────────
     "BERGEPAINT", "ASIANPAINT",
 
     // ── Capital Goods & Industrials ───────────────────────────────────────────
     "SIEMENS", "ABB", "CUMMINSIND", "POLYCAB", "DIXON",
-    "HITACHIENERGY", "VOLTAS", "CROMPTON",
+    "HITACHI", "VOLTAS", "CROMPTON",
 
     // ── Real Estate ───────────────────────────────────────────────────────────
     "DLF", "GODREJPROP", "OBEROIRLTY", "LODHA", "PRESTIGE",
 
     // ── Consumer & Retail ─────────────────────────────────────────────────────
-    "TITAN", "TRENT", "DMART", "KALYAN", "PAGEIND", "KKCL",
+    "TITAN", "TRENT", "DMART", "KALYANKJIL", "PAGEIND", "KKCL",
 
     // ── Consumer Tech & New Age ───────────────────────────────────────────────
     "ZOMATO", "PAYTM", "NYKAA", "SWIGGY",
@@ -140,7 +140,7 @@ export const SECTOR = {
 
     DEFENCE: [
         "BEL", "HAL", "GRSE", "COCHINSHIP", "BDL",
-        "SOLARINDS", "MAZDOCK", "BHEL", "BEML", "IDEAFORGE", "ASTRAMICRO"
+        "SOLARINDS", "MAZDOCK", "BHEL", "BEML", "ASTRAMICRO"
     ],
 
     AUTO: [
@@ -172,7 +172,8 @@ export const SECTOR = {
 
     INFRA: [
         "LT", "ADANIPORTS", "ADANIENT", "PGINVIT",
-        "RVNL", "IRCON", "RITES", "NBCC", "GMRINFRA", "ENGINERSIN"
+        "RVNL", "IRCON", "RITES", "NBCC", "GMRINFRA", "ENGINERSIN",
+        "GESHIP", "IRCTC", "CONCOR"
     ],
 
     PHARMA: [
@@ -183,24 +184,24 @@ export const SECTOR = {
     ],
 
     HEALTHCARE: [
-        "APOLLOHOSP", "MAXHEALTH", "MEDANTA", "FORTIS", "NARAYANA", "RAINBOW",
+        "APOLLOHOSP", "MAXHEALTH", "MEDANTA", "FORTIS", "RAINBOW",
         "LALPATHLAB", "METROPOLIS", "THYROCARE"
     ],
 
     IT: [
         "INFY", "TCS", "HCLTECH", "TECHM", "WIPRO",
         "LTIM", "PERSISTENT", "MPHASIS", "LTTS",
-        "COFORGE", "TATAELXSI", "KPITTECH", "ROUTE", "TANLA", "TEJANETWORKS"
+        "COFORGE", "TATAELXSI", "KPITTECH", "TANLA"
     ],
 
     TELECOM: [
-        "BHARTIARTL", "IDEA", "TTML", "RAILTEL", "INDUS", "STERLITE", "HFCL", "TATACOMM"
+        "BHARTIARTL", "IDEA", "TTML", "RAILTEL", "INDUSTOWER", "STLTECH", "HFCL", "TATACOMM"
     ],
 
     FMCG: [
         "HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM",
         "DABUR", "GODREJCP", "MARICO", "BALRAMCHIN", "COLPAL",
-        "EIDPARRY", "DHAMPUR", "TRIVENI"
+        "EIDPARRY", "DHAMPURSUG", "TRIVENI"
     ],
 
     QSR: [
@@ -209,8 +210,8 @@ export const SECTOR = {
 
     CHEMICALS: [
         "PIDILITIND", "DEEPAKNTR", "ASTRAL", "ATUL", "SRF",
-        "ALKYLAMINE", "NAVINFLUOR", "AARTI", "FLUOROCHEM", "GALAXYSURF",
-        "CLEANSCIENCE", "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL"
+        "ALKYLAMINE", "NAVINFLUOR", "AARTIIND", "FLUOROCHEM", "GALAXYSURF",
+        "CLEAN", "FINEORG", "TATACHEM", "GNFC", "CHAMBLFERT", "COROMANDEL"
     ],
 
     PAINTS: [
@@ -219,7 +220,7 @@ export const SECTOR = {
 
     CAPITAL_GOODS: [
         "SIEMENS", "ABB", "CUMMINSIND", "POLYCAB", "DIXON",
-        "HITACHIENERGY", "VOLTAS", "CROMPTON"
+        "HITACHI", "VOLTAS", "CROMPTON"
     ],
 
     REAL_ESTATE: [
@@ -227,7 +228,7 @@ export const SECTOR = {
     ],
 
     CONSUMER: [
-        "TITAN", "TRENT", "DMART", "KALYAN", "PAGEIND", "KKCL", "CASTROLIND"
+        "TITAN", "TRENT", "DMART", "KALYANKJIL", "PAGEIND", "KKCL", "CASTROLIND"
     ],
 
     CONSUMER_TECH: [
