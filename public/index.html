@@ -155,9 +155,7 @@
       margin-top: 6px;
     }
 
-    .lbtn:hover {
-      opacity: .87;
-    }
+    /* .lbtn:hover removed */
 
     .note {
       font-size: 11px;
@@ -309,12 +307,6 @@
       transition: all 0.15s ease;
     }
 
-    .action-btn:hover {
-      background: rgba(0, 212, 170, 0.15);
-      border-color: rgba(0, 212, 170, 0.4);
-      transform: translateY(-1px);
-    }
-
     .action-btn:active {
       transform: translateY(0);
     }
@@ -325,12 +317,7 @@
       color: var(--muted);
     }
 
-    .action-btn.secondary:hover {
-      background: rgba(255, 255, 255, 0.08);
-      border-color: rgba(255, 255, 255, 0.15);
-      color: var(--text);
-    }
-
+    /* .action-btn.secondary:hover removed */
     .action-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
@@ -450,62 +437,68 @@
     .custom-select-trigger {
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 7px 10px;
-      background: rgba(255, 255, 255, 0.03);
+      gap: 8px;
+      padding: 8px 14px;
+      background: rgba(0, 212, 170, 0.03);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      font-size: 12px;
+      border-radius: 10px;
+      font-size: 13px;
       font-weight: 600;
       font-family: var(--mono);
-      color: var(--text);
+      color: var(--accent);
       cursor: pointer;
-      transition: all 0.15s ease;
+      transition: all 0.2s ease;
       white-space: nowrap;
+      min-width: 120px;
+      justify-content: space-between;
     }
 
-    .custom-select-trigger:hover {
-      border-color: rgba(0, 212, 170, 0.4);
-    }
+    /* .custom-select-trigger:hover removed */
 
     .custom-select.open .custom-select-trigger {
       border-color: var(--accent);
-      border-bottom-left-radius: 0;
-      border-bottom-right-radius: 0;
-      background: rgba(0, 212, 170, 0.06);
+      border-radius: 10px 10px 0 0;
+      background: rgba(0, 212, 170, 0.1);
+      box-shadow: 0 0 16px rgba(0, 212, 170, 0.15);
+    }
+
+    #tfSelected {
+      flex: 1;
+      text-align: left;
     }
 
     .tf-icon {
-      font-size: 13px;
-      opacity: 0.5;
+      font-size: 14px;
+      opacity: 0.7;
     }
 
     .tf-chevron {
       font-size: 10px;
-      opacity: 0.4;
-      transition: transform 0.15s ease;
+      opacity: 0.5;
+      transition: transform 0.2s ease;
     }
 
     .custom-select.open .tf-chevron {
       transform: rotate(180deg);
+      opacity: 0.8;
     }
 
     .custom-select-options {
       position: absolute;
       top: 100%;
-      left: -1px;
+      left: 0;
+      right: 0;
       background: var(--card2);
       border: 1px solid var(--border);
       border-top: none;
-      border-bottom-left-radius: 8px;
-      border-bottom-right-radius: 8px;
-      padding: 4px;
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+      border-radius: 0 0 10px 10px;
+      padding: 8px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 212, 170, 0.1);
       z-index: 1000;
       opacity: 0;
       visibility: hidden;
-      transform: translateY(-4px);
-      transition: all 0.15s ease;
+      transform: translateY(-6px);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .custom-select.open .custom-select-options {
@@ -516,30 +509,70 @@
 
     .option-grid {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
-      gap: 2px;
+      grid-template-columns: 1fr;
+      gap: 4px;
     }
 
     .option {
-      padding: 6px 0;
+      padding: 10px 12px;
       text-align: center;
-      font-size: 11px;
-      font-weight: 600;
+      font-size: 13px;
+      font-weight: 700;
       font-family: var(--mono);
-      color: var(--muted);
-      border-radius: 4px;
+      color: var(--text);
+      border-radius: 8px;
       cursor: pointer;
-      transition: all 0.12s ease;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
     }
 
-    .option:hover {
-      background: rgba(0, 212, 170, 0.08);
-      color: var(--text);
+    .option::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(0, 212, 170, 0.05), transparent);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+
+    /* .option:hover and .option:hover::before removed */
+
+    .option:active {
+      transform: translateY(0);
     }
 
     .option.active {
-      background: rgba(0, 212, 170, 0.15);
+      background: linear-gradient(135deg, rgba(0, 212, 170, 0.2), rgba(0, 212, 170, 0.1));
       color: var(--accent);
+      border-color: rgba(0, 212, 170, 0.4);
+      box-shadow: 0 0 12px rgba(0, 212, 170, 0.15);
+    }
+
+    .option.active::after {
+      content: '✓';
+      position: absolute;
+      top: 3px;
+      right: 6px;
+      font-size: 9px;
+      opacity: 0.7;
+      color: var(--accent);
+    }
+
+    .option div {
+      font-size: 11px;
+      opacity: 0.65;
+      font-weight: 500;
+    }
+
+    .option.active div {
+      opacity: 0.85;
     }
 
     /* Indices toggle inside controls */
@@ -560,10 +593,7 @@
       transition: all 0.2s;
     }
 
-    .controls-wrap .idx-tg:hover {
-      border-color: rgba(0, 212, 170, 0.4);
-      color: var(--text);
-    }
+    /* .controls-wrap .idx-tg:hover removed */
 
     .controls-wrap .idx-tg input { display: none; }
 
@@ -673,14 +703,7 @@
       user-select: none;
       white-space: nowrap;
     }
-
-    .tab:hover {
-      color: var(--text);
-      background: rgba(255, 255, 255, 0.04);
-      border-color: rgba(255, 255, 255, 0.06);
-      transform: translateY(-1px);
-    }
-
+    /* .tab:hover removed */
     .tab .tab-icon {
       font-size: 14px;
       line-height: 1;
@@ -872,7 +895,7 @@
 
     /* indices toggle */
     .idx-tg{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--muted);font-size:11px;font-weight:600;background:var(--card);border:1px solid var(--border);padding:6px 12px;border-radius:10px;transition:all .2s; height:34px;}
-    .idx-tg:hover{border-color:rgba(0,212,170,.4);color:var(--text);}
+    /* .idx-tg:hover removed */
     .idx-tg input{display:none;}
     .idx-tg-s{width:30px;height:16px;background:rgba(255,255,255,.05);border-radius:99px;position:relative;transition:.3s;}
     .idx-tg-s::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--muted);border-radius:50%;transition:.3s;}
@@ -937,9 +960,7 @@
       padding-right: 20px;
     }
 
-    thead th:hover {
-      color: var(--text);
-    }
+    /* thead th:hover removed */
 
     tbody td {
       padding: 14px 14px;
@@ -969,22 +990,14 @@
     }
 
     tbody tr {
-      transition: background 0.2s ease;
-    }
-
-    tbody tr:hover {
-      background: rgba(0, 212, 170, 0.04);
-      box-shadow: inset 3px 0 0 var(--accent);
+      /* hover removed */
     }
 
     tbody tr.gc-row {
       background: rgba(167, 139, 250, .03);
     }
 
-    tbody tr.gc-row:hover {
-      background: rgba(167, 139, 250, .07);
-      box-shadow: inset 3px 0 0 var(--purple);
-    }
+    /* tbody tr.gc-row:hover removed */
 
     tbody tr.new-row {
       background: rgba(0, 212, 170, .03);
@@ -999,10 +1012,7 @@
       transition: all 0.2s ease;
     }
 
-    .data-bulb:hover {
-      border-bottom-color: var(--accent);
-      color: var(--text);
-    }
+    /* .data-bulb:hover removed */
 
     .sym {
       font-weight: 700;
@@ -1161,35 +1171,7 @@
       font-size: 12px;
     }
 
-    [title],
-    [data-tip-text],
-    [data-tip] {
-      cursor: help;
-    }
-
-    .global-tooltip {
-      position: absolute;
-      background: rgba(13, 18, 32, 0.95);
-      backdrop-filter: blur(4px);
-      color: var(--text);
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 11px;
-      font-family: var(--sans);
-      pointer-events: none;
-      opacity: 0;
-      z-index: 9999;
-      border: 1px solid var(--border);
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
-      max-width: 260px;
-      line-height: 1.5;
-      transition: opacity 0.15s ease;
-      white-space: pre-wrap;
-    }
-
-    .global-tooltip.visible {
-      opacity: 1;
-    }
+    /* Tooltip CSS removed */
 
     /* Guide Details styling */
     .guide-details {
@@ -1563,10 +1545,7 @@
       transition: all 0.2s;
     }
 
-    .modal-close:hover {
-      background: rgba(255, 255, 255, 0.1);
-      color: var(--text);
-    }
+    /* .modal-close:hover removed */
   </style>
 </head>
 
@@ -1685,13 +1664,14 @@
         <div class="controls-right">
           <div class="custom-select" id="tfDropdown">
             <div class="custom-select-trigger" onclick="toggleTfDropdown()">
-              <span class="tf-icon">⏱</span>
-              <span id="tfSelected">1 Day</span>
+              <span style="display: flex; align-items: center; gap: 8px;">
+                <span class="tf-icon">⏱</span>
+                <span id="tfSelected">1 Day</span>
+              </span>
               <span class="tf-chevron">▾</span>
             </div>
             <div class="custom-select-options" id="tfOptions">
               <div class="option-grid">
-                <div class="option" data-value="ALL" onclick="selectTf('ALL', this)">All</div>
                 <div class="option" data-value="1m" onclick="selectTf('1m', this)">1m</div>
                 <div class="option" data-value="5m" onclick="selectTf('5m', this)">5m</div>
                 <div class="option" data-value="10m" onclick="selectTf('10m', this)">10m</div>
@@ -1885,8 +1865,9 @@
       document.querySelectorAll("#tfOptions .option").forEach(o => o.classList.remove("active"));
       optionEl.classList.add("active");
 
-      // Update trigger text
-      document.getElementById("tfSelected").textContent = optionEl.textContent;
+      // Update trigger text - get the text content from the inner div
+      const label = optionEl.querySelector('div')?.textContent || optionEl.textContent;
+      document.getElementById("tfSelected").textContent = label;
 
       // Close dropdown
       document.getElementById("tfDropdown").classList.remove("open");
@@ -2398,7 +2379,7 @@
           r.checks?.["Vol spike + price up"],
           r.checks?.["RSI healthy (45-75)"],
           r.checks?.["Price > VWAP"]
-        ].map((isOn, idx) => `<span class='ck ${isOn ? "on" : "off"}' data-tip='${scoreTooltips[idx]} -> ${isOn ? "BULLISH" : "BEARISH"} SIGNAL'></span>`).join("");
+        ].map((isOn, idx) => `<span class='ck ${isOn ? "on" : "off"}'></span>`).join("");
 
         const ratCls = r.rating === "STRONG BUY" ? "rat-sb" : r.rating === "MODERATE" ? "rat-wl" : "rat-sk";
         
@@ -2415,38 +2396,26 @@
 
           <!-- Symbol / Sector -->
           <td style="text-align:left;">
-            <div class='sym' style="white-space:nowrap;"
-              data-tip="${r.symbol} · ${r.sector} sector · Signal: ${r.signal} · RSI: ${rsiTxt} -> ${r.goldenCross ? 'GOLDEN CROSS -> BULLISH BREAKOUT' : r.deathCross ? 'DEATH CROSS -> BEARISH BREAKDOWN' : 'NO CROSS ACTIVE'}"
-            >${expandToggle}${r.symbol} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
+            <div class='sym' style="white-space:nowrap;">${expandToggle}${r.symbol} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
             <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
           </td>
 
           <!-- CMP & VWAP -->
           <td>
             <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-              <span class="price-bold"
-                data-tip="CMP: ₹${r.price.toFixed(2)} · Open: ₹${r.open} · Change: ${chg} -> CURRENT PRICE ACTION"
-              >₹${r.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-              <span class="muted-xl"
-                data-tip="Price ${r.aboveVwap ? 'ABOVE' : 'BELOW'} VWAP -> ${r.aboveVwap ? 'BULLISH' : 'BEARISH'} SIGNAL"
-              >VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
+              <span class="price-bold">₹${r.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              <span class="muted-xl">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
             </div>
           </td>
 
           <!-- Chart -->
-          <td
-            data-tip="Recent Price Trend vs EMAs -> VISUAL TREND ANALYSIS"
-          ><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
+          <td><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
 
           <!-- EMA -->
           <td>
             <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-              <div
-                data-tip="EMA 21 ${r.ema21above ? '>' : '<'} 50 -> ${r.ema21above ? 'BULLISH' : 'BEARISH'} ALIGNMENT"
-              >${statusTxt}</div>
-              <div class="muted-xl ${cc}" style="font-weight:600;"
-                data-tip="EMA Gap: ${Math.abs(r.emaGap).toFixed(2)}% -> ${Math.abs(r.emaGap) > 3 ? 'STRONG' : 'WEAK'} TREND STRENGTH"
-              >Gap ${Math.abs(r.emaGap).toFixed(2)}%</div>
+              <div>${statusTxt}</div>
+              <div class="muted-xl ${cc}" style="font-weight:600;">Gap ${Math.abs(r.emaGap).toFixed(2)}%</div>
             </div>
           </td>
 
@@ -2454,50 +2423,35 @@
           <td>
             <div style="display:flex; flex-direction:column; align-items:center; gap:5px;">
               <div class="${r.volSpike ? 'vol-spike-⚡' : ''}"
-                data-tip="Current Volume: ${fmtV(r.volume)} -> ${r.volSpike ? 'BULLISH VOL SPIKE' : 'NORMAL ACTIVITY'}"
                 style="font-size:13px; font-weight:700; font-family:var(--mono); color:${r.volSpike ? 'var(--yellow)' : 'var(--text)'};"
               >${r.volSpike ? '⚡ ' : ''}${fmtV(r.volume)}</div>
-              <div style="width:88px; height:7px; background:rgba(255,255,255,0.07); border-radius:6px; overflow:hidden; cursor:crosshair; transition:transform 0.2s ease;"
-                onmouseover="this.style.transform='scaleY(1.9)'"
-                onmouseout="this.style.transform='scaleY(1)'"
-                data-tip="Session Activity: ${volBarPct.toFixed(0)}% of Peak -> ${volBarPct > 70 ? 'BULLISH' : 'NORMAL'} PARTICIPATION"
-              >
+              <div style="width:88px; height:7px; background:rgba(255,255,255,0.07); border-radius:6px; overflow:hidden;">
                 <div class="vol-bar-fill ${r.volSpike ? 'vb-spike' : 'vb-normal'}" style="width:${volBarPct}%; height:100%; border-radius:6px; transition:width 0.4s ease;"></div>
               </div>
-              <div class="${buzz >= 0 ? 'up' : 'dn'}" style="font-size:10px; font-family:var(--mono);"
-                data-tip="Vol Change vs Prev: ${buzz >= 0 ? '+' : ''}${fmtV(buzz)} -> ${buzz > 0 ? 'BULLISH' : 'BEARISH'} INTEREST"
-              >${buzz >= 0 ? '+' : ''}${fmtV(buzz)} ${buzz >= 0 ? '↑' : '↓'}</div>
+              <div class="${buzz >= 0 ? 'up' : 'dn'}" style="font-size:10px; font-family:var(--mono);">${buzz >= 0 ? '+' : ''}${fmtV(buzz)} ${buzz >= 0 ? '↑' : '↓'}</div>
             </div>
           </td>
 
           <!-- MACD -->
           <td>
-            <div style="display:flex; justify-content:center;"
-              data-tip="MACD ${r.macdAbove ? 'ABOVE' : 'BELOW'} Signal -> ${r.macdAbove ? 'BULLISH' : 'BEARISH'} MOMENTUM"
-            >${macdTxt}</div>
+            <div style="display:flex; justify-content:center;">${macdTxt}</div>
           </td>
 
           <!-- Day Range -->
           <td>
-            <div data-tip="Price near Day ${r.price > (r.dayH + r.dayL) / 2 ? 'HIGH' : 'LOW'} -> ${r.price > (r.dayH + r.dayL) / 2 ? 'BULLISH' : 'BEARISH'} PRESSURE" style="cursor:help;">
-              ${genRangeBar(r.dayL, r.dayH, r.price)}
-            </div>
+            <div>${genRangeBar(r.dayL, r.dayH, r.price)}</div>
           </td>
 
           <!-- 52W Range -->
           <td>
-            <div data-tip="Price near 52W ${parseFloat(wkHiPct) > -10 ? 'HIGH' : 'LOW'} -> ${parseFloat(wkHiPct) > -10 ? 'BULLISH' : 'BEARISH'} TREND" style="cursor:help;">
-              ${genRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}
-            </div>
+            <div>${genRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div>
 
           </td>
 
           <!-- Score -->
           <td>
             <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-              <span style="font-weight:800; font-family:var(--mono); font-size:15px; color:var(--text);"
-                data-tip="Technical Score: ${r.techScore}/7 -> ${r.techScore >= 5 ? 'STRONG BULLISH' : r.techScore >= 3 ? 'MODERATE' : 'WEAK/SKIP'} CONVICTION"
-              >${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span></span>
+              <span style="font-weight:800; font-family:var(--mono); font-size:15px; color:var(--text);">${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span></span>
               <div class="checks">${boxes}</div>
             </div>
           </td>
@@ -2505,13 +2459,11 @@
           <!-- Rating & Flags -->
           <td>
             <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
-              <div class="rat-badge ${ratCls}"
-                data-tip="Final Rating: ${r.rating} -> ${r.rating === 'STRONG BUY' ? 'HIGH CONVICTION' : 'WATCH/WAIT'} ENTRY"
-              >${r.rating}</div>
+              <div class="rat-badge ${ratCls}">${r.rating}</div>
               <div class="flag-group">
-                <span class="up" style="font-weight:700; font-size:11px;" data-tip="${r.techScore} Bullish Signals -> BULLISH CONVICTION">⚑${r.techScore}</span>
+                <span class="up" style="font-weight:700; font-size:11px;">⚑${r.techScore}</span>
                 <span style="color:var(--muted); font-size:9px; margin:0 3px;">/</span>
-                <span class="dn" style="font-weight:700; font-size:11px;" data-tip="${r.redCount} Bearish Flags -> BEARISH RISK">⚑${r.redCount}</span>
+                <span class="dn" style="font-weight:700; font-size:11px;">⚑${r.redCount}</span>
               </div>
             </div>
           </td>
@@ -2800,7 +2752,7 @@
 
         const glowColor = type === 'CE' ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)';
 
-        return `<tr style="transition:all 0.2s ease;" onmouseover="this.style.background='${glowColor}'" onmouseout="this.style.background='transparent'">
+        return `<tr>
           <td style="padding:10px 8px; font-weight:700; font-family:var(--mono);">₹${strike}</td>
           <td style="font-family:var(--mono); color:${type === 'CE' ? 'var(--green)' : 'var(--red)'}; font-weight:700;">₹${(+ltp).toFixed(2)}</td>
           <td><span class="greek-pill">Δ ${(+d).toFixed(2)}</span></td>
@@ -2882,83 +2834,6 @@
       document.getElementById("chartModal").style.display = "none";
       if (modalChartIns) { modalChartIns.destroy(); modalChartIns = null; }
     }
-
-    // --- GLOBAL TOOLTIP LOGIC ---
-    const gTooltip = document.createElement('div');
-    gTooltip.className = 'global-tooltip';
-    gTooltip.style.cssText = `
-      position: absolute;
-      background: rgba(15, 23, 42, 0.85);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      border-top: 1px solid rgba(255, 255, 255, 0.2);
-      padding: 10px 16px;
-      border-radius: 12px;
-      color: rgba(255, 255, 255, 0.95);
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 0.02em;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-      transform: scale(0.95) translateY(5px);
-      z-index: 10000;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
-      white-space: normal;
-      max-width: 300px;
-      line-height: 1.5;
-    `;
-    document.body.appendChild(gTooltip);
-
-    document.addEventListener('mouseover', (e) => {
-      const target = e.target.closest('[title], [data-tip], [data-tip-text]');
-      if (target) {
-        if (target.hasAttribute('title')) {
-          target.setAttribute('data-tip-text', target.getAttribute('title'));
-          target.removeAttribute('title');
-        } else if (target.hasAttribute('data-tip') && !target.hasAttribute('data-tip-text')) {
-          target.setAttribute('data-tip-text', target.getAttribute('data-tip'));
-        }
-        const text = target.getAttribute('data-tip-text');
-        if (text) {
-          // Check for HTML injection markers
-          if (text.includes("</b>") || text.includes("</span>")) {
-            gTooltip.innerHTML = text;
-          } else {
-            gTooltip.textContent = text;
-          }
-          gTooltip.classList.add('visible');
-          gTooltip.style.opacity = '1';
-          gTooltip.style.transform = 'scale(1) translateY(0)';
-        }
-      }
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (gTooltip.classList.contains('visible')) {
-        let x = e.pageX + 18;
-        let y = e.pageY + 18;
-        const rect = gTooltip.getBoundingClientRect();
-        if (x + rect.width > window.innerWidth) {
-          x = e.pageX - rect.width - 18; // Flip to the left side of the cursor
-        }
-        if (y + rect.height > window.innerHeight + window.scrollY) {
-          y = e.pageY - rect.height - 18; // Flip to above the cursor
-        }
-        gTooltip.style.left = x + 'px';
-        gTooltip.style.top = y + 'px';
-      }
-    });
-
-    document.addEventListener('mouseout', (e) => {
-      const target = e.target.closest('[title], [data-tip], [data-tip-text]');
-      if (target) {
-        gTooltip.classList.remove('visible');
-        gTooltip.style.opacity = '0';
-        gTooltip.style.transform = 'scale(0.95) translateY(5px)';
-      }
-    });
 
     // ── Keyboard Shortcuts ─────────────────────────────────────────────
     document.addEventListener('keydown', (e) => {

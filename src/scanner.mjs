@@ -187,17 +187,32 @@ function buildSignal(candles, tf, symbol, ltp = null) {
 }
 
 const w52Cache = new Map();
+const symbolErrorCount = new Map(); // Track consecutive errors per symbol
+const MAX_CONSECUTIVE_ERRORS = 3; // Skip symbol after this many consecutive errors
 
 async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
+    // Skip symbols with too many consecutive errors (likely invalid symbols)
+    const consecutiveErrors = symbolErrorCount.get(symbol) || 0;
+    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+        process.stdout.write(`\r\x1b[K⏭️ Skipping ${symbol} (${consecutiveErrors} consecutive errors)\n`);
+        return;
+    }
+    
     // Process 1d first to cache the 52-week high/low
     const tfs = Object.keys(TF_MAP).sort((a, b) => a === "1d" ? -1 : (b === "1d" ? 1 : 0));
     let okCount = 0;
+    let symbolHadError = false;
+    
     for (const tf of tfs) {
         try {
             // Scanner has lower priority, so we wait longer if needed
             await rateLimit();
             process.stdout.write(`\r\x1b[K⏳ ${progressInfo} ${symbol}: [${okCount}/${tfs.length}] Scanning ${tf}...`);
             const candles = await fetchCandles(symbol, tf);
+            
+            // Reset error count on successful fetch
+            symbolErrorCount.set(symbol, 0);
+            
             const row = buildSignal(candles, tf, symbol, ltp);
             if (!row) continue;
 
@@ -226,9 +241,25 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
             let errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
             if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
             errors.push(`${symbol}/${tf}: ${errMsg}`);
+            symbolHadError = true;
+            
+            // Check if it's a GA001 error (invalid symbol)
+            if (errMsg.includes("GA001") || errMsg.includes("trading symbol")) {
+                // Mark as invalid immediately
+                symbolErrorCount.set(symbol, MAX_CONSECUTIVE_ERRORS);
+                process.stdout.write(`\n\x1b[33m⚠️ Invalid symbol: ${symbol} - will skip in future scans\x1b[0m\n`);
+                break; // Stop processing this symbol entirely
+            }
+            
             // Force a new line for actual errors so they don't get overwritten
             process.stdout.write(`\n\x1b[31m❌ Error: ${symbol}/${tf} → ${errMsg}\x1b[0m\n`);
         }
+    }
+    
+    // Update error count for this symbol
+    if (symbolHadError) {
+        const currentErrors = symbolErrorCount.get(symbol) || 0;
+        symbolErrorCount.set(symbol, currentErrors + 1);
     }
 }
 

@@ -98,47 +98,91 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
             const fetchedAt = new Date().toISOString();
 
             // Parse and format real data
-            const strikeData = rawChain.strikes || rawChain.strikeData || [];
+            const rawStrikes = rawChain.strikes || rawChain.strikeData || {};
             const calls = [];
             const puts = [];
 
-            // Extract top 5 by volume/OI
-            strikeData.forEach(s => {
-                if (s.callOption) {
-                    calls.push({
-                        strikePrice: s.strikePrice || s.strike,
-                        ltp: s.callOption?.lastPrice || s.callOption?.ltp || 0,
-                        openInterest: s.callOption?.openInterest || s.callOption?.oi || 0,
-                        oiChange: s.callOption?.changeInOI || s.callOption?.oiChange || 0,
-                        volume: s.callOption?.totalTradedVolume || s.callOption?.volume || 0,
-                        greeks: {
-                            delta: s.callOption?.delta || 0,
-                            gamma: s.callOption?.gamma || 0,
-                            theta: s.callOption?.theta || 0,
-                            vega: s.callOption?.vega || 0,
-                            iv: (s.callOption?.impliedVolatility || s.callOption?.iv || 0) * 100,
-                        },
-                        type: "CE",
-                    });
+            // Handle both array and object formats for strike data
+            if (Array.isArray(rawStrikes)) {
+                // Array format: [{ strikePrice, callOption, putOption }, ...]
+                rawStrikes.forEach(s => {
+                    if (s.callOption) {
+                        calls.push({
+                            strikePrice: s.strikePrice || s.strike,
+                            ltp: s.callOption?.lastPrice || s.callOption?.ltp || 0,
+                            openInterest: s.callOption?.openInterest || s.callOption?.oi || 0,
+                            oiChange: s.callOption?.changeInOI || s.callOption?.oiChange || 0,
+                            volume: s.callOption?.totalTradedVolume || s.callOption?.volume || 0,
+                            greeks: {
+                                delta: s.callOption?.delta || 0,
+                                gamma: s.callOption?.gamma || 0,
+                                theta: s.callOption?.theta || 0,
+                                vega: s.callOption?.vega || 0,
+                                iv: (s.callOption?.impliedVolatility || s.callOption?.iv || 0) * 100,
+                            },
+                            type: "CE",
+                        });
+                    }
+                    if (s.putOption) {
+                        puts.push({
+                            strikePrice: s.strikePrice || s.strike,
+                            ltp: s.putOption?.lastPrice || s.putOption?.ltp || 0,
+                            openInterest: s.putOption?.openInterest || s.putOption?.oi || 0,
+                            oiChange: s.putOption?.changeInOI || s.putOption?.oiChange || 0,
+                            volume: s.putOption?.totalTradedVolume || s.putOption?.volume || 0,
+                            greeks: {
+                                delta: s.putOption?.delta || 0,
+                                gamma: s.putOption?.gamma || 0,
+                                theta: s.putOption?.theta || 0,
+                                vega: s.putOption?.vega || 0,
+                                iv: (s.putOption?.impliedVolatility || s.putOption?.iv || 0) * 100,
+                            },
+                            type: "PE",
+                        });
+                    }
+                });
+            } else if (typeof rawStrikes === 'object' && rawStrikes !== null) {
+                // Object format: { "1000": { CE: {...}, PE: {...} }, "1100": {...} }
+                for (const [strikePrice, optionsData] of Object.entries(rawStrikes)) {
+                    const strike = parseFloat(strikePrice);
+                    if (optionsData.CE) {
+                        calls.push({
+                            strikePrice: strike,
+                            ltp: optionsData.CE.lastPrice || optionsData.CE.ltp || 0,
+                            openInterest: optionsData.CE.openInterest || optionsData.CE.oi || 0,
+                            oiChange: optionsData.CE.changeInOI || optionsData.CE.oiChange || 0,
+                            volume: optionsData.CE.totalTradedVolume || optionsData.CE.volume || 0,
+                            greeks: {
+                                delta: optionsData.CE.delta || 0,
+                                gamma: optionsData.CE.gamma || 0,
+                                theta: optionsData.CE.theta || 0,
+                                vega: optionsData.CE.vega || 0,
+                                iv: (optionsData.CE.impliedVolatility || optionsData.CE.iv || 0) * 100,
+                            },
+                            type: "CE",
+                        });
+                    }
+                    if (optionsData.PE) {
+                        puts.push({
+                            strikePrice: strike,
+                            ltp: optionsData.PE.lastPrice || optionsData.PE.ltp || 0,
+                            openInterest: optionsData.PE.openInterest || optionsData.PE.oi || 0,
+                            oiChange: optionsData.PE.changeInOI || optionsData.PE.oiChange || 0,
+                            volume: optionsData.PE.totalTradedVolume || optionsData.PE.volume || 0,
+                            greeks: {
+                                delta: optionsData.PE.delta || 0,
+                                gamma: optionsData.PE.gamma || 0,
+                                theta: optionsData.PE.theta || 0,
+                                vega: optionsData.PE.vega || 0,
+                                iv: (optionsData.PE.impliedVolatility || optionsData.PE.iv || 0) * 100,
+                            },
+                            type: "PE",
+                        });
+                    }
                 }
-                if (s.putOption) {
-                    puts.push({
-                        strikePrice: s.strikePrice || s.strike,
-                        ltp: s.putOption?.lastPrice || s.putOption?.ltp || 0,
-                        openInterest: s.putOption?.openInterest || s.putOption?.oi || 0,
-                        oiChange: s.putOption?.changeInOI || s.putOption?.oiChange || 0,
-                        volume: s.putOption?.totalTradedVolume || s.putOption?.volume || 0,
-                        greeks: {
-                            delta: s.putOption?.delta || 0,
-                            gamma: s.putOption?.gamma || 0,
-                            theta: s.putOption?.theta || 0,
-                            vega: s.putOption?.vega || 0,
-                            iv: (s.putOption?.impliedVolatility || s.putOption?.iv || 0) * 100,
-                        },
-                        type: "PE",
-                    });
-                }
-            });
+            } else {
+                console.warn(`[OptionChain] Unexpected strike data format for ${sym}:`, typeof rawStrikes);
+            }
 
             // Sort by volume and pick top 5
             const topCalls = calls.sort((a, b) => b.volume - a.volume).slice(0, 5);

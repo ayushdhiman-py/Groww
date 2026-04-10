@@ -160,7 +160,8 @@ export async function fetchCandles(symbol, tf) {
     };
     const interval = intervalMap[tf];
     const tradingSymbolMap = {
-        "MIDCPNIFTY": "NIFTYMIDSELECT"
+        "MIDCPNIFTY": "NIFTYMIDSELECT",
+        "PRISMJOHN": "PRSMJOHNSN"
     };
     const mappedSymbol = tradingSymbolMap[symbol] || symbol;
 
