@@ -370,7 +370,6 @@
     /* ── Custom Timeframe Dropdown ───────────────────────────────── */
     .custom-select {
       position: relative;
-      min-width: 130px;
       user-select: none;
     }
 
@@ -378,64 +377,61 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 7px 12px 7px 10px;
+      padding: 7px 10px;
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--border);
       border-radius: 8px;
       font-size: 12px;
       font-weight: 600;
-      font-family: var(--sans);
+      font-family: var(--mono);
       color: var(--text);
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
       white-space: nowrap;
     }
 
     .custom-select-trigger:hover {
-      border-color: var(--accent);
-      background: rgba(0, 212, 170, 0.06);
+      border-color: rgba(0, 212, 170, 0.4);
     }
 
     .custom-select.open .custom-select-trigger {
       border-color: var(--accent);
-      background: rgba(0, 212, 170, 0.08);
-      box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.12);
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+      background: rgba(0, 212, 170, 0.06);
     }
 
     .tf-icon {
-      font-size: 14px;
-      opacity: 0.6;
+      font-size: 13px;
+      opacity: 0.5;
     }
 
     .tf-chevron {
-      margin-left: auto;
       font-size: 10px;
-      opacity: 0.5;
-      transition: transform 0.2s ease;
+      opacity: 0.4;
+      transition: transform 0.15s ease;
     }
 
     .custom-select.open .tf-chevron {
       transform: rotate(180deg);
-      opacity: 1;
     }
 
     .custom-select-options {
       position: absolute;
-      top: calc(100% + 4px);
-      left: 0;
-      right: 0;
+      top: 100%;
+      left: -1px;
       background: var(--card2);
       border: 1px solid var(--border);
-      border-radius: 10px;
+      border-top: none;
+      border-bottom-left-radius: 8px;
+      border-bottom-right-radius: 8px;
       padding: 4px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
       z-index: 1000;
       opacity: 0;
       visibility: hidden;
-      transform: translateY(-8px);
-      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-      max-height: 280px;
-      overflow-y: auto;
+      transform: translateY(-4px);
+      transition: all 0.15s ease;
     }
 
     .custom-select.open .custom-select-options {
@@ -444,31 +440,22 @@
       transform: translateY(0);
     }
 
-    .option {
-      padding: 8px 12px;
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--muted);
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2px;
     }
 
-    .option::before {
-      content: attr(data-value);
-      font-size: 9px;
-      font-family: var(--mono);
-      font-weight: 700;
-      padding: 2px 5px;
-      border-radius: 3px;
-      background: rgba(255, 255, 255, 0.05);
-      color: var(--muted);
-      min-width: 24px;
+    .option {
+      padding: 6px 0;
       text-align: center;
-      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--mono);
+      color: var(--muted);
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.12s ease;
     }
 
     .option:hover {
@@ -477,18 +464,9 @@
     }
 
     .option.active {
-      background: rgba(0, 212, 170, 0.12);
-      color: var(--accent);
-      font-weight: 600;
-    }
-
-    .option.active::before {
-      background: rgba(0, 212, 170, 0.2);
+      background: rgba(0, 212, 170, 0.15);
       color: var(--accent);
     }
-
-    /* Hide native select fallback */
-    #tf { display: none; }
 
     /* Indices toggle inside controls */
     .controls-wrap .idx-tg {
@@ -1424,7 +1402,6 @@
       .controls-wrap { flex-direction: column; gap: 6px; padding: 8px; }
       .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; }
       .controls-right { width: 100%; justify-content: space-between; }
-      .controls-wrap select { flex: 1; }
       .sc { min-width: 80px; }
 
       /* Mobile responsive table */
@@ -1634,14 +1611,16 @@
               <span class="tf-chevron">▾</span>
             </div>
             <div class="custom-select-options" id="tfOptions">
-              <div class="option" data-value="ALL" onclick="selectTf('ALL', this)">All Timeframes</div>
-              <div class="option" data-value="1m" onclick="selectTf('1m', this)">1 Min</div>
-              <div class="option" data-value="5m" onclick="selectTf('5m', this)">5 Min</div>
-              <div class="option" data-value="10m" onclick="selectTf('10m', this)">10 Min</div>
-              <div class="option" data-value="15m" onclick="selectTf('15m', this)">15 Min</div>
-              <div class="option" data-value="30m" onclick="selectTf('30m', this)">30 Min</div>
-              <div class="option" data-value="1h" onclick="selectTf('1h', this)">1 Hour</div>
-              <div class="option active" data-value="1d" onclick="selectTf('1d', this)">1 Day</div>
+              <div class="option-grid">
+                <div class="option" data-value="ALL" onclick="selectTf('ALL', this)">All</div>
+                <div class="option" data-value="1m" onclick="selectTf('1m', this)">1m</div>
+                <div class="option" data-value="5m" onclick="selectTf('5m', this)">5m</div>
+                <div class="option" data-value="10m" onclick="selectTf('10m', this)">10m</div>
+                <div class="option" data-value="15m" onclick="selectTf('15m', this)">15m</div>
+                <div class="option" data-value="30m" onclick="selectTf('30m', this)">30m</div>
+                <div class="option" data-value="1h" onclick="selectTf('1h', this)">1h</div>
+                <div class="option active" data-value="1d" onclick="selectTf('1d', this)">1d</div>
+              </div>
             </div>
           </div>
           <label class="idx-tg" title="Include Indices in main list">
