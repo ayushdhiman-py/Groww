@@ -1,3 +1,4 @@
+import 'dotenv/config'; // Load .env file FIRST (before any env vars are read)
 import path from "path";
 import { fileURLToPath } from "url";
 
