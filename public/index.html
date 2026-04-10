@@ -327,9 +327,10 @@
     /* controls */
     .controls {
       display: flex;
-      gap: 8px;
+      gap: 10px;
       flex-wrap: wrap;
       margin-bottom: 12px;
+      align-items: center;
     }
 
     .controls input,
@@ -338,29 +339,43 @@
       color: var(--text);
       border: 1px solid var(--border);
       border-radius: 10px;
-      padding: 9px 12px;
+      padding: 9px 14px;
       font-size: 12px;
       font-family: var(--sans);
       outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
 
     .controls input:focus,
     .controls select:focus {
       border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.15);
     }
 
     .controls input {
-      flex: 2;
-      min-width: 180px;
+      flex: 1;
+      min-width: 220px;
+      max-width: 420px;
     }
 
     .controls select {
-      min-width: 135px;
+      min-width: 140px;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23526a85' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 32px;
     }
+
+    .controls select:hover {
+      border-color: rgba(0, 212, 170, 0.4);
+    }
+
     .controls .idx-wrap {
-      margin-left:auto;
-      display:flex;
-      align-items:center;
+      margin-left: auto;
+      display: flex;
+      align-items: center;
     }
 
     /* legend */
@@ -1233,15 +1248,18 @@
     .p-lo { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 
     @media(max-width:700px) {
-      .controls { flex-direction: column; }
+      .controls { flex-direction: column; gap: 8px; }
+      .controls input { min-width: 100%; max-width: 100%; }
+      .controls select { min-width: 100%; }
+      .controls .idx-wrap { margin-left: 0; }
       .sc { min-width: 80px; }
-      
+
       /* Mobile responsive table */
       .wrap { padding: 10px; }
       .stats { gap: 5px; }
       .sc { padding: 8px 10px; }
       .scv { font-size: 16px; }
-      
+
       /* Hide non-critical columns on mobile */
       thead th:nth-child(3), /* Chart */
       thead th:nth-child(6), /* MACD */
@@ -1255,7 +1273,7 @@
       td:nth-child(9) {
         display: none;
       }
-      
+
       table { table-layout: auto; }
       .fn-content-wrap { flex-direction: column; }
       .fn-card { min-width: 100%; }
@@ -1434,10 +1452,9 @@
       </details>
 
       <div class="controls">
-        <input id="search" placeholder="Search symbol or sector (IT, BANK, PHARMA...)" oninput="render()" />
+        <input id="search" placeholder="Search symbol, sector, or signal…" oninput="render()" />
         <select id="tf" onchange="load()">
           <option value="ALL">All Timeframes</option>
-          <option value="rsi">RSI</option>
           <option value="1m">1 Min</option>
           <option value="5m">5 Min</option>
           <option value="10m">10 Min</option>
@@ -1453,11 +1470,6 @@
             <span class="idx-tg-l">Indices</span>
           </label>
         </div>
-        <select id="sigF" onchange="render()">
-          <option value="ALL">All Signals</option>
-          <option value="BUY">BUY only</option>
-          <option value="SELL">SELL only</option>
-        </select>
       </div>
 
       <div id="errBar" class="errbar" style="display:none"></div>
@@ -1598,7 +1610,7 @@
       // Always fetch fresh data when switching tabs
       load();
     }));
-    ["search", "tf", "sigF", "sortBy"].forEach(id => {
+    ["search", "tf"].forEach(id => {
       const el = document.getElementById(id);
       if (el) { el.addEventListener("change", () => { if (id === "tf") load(); else render(); }); el.addEventListener("input", render); }
     });
@@ -1946,6 +1958,20 @@
       if (!data) return;
       if (activeSet === "SECTORS") { renderSectors(); return; }
 
+      // Restore default table header when switching from sectors to other tabs
+      document.getElementById("tableHeader").innerHTML = `<tr>
+        <th onclick="setSort('symbol', event)">Stock / Sector</th>
+        <th onclick="setSort('price', event)">CMP</th>
+        <th>Chart</th>
+        <th onclick="setSort('emaGap', event)">EMA</th>
+        <th onclick="setSort('volume', event)">Volume</th>
+        <th onclick="setSort('macdVal', event)">MACD</th>
+        <th onclick="setSort('dayH', event)">Day Range</th>
+        <th onclick="setSort('w52H', event)">52W Range</th>
+        <th onclick="setSort('techScore', event)">Score</th>
+        <th onclick="setSort('rating', event)">Rating</th>
+      </tr>`;
+
       const genSparkline = (pHist, e21Hist, e50Hist) => {
         if (!pHist || !e21Hist || !e50Hist || pHist.length < 2) return "";
         const w = 150, h = 45;
@@ -1968,7 +1994,6 @@
       };
 
       const tf = document.getElementById("tf")?.value || "1d";
-      const sigF = document.getElementById("sigF")?.value || "ALL";
       const q = (document.getElementById("search")?.value || "").trim().toUpperCase();
 
       let rows = [];
@@ -1993,7 +2018,6 @@
         rows = (data.data[tf + "_" + activeSet] || []).slice();
       }
 
-      if (sigF !== "ALL") rows = rows.filter(r => r.signal === sigF);
       if (q) {
         const terms = q.split(',').map(t => t.trim()).filter(Boolean);
         if (terms.length > 0) {
