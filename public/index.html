@@ -1510,6 +1510,8 @@
 
     let activeSet = "GOLDEN", data = null, sortStack = [{ col: 'techScore', asc: false }], tabSort = {}, nextAt = null, showIndices = true;
     const seen = new Set();
+    let expandedFoSymbol = null; // Track which F&O row is expanded
+    let lastFoSymbols = null; // Track which stocks were in F&O list to avoid unnecessary re-renders
 
     async function checkAuth() {
       try {
@@ -1550,6 +1552,10 @@
       document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
       t.classList.add("active");
       activeSet = t.dataset.set;
+      // Clear expanded F&O row when switching away from F&O tab
+      if (activeSet !== "FO") {
+        expandedFoSymbol = null;
+      }
       // Restore saved sort for incoming tab
       const sv = tabSort[activeSet] || [{ col: "techScore", asc: false }];
       sortStack = Array.isArray(sv) ? [...sv] : [sv];
@@ -1650,7 +1656,7 @@
         if (g("lastScan")) g("lastScan").textContent = "Last: " + (next.lastUpdated ? new Date(next.lastUpdated).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "--");
         const eb = g("errBar");
         if (eb) { eb.style.display = next.errors?.length ? "block" : "none"; if (next.errors?.length) eb.textContent = "Errors (" + next.errors.length + "): " + next.errors.slice(0, 4).join(" | "); }
-        
+
         // ── Index Cards (fetched from /api/indices) ─────────────────────
         fetchIndices();
 
@@ -1659,7 +1665,6 @@
         const goldUniq = new Set(golden.map(r => r.symbol)).size;
         const buyUniq = new Set(buys.map(r => r.symbol)).size;
         const sellUniq = new Set(sells.map(r => r.symbol)).size;
-        // Count distinct sectors
         const sectorUniq = new Set(all.map(r => r.sector).filter(Boolean)).size;
         const setBadge = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
         setBadge('badge-GOLDEN', goldUniq || '—');
@@ -1669,6 +1674,17 @@
         setBadge('badge-FO', 30);
         setBadge('badge-SECTORS', sectorUniq || '—');
         document.getElementById("scanning").style.display = "none";
+
+        // If F&O row is expanded, ONLY update that row's option chain, don't re-render table
+        if (isFoExpanded()) {
+          // Update only the expanded row's option chain data
+          const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
+          if (wrap) {
+            await loadOptionChain(expandedFoSymbol, wrap);
+          }
+          return; // Skip render() entirely to prevent scroll jumping
+        }
+
         requestAnimationFrame(render);
       } catch (e) {
         console.error("Load error:", e);
@@ -1932,7 +1948,8 @@
       // max volume in current view — used to scale the mini bar relatively
       const maxVol = Math.max(...rows.map(r => r.volume || 0), 1);
 
-      tbody.innerHTML = rows.map(r => {
+      // Build HTML for all rows
+      const rowsHtml = rows.map(r => {
         const sc = r.signal === "BUY" ? "sb" : r.signal === "SELL" ? "ss" : "sn";
         const cc = r.chgPct >= 0 ? "up" : "dn";
         const chgP = (r.priceChange >= 0 ? "+" : "") + r.priceChange.toFixed(2);
@@ -1983,8 +2000,10 @@
         const wkHi = r.w52H || r.weekH || 0;
         const wkHiPct = wkHi ? (((r.price - wkHi) / wkHi) * 100).toFixed(1) : "0.0";
 
-        // Expand toggle for F&O
-        const expandToggle = activeSet === "FO" ? `<span class="exp-btn" onclick="toggleRow('${r.symbol}', this, event)">▼</span> ` : "";
+        // Expand toggle for F&O - preserve expanded state
+        const isExpanded = activeSet === "FO" && expandedFoSymbol === r.symbol;
+        const expandToggle = activeSet === "FO" ? `<span class="exp-btn ${isExpanded ? 'active' : ''}" onclick="toggleRow('${r.symbol}', this, event)">▼</span> ` : "";
+        const subRowClass = isExpanded ? "sub-row active" : "sub-row";
 
         return `<tr class='main-row ${(r.goldenCross ? "gc-row" : "")}' id="row-${r.symbol}">
 
@@ -2091,11 +2110,145 @@
             </div>
           </td>
         </tr>
-        <tr class="sub-row" id="sub-${r.symbol}">
-          <td colspan="10"><div class="sub-wrap" id="wrap-${r.symbol}">Loading...</div></td>
+        <tr class="${subRowClass}" id="sub-${r.symbol}">
+          <td colspan="10"><div class="sub-wrap" id="wrap-${r.symbol}">${isExpanded ? '<div style="color:var(--muted);text-align:center;padding:20px">⏳ Reloading Option Chain...</div>' : 'Loading...'}</div></td>
         </tr>`;
 
       }).join("");
+
+      // For F&O tab, only re-render if the stocks in the list actually changed
+      if (activeSet === "FO") {
+        const currentFoSymbols = new Set(rows.map(r => r.symbol));
+        if (lastFoSymbols) {
+          const symbolsUnchanged = currentFoSymbols.size === lastFoSymbols.size && 
+            [...currentFoSymbols].every(s => lastFoSymbols.has(s));
+          
+          if (symbolsUnchanged) {
+            // Don't re-render the entire table, just update the expanded row if needed
+            if (expandedFoSymbol && currentFoSymbols.has(expandedFoSymbol)) {
+              loadOptionChain(expandedFoSymbol, document.getElementById(`wrap-${expandedFoSymbol}`));
+            }
+            return; // Skip full render - table stays intact!
+          }
+        }
+        lastFoSymbols = currentFoSymbols;
+      }
+
+      // Save which row was at the top before full render
+      const tableContainer = document.querySelector(".tw");
+      const mainRows = tbody.querySelectorAll(".main-row");
+      let topRowIndex = 0;
+      let topSymbol = rows[0]?.symbol;
+      
+      // Find which row is currently most visible at top of viewport
+      if (tableContainer && mainRows.length > 0) {
+        const containerTop = tableContainer.getBoundingClientRect().top;
+        const containerScroll = tableContainer.scrollTop;
+        
+        for (let i = 0; i < mainRows.length; i++) {
+          const rowTop = mainRows[i].offsetTop;
+          if (rowTop <= containerScroll + 50) {
+            topRowIndex = i;
+            topSymbol = mainRows[i].id?.replace("row-", "");
+          } else {
+            break;
+          }
+        }
+      }
+
+      // Smart incremental update: only update changed cells instead of full re-render
+      const prevRowCount = tbody.querySelectorAll(".main-row").length;
+      const needsFullRender = prevRowCount === 0 || prevRowCount !== rows.length;
+
+      if (needsFullRender) {
+        // First render or row count changed - full render needed
+        tbody.innerHTML = rowsHtml;
+      } else {
+        // Incremental update: only update cells that actually changed
+        rows.forEach((r) => {
+          const existingRow = document.getElementById(`row-${r.symbol}`);
+          if (!existingRow) return; // Row doesn't exist yet
+
+          const cells = existingRow.querySelectorAll("td");
+          if (cells.length < 10) return;
+
+          // Update price if changed
+          const priceEl = cells[1]?.querySelector(".price-bold");
+          if (priceEl) {
+            const newPriceText = `₹${r.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+            if (priceEl.textContent !== newPriceText) {
+              priceEl.textContent = newPriceText;
+              // Flash effect
+              priceEl.style.transition = "color 0.3s ease";
+              priceEl.style.color = "var(--accent)";
+              setTimeout(() => { priceEl.style.color = ""; }, 500);
+            }
+          }
+
+          // Update change% if changed
+          const cc = r.chgPct >= 0 ? "up" : "dn";
+          const chgP = (r.priceChange >= 0 ? "+" : "") + r.priceChange.toFixed(2);
+          const chg = (r.chgPct >= 0 ? "+" : "") + r.chgPct.toFixed(2) + "%";
+          const chgEl = cells[0]?.querySelector(".muted-xl span");
+          if (chgEl) {
+            const newChgText = `${chg}`;
+            if (chgEl.textContent !== newChgText) {
+              chgEl.textContent = newChgText;
+              chgEl.className = cc;
+            }
+          }
+
+          // Update volume if changed
+          const volEl = cells[4]?.querySelector("div:first-child");
+          if (volEl) {
+            const newVolText = r.volSpike ? `⚡ ${fmtV(r.volume)}` : fmtV(r.volume);
+            if (volEl.textContent !== newVolText) {
+              volEl.textContent = newVolText;
+              if (r.volSpike) {
+                volEl.style.color = "var(--yellow)";
+              } else {
+                volEl.style.color = "";
+              }
+            }
+          }
+
+          // Update score if changed
+          const scoreEl = cells[8]?.querySelector("span:first-child");
+          if (scoreEl) {
+            const newScoreText = `${r.techScore}/7`;
+            if (!scoreEl.textContent.includes(newScoreText)) {
+              scoreEl.innerHTML = `${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span>`;
+            }
+          }
+        });
+      }
+
+      // Restore scroll to the same row after render
+      requestAnimationFrame(() => {
+        if (tableContainer) {
+          const restoredRow = document.getElementById(`row-${topSymbol}`);
+          if (restoredRow) {
+            tableContainer.scrollTop = restoredRow.offsetTop;
+          }
+        }
+      });
+
+      // Re-expand the row if it was expanded before render
+      if (activeSet === "FO" && expandedFoSymbol) {
+        setTimeout(() => {
+          const subRow = document.getElementById(`sub-${expandedFoSymbol}`);
+          const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
+          const expBtn = document.querySelector(`#row-${expandedFoSymbol} .exp-btn`);
+          
+          if (subRow && wrap && expBtn) {
+            // Directly set active classes without triggering toggle logic
+            subRow.classList.add("active");
+            expBtn.classList.add("active");
+            // Reload option chain data
+            loadOptionChain(expandedFoSymbol, wrap);
+          }
+        }, 50);
+      }
     }
 
     function genRangeBar(low, high, current) {
@@ -2177,7 +2330,12 @@
 
     setInterval(tick, 1000);
     setInterval(pollStatus, 2000);
-    setInterval(() => { if (isOpen()) load(); }, 2000);
+    
+    // Real-time update every 3 seconds - matches backend LTP feed polling
+    setInterval(() => { 
+      if (isOpen()) load(); 
+    }, 3000);
+    
     setInterval(fetchIndices, 5000);
 
     // F&O dedicated 5-minute refresh — only during market hours
@@ -2258,6 +2416,7 @@
       if (sub.classList.contains("active")) {
         sub.classList.remove("active");
         btn.classList.remove("active");
+        expandedFoSymbol = null; // Clear expanded state
         return;
       }
 
@@ -2267,8 +2426,18 @@
 
       sub.classList.add("active");
       btn.classList.add("active");
-      wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px">⏳ Loading Option Chain for <b style="color:var(--accent)">${symbol}</b>...</div>`;
+      expandedFoSymbol = symbol; // Track expanded symbol
+      
+      // Load option chain data
+      await loadOptionChain(symbol, wrap);
+    }
+    
+    // Check if currently viewing F&O with expanded row (to pause auto-refresh)
+    function isFoExpanded() {
+      return activeSet === "FO" && expandedFoSymbol !== null;
+    }
 
+    async function loadOptionChain(symbol, wrap) {
       const rowData = (data?.data?.["5m_ALL"] || []).find(r => r.symbol === symbol) || {};
       const dayH = rowData.dayH || 0, dayL = rowData.dayL || 0, close = rowData.price || 0;
 
@@ -2326,21 +2495,12 @@
       </tr></thead>`;
 
       try {
-        let chain = rowData.options;
-        let isLive = true;
-        let fetchedAt = null;
-
-        if (!chain || (!chain.topCalls && !chain.callOptions)) {
-             try {
-                 const res = await fetch(`/api/option-chain/${symbol}`);
-                 if (!res.ok) throw new Error("Chain unavailable");
-                 chain = await res.json();
-                 isLive = chain.source === "live";
-                 fetchedAt = chain.fetchedAt ? new Date(chain.fetchedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) : null;
-             } catch(fetchErr) {
-                 chain = { error: true };
-             }
-        }
+        // Always fetch fresh option chain from API for real-time updates
+        const res = await fetch(`/api/option-chain/${symbol}`);
+        if (!res.ok) throw new Error("Chain unavailable");
+        const chain = await res.json();
+        const isLive = chain.source === "live";
+        const fetchedAt = chain.fetchedAt ? new Date(chain.fetchedAt).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit" }) : null;
 
         let calls = chain?.topCalls || chain?.callOptions || chain?.calls || [];
         let puts = chain?.topPuts || chain?.putOptions || chain?.puts || [];
@@ -2348,7 +2508,7 @@
         if (chain?.error || calls.length === 0 || puts.length === 0) {
             wrap.innerHTML = `<div style="padding:20px; text-align:center; color:var(--muted)">No Option Chain data available for <b style="color:var(--text)">${symbol}</b>.</div>`;
             return;
-        } 
+        }
 
         calls = calls.slice(0, 5);
         puts = puts.slice(0, 5);
@@ -2358,7 +2518,7 @@
             <div class="fn-header"><span style="font-size:12px; font-weight:700; color:var(--green);">TOP 5 CALLS</span></div>
             <table class="sub-t">${theadHtml}<tbody>${calls.map(o => mkGreekRow(o, "CE")).join("")}</tbody></table>
           </div>`;
-          
+
         const putsTable = `
           <div class="fn-card" style="border-left: 3px solid rgba(239, 68, 68, 0.4);">
             <div class="fn-header"><span style="font-size:12px; font-weight:700; color:var(--red);">TOP 5 PUTS</span></div>
@@ -2368,6 +2528,7 @@
         const sourceLabel = chain.source === 'theoretical' ? 'THEORETICAL (BS)' : isLive ? 'LIVE FEED ACTIVE' : 'CACHED';
         const sourceColor = chain.source === 'theoretical' ? 'var(--purple)' : isLive ? 'var(--accent)' : 'var(--yellow)';
 
+        // Update wrap with fresh data - no loading flicker for subsequent updates
         wrap.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding:0 4px">
             <span style="font-size:13px; font-weight:700; color:var(--text); text-transform:uppercase; letter-spacing:0.5px">✦ OPTION CHAIN OVERVIEW — ${symbol}</span>
@@ -2379,7 +2540,7 @@
             ${putsTable}
           </div>
           <div style="margin-top:12px; font-size:9px; color:var(--muted); text-align:right; font-family:var(--mono);">
-            ${fetchedAt ? `Last: ${fetchedAt} · ` : ''}● ${chain.source?.toUpperCase() || 'N/A'} · DATA REFRESH 10S
+            ${fetchedAt ? `Last: ${fetchedAt} · ` : ''}● ${chain.source?.toUpperCase() || 'N/A'} · DATA REFRESHED ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </div>`;
 
       } catch (err) {
