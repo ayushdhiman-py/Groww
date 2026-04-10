@@ -2567,16 +2567,15 @@
       tbody.innerHTML = list.map(s => {
         const cc = s.avgChg >= 0 ? "up" : "dn";
         const chg = (s.avgChg >= 0 ? "+" : "") + s.avgChg.toFixed(2) + "%";
-        // Build Groww link helper
+        // Groww link helper (uses search since symbol-to-slug mapping varies)
         const mkGrowwLink = (sym) => {
-          const sl = sym.toLowerCase().replace(/\s+/g, '-');
-          return `<a href="https://groww.in/stocks/${sl}" target="_blank" rel="noopener noreferrer"
+          return `<a href="https://groww.in/search?q=${sym}" target="_blank" rel="noopener noreferrer"
             style="color:inherit; text-decoration:none; cursor:pointer;"
             onmouseover="this.style.color='var(--accent)'"
             onmouseout="this.style.color='inherit'"
             onclick="event.preventDefault(); event.stopPropagation();
-              window.location.href='groww://stock/${sl}';
-              setTimeout(() => { window.open('https://groww.in/stocks/${sl}', '_blank'); }, 500);">
+              window.location.href='groww://stock/${sym.toLowerCase().replace(/\s+/g, '-')}';
+              setTimeout(() => { window.open('https://groww.in/search?q=${sym}', '_blank'); }, 500);">
             ${sym}<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3; vertical-align:middle;"><polyline points="15 3 21 3 21 9"/></svg></a>`;
         };
 
@@ -2859,9 +2858,9 @@
         const bgClr = pnlBg(item.pnl);
         const investVal = item.avg_price * item.quantity;
 
-        // Groww deep link / web URL
-        const growwUrl = `https://groww.in/stocks/${item.symbol.toLowerCase()}`;
-        const growwAppUrl = `groww://stock/${item.symbol.toLowerCase()}`;
+        // Groww link for symbol (search URL since symbol-to-slug varies)
+        const growwUrl = `https://groww.in/search?q=${item.symbol}`;
+        const growwAppUrl = `groww://stock/${item.symbol.toLowerCase().replace(/\s+/g, '-')}`;
 
         return `<div style="background:rgba(255,255,255,0.02); border:1px solid ${clr}30; border-radius:10px; padding:10px 14px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
           <!-- Left: Symbol + details -->
@@ -3191,9 +3190,9 @@
         
         const gcBadge = r.goldenCross ? "<span class='bgc'>🟣GC</span>" : "";
 
-        // Groww link for symbol
+        // Groww link for symbol (search URL since symbol-to-slug varies)
         const symLower = r.symbol.toLowerCase().replace(/\s+/g, '-');
-        const growwUrl = `https://groww.in/stocks/${symLower}`;
+        const growwUrl = `https://groww.in/search?q=${r.symbol}`;
         const growwAppUrl = `groww://stock/${symLower}`;
         const symLink = `<a href="${growwUrl}" target="_blank" rel="noopener noreferrer"
           style="color:inherit; text-decoration:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
@@ -3433,7 +3432,7 @@
               + "</div>"
             : "";
           html += "<div class='sc'>"
-            + "<div class='scl'><a href='https://groww.in/indices/" + idx.symbol.toLowerCase().replace(/\s+/g, '-') + "' target='_blank' rel='noopener noreferrer' style='color:inherit; text-decoration:none; cursor:pointer;' onmouseover=\"this.style.color='var(--accent)'\" onmouseout=\"this.style.color='inherit'\">" + idx.symbol + "</a></div>"
+            + "<div class='scl'><a href='https://groww.in/search?q=" + idx.symbol + "' target='_blank' rel='noopener noreferrer' style='color:inherit; text-decoration:none; cursor:pointer;' onmouseover=\"this.style.color='var(--accent)'\" onmouseout=\"this.style.color='inherit'\">" + idx.symbol + "</a></div>"
             + "<div class='scv " + cl + "' style='font-size:14px;display:flex;align-items:center;justify-content:space-between;'>"
             + "Rs " + ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })
             + pctHtml
