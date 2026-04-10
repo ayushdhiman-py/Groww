@@ -1,7 +1,8 @@
 import express from "express";
 import path from "path";
+import { fileURLToPath } from "url";
 import { createHash } from "crypto";
-import { __dirname } from "./src/config.mjs";
+import { __dirname as srcDirname } from "./src/config.mjs";
 import { loadSession, login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions } from "./src/groww.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
@@ -10,12 +11,16 @@ import { UNIVERSE } from "./src/universe.mjs";
 import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
 
+// Fix __dirname for root directory (scanner_testing.mjs is in root)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static frontend
-app.use(express.static(path.join(__dirname, "..", "public")));
+// Serve static frontend - point to public/ in root
+app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 4000;
 
@@ -467,6 +472,15 @@ app.get("/api/portfolio", async (req, res) => {
     }
 });
 
+// ── Catch-all Route: Serve SPA frontend ─────────────────────────────────────
+app.get("*", (req, res) => {
+    // Only serve index.html for non-API routes
+    if (!req.path.startsWith("/api/") && !req.path.startsWith("/public/")) {
+        res.sendFile(path.join(__dirname, "public", "index.html"));
+    } else {
+        res.status(404).json({ error: "Not Found", path: req.path });
+    }
+});
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
