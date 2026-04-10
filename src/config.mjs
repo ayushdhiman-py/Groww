@@ -11,12 +11,24 @@ const getApiSecret = () => {
     if (envSecret) {
         // If it starts with "base64:", decode it
         if (envSecret.startsWith("base64:")) {
-            return Buffer.from(envSecret.slice(7), "base64").toString("utf-8");
+            const decoded = Buffer.from(envSecret.slice(7), "base64").toString("utf-8");
+            console.log(`[Config] API Secret decoded from base64. Length: ${decoded.length}`);
+            return decoded;
+        }
+        // Log for debugging (show if there are hidden characters)
+        const hasHiddenChars = envSecret.includes('\r') || envSecret.includes('\t');
+        if (hasHiddenChars) {
+            console.warn(`[Config] ⚠️ WARNING: API Secret contains hidden characters (\\r or \\t)!`);
+            console.warn(`[Config] Secret length: ${envSecret.length} (expected 30)`);
+            console.warn(`[Config] This will cause 401 errors. Please check your .env file line endings.`);
+        } else {
+            console.log(`[Config] API Secret loaded from env. Length: ${envSecret.length} (expected 30)`);
         }
         // Otherwise use as-is (Render may have corrupted special chars)
         return envSecret;
     }
     // Fallback to hardcoded secret (only for local dev)
+    console.log(`[Config] Using HARDCODED API Secret (local development)`);
     return "***REDACTED_SECRET***";
 };
 
