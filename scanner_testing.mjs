@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config(); // Load .env file from Render Secret Files
+
 import express from "express";
 import path from "path";
 import { fileURLToPath } from "url";
