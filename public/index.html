@@ -186,6 +186,8 @@
       font-weight: 700;
     }
 
+    .brand span { color: var(--accent); }
+
     .dot {
       width: 9px;
       height: 9px;
@@ -196,75 +198,90 @@
     }
 
     @keyframes pulse {
-
-      0%,
-      100% {
-        opacity: 1;
-        transform: scale(1)
-      }
-
-      50% {
-        opacity: .5;
-        transform: scale(1.4)
-      }
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .5; transform: scale(1.4); }
     }
 
-    .brand span {
-      color: var(--accent);
-    }
-
-    .top-r {
+    /* ── Top Action Bar ──────────────────────────────────────────── */
+    .top-actions {
       display: flex;
       align-items: center;
       gap: 8px;
-      flex-wrap: wrap;
     }
 
-    .pill {
-      background: var(--card);
-      border: 1px solid var(--border);
-      color: var(--muted);
-      padding: 5px 12px;
-      border-radius: 999px;
-      font-size: 11px;
-      font-family: var(--mono);
+    .market-status {
       display: flex;
       align-items: center;
       gap: 6px;
-    }
-
-    .live {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--green);
-    }
-
-    .live.dead {
-      background: var(--red);
-    }
-
-    .tbtn {
-      padding: 5px 13px;
-      border-radius: 999px;
+      padding: 6px 12px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
       font-size: 11px;
-      cursor: pointer;
-      font-family: var(--sans);
       font-weight: 600;
-      background: rgba(0, 212, 170, .1);
-      border: 1px solid rgba(0, 212, 170, .3);
-      color: var(--accent);
+      font-family: var(--mono);
+      color: var(--muted);
     }
 
-    .groww-badge {
-      background: rgba(0, 180, 70, .12);
-      border: 1px solid rgba(0, 180, 70, .3);
-      color: #22c55e;
-      padding: 5px 12px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-family: var(--mono);
-      font-weight: 700;
+    .market-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--red);
+      transition: background 0.3s ease;
+    }
+
+    .market-dot.open {
+      background: var(--green);
+      box-shadow: 0 0 8px rgba(34, 197, 94, 0.6);
+    }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 7px 12px;
+      background: rgba(0, 212, 170, 0.1);
+      border: 1px solid rgba(0, 212, 170, 0.25);
+      border-radius: 8px;
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--sans);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .action-btn:hover {
+      background: rgba(0, 212, 170, 0.15);
+      border-color: rgba(0, 212, 170, 0.4);
+      transform: translateY(-1px);
+    }
+
+    .action-btn:active {
+      transform: translateY(0);
+    }
+
+    .action-btn.secondary {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .action-btn.secondary:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.15);
+      color: var(--text);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      pointer-events: none;
+    }
+
+    .action-btn svg {
+      flex-shrink: 0;
     }
 
     /* stat cards */
@@ -1523,16 +1540,21 @@
 
       <div class="top">
         <div class="brand">
-          <div class="dot"></div>Ayush's Personal <span>Scanner</span>
+          <div class="dot"></div>Ayush's <span>Scanner</span>
         </div>
-        <div class="top-r">
-          <div class="groww-badge">GROWW API</div>
-          <div class="pill">
-            <div class="live" id="liveInd"></div><span id="mktTxt">--</span>
+        <div class="top-actions">
+          <div class="market-status" id="marketStatus">
+            <span class="market-dot" id="marketDot"></span>
+            <span id="marketText">Checking...</span>
           </div>
-          <div class="pill" id="timerPill">Next: --</div>
-          <button class="tbtn" onclick="doLogin()">Re-Login</button>
-          <button class="tbtn" id="rfBtn" onclick="load()">↺ Refresh</button>
+          <button class="action-btn" onclick="load()" title="Refresh Data">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Refresh
+          </button>
+          <button class="action-btn secondary" onclick="doLogin()" title="Re-login">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            Login
+          </button>
         </div>
       </div>
 
@@ -1831,31 +1853,22 @@
     }
     function tick() {
       const o = isOpen();
-      const li = document.getElementById("liveInd"), mt = document.getElementById("mktTxt");
-      if (li) li.className = o ? "live" : "live dead";
-      if (mt) mt.textContent = o ? "Market Open" : "Market Closed";
-      const rBtn = document.getElementById("rfBtn");
-      if (rBtn) {
+      const dot = document.getElementById("marketDot");
+      const txt = document.getElementById("marketText");
+      if (dot) dot.className = o ? "market-dot open" : "market-dot";
+      if (txt) txt.textContent = o ? "Market Open" : "Closed";
+
+      const rfBtn = document.querySelector(".action-btn[onclick='load()']");
+      if (rfBtn) {
         if (!o) {
-          rBtn.disabled = true;
-          rBtn.style.background = "rgba(239,68,68,0.2)";
-          rBtn.style.color = "var(--red)";
-          rBtn.style.borderColor = "rgba(239,68,68,0.5)";
-          rBtn.style.cursor = "not-allowed";
-          rBtn.textContent = "Market Closed";
+          rfBtn.disabled = true;
+          rfBtn.style.opacity = "0.4";
+          rfBtn.style.cursor = "not-allowed";
         } else {
-          rBtn.disabled = false;
-          rBtn.style.background = "rgba(0,212,170,.1)";
-          rBtn.style.color = "var(--accent)";
-          rBtn.style.borderColor = "rgba(0,212,170,.3)";
-          rBtn.style.cursor = "pointer";
-          rBtn.textContent = "↺ Refresh";
+          rfBtn.disabled = false;
+          rfBtn.style.opacity = "";
+          rfBtn.style.cursor = "";
         }
-      }
-      if (nextAt && o) {
-        const s = Math.max(0, Math.floor((nextAt - Date.now()) / 1000));
-        const tp = document.getElementById("timerPill");
-        if (tp) tp.textContent = "Next: " + Math.floor(s / 60) + "m " + String(s % 60).padStart(2, "0") + "s";
       }
     }
 
@@ -2050,11 +2063,6 @@
         if (!data && !s.scanning) {
           load();
         }
-
-        const li = document.getElementById("liveInd"), mt = document.getElementById("mktTxt");
-        const o = isOpen();
-        if (li) li.className = o ? "live" : "live dead";
-        if (mt) mt.textContent = o ? "Market Open" : "Market Closed";
       } catch (e) {
         console.error("Status poll error:", e);
       }
