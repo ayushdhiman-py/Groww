@@ -85,7 +85,11 @@ export async function login() {
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
         console.log("Logging in to Groww API...");
-        
+        console.log(`[Debug] API Key length: ${CREDS.apiKey?.length || 0}, starts with: ${CREDS.apiKey?.substring(0, 20)}...`);
+        console.log(`[Debug] API Secret: ${CREDS.apiSecret === "***REDACTED_SECRET***" ? "HARDCODED (local)" : "FROM ENV VAR"}`);
+        console.log(`[Debug] Token URL: ${TOKEN_URL}`);
+        console.log(`[Debug] Timestamp: ${timestamp}, Checksum: ${checksum.substring(0, 16)}...`);
+
         // Wait for rate limit slot for login too
         await rateLimit();
 
@@ -93,7 +97,9 @@ export async function login() {
 
         try {
             while (attempts < maxAttempts) {
+                attempts++;
                 try {
+                    console.log(`[Login] Attempt ${attempts}/${maxAttempts}...`);
                     const res = await axios.post(TOKEN_URL, {
                         key_type: "approval",
                         checksum,
@@ -106,20 +112,52 @@ export async function login() {
                         },
                         timeout: 15000,
                     });
-                    
+
+                    console.log(`[Login] Response status: ${res.status}`);
+                    console.log(`[Login] Response data:`, JSON.stringify(res.data).substring(0, 200));
+
                     const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
                     if (token) {
                         saveSession(token);
                         console.log("Groww login successful ✓");
                         return;
                     }
+                    console.error(`[Login] ERROR: No token in response. Response keys: ${Object.keys(res.data || {}).join(', ')}`);
                     throw new Error("No token in response");
                 } catch (e) {
+                    console.error(`[Login] Attempt ${attempts} failed:`);
+                    
+                    if (e.response) {
+                        // Server responded with error
+                        console.error(`  Status: ${e.response.status}`);
+                        console.error(`  Status Text: ${e.response.statusText}`);
+                        console.error(`  Response Data: ${JSON.stringify(e.response.data).substring(0, 500)}`);
+                        console.error(`  Headers: ${JSON.stringify(e.response.headers).substring(0, 200)}`);
+                    } else if (e.request) {
+                        // Request was made but no response
+                        console.error(`  No response received. Network error or timeout.`);
+                        console.error(`  Request: ${e.request}`);
+                    } else {
+                        // Something else happened
+                        console.error(`  Error: ${e.message}`);
+                        console.error(`  Stack: ${e.stack}`);
+                    }
+
                     if (e.response?.status === 429) {
                         triggerBackoff(10);
+                        console.warn(`[Login] Rate limited (429). Backing off 10s...`);
                         await sleep(10000);
-                        attempts++;
                         continue;
+                    }
+
+                    if (e.response?.status === 401) {
+                        console.error(`[Login] ❌ AUTHENTICATION FAILED (401)`);
+                        console.error(`[Login] Possible causes:`);
+                        console.error(`  1. API Key is invalid or expired`);
+                        console.error(`  2. API Secret is wrong (check for spaces/corruption)`);
+                        console.error(`  3. Environment variables not set correctly`);
+                        console.error(`  4. Secret needs base64 encoding (use: base64:VUlY...)`);
+                        throw new Error(`Authentication failed: ${e.response.status} ${e.response.statusText} - ${JSON.stringify(e.response.data).substring(0, 200)}`);
                     }
 
                     const isApprovalPending = e.response?.status === 403 &&
@@ -127,15 +165,25 @@ export async function login() {
                             JSON.stringify(e.response?.data).toLowerCase().includes("pending"));
 
                     if (isApprovalPending) {
-                        attempts++;
-                        console.warn(`[Attempt ${attempts}] Login approval pending... Please approve in your Groww mobile app.`);
+                        console.warn(`[Login] ⏳ Approval pending. Please approve in your Groww mobile app.`);
                         if (attempts < maxAttempts) {
                             await sleep(5000);
                             continue;
                         }
+                        console.error(`[Login] ❌ Timed out waiting for approval after ${maxAttempts} attempts`);
                         throw new Error("Login timed out: Session approval not received.");
                     }
-                    throw e;
+
+                    // If it's a 401 or other fatal error, don't retry
+                    if (e.response?.status === 401 || e.message.includes("No token")) {
+                        throw e;
+                    }
+
+                    // Continue retrying for other errors
+                    if (attempts < maxAttempts) {
+                        console.warn(`[Login] Retrying in 5 seconds...`);
+                        await sleep(5000);
+                    }
                 }
             }
         } finally {
