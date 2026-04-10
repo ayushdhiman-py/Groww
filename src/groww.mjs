@@ -24,59 +24,126 @@ export function saveSession(accessToken) {
     fs.writeFileSync(TOKEN_FILE, JSON.stringify(session));
 }
 
+let loginPromise = null;
+
+// ── Global Rate Limiter ───────────────────────────────────────────────────────
+// Groww API Limit: 10 req/sec and 300 req/min (Live Data Group)
+// We use a safe buffer: 8 req/sec and 250/min
+const rateLimitState = {
+    requestsInWindow: [], // minute window
+    lastRequestTime: 0,
+    minGap: 125, // 8 req/sec burst max
+    maxPerMinute: 250,
+    backoffuntil: 0
+};
+
+export async function rateLimit(priority = 'normal') {
+    while (true) {
+        const now = Date.now();
+        
+        // Check backoff
+        if (now < rateLimitState.backoffuntil) {
+            await sleep(rateLimitState.backoffuntil - now);
+            continue;
+        }
+
+        // Cleanup minute window
+        rateLimitState.requestsInWindow = rateLimitState.requestsInWindow.filter(t => now - t < 60000);
+
+        // Check minute limit
+        if (rateLimitState.requestsInWindow.length >= rateLimitState.maxPerMinute) {
+            await sleep(1000);
+            continue;
+        }
+
+        // Check burst (8/sec)
+        const gap = now - rateLimitState.lastRequestTime;
+        if (gap < rateLimitState.minGap) {
+            await sleep(rateLimitState.minGap - gap);
+            continue;
+        }
+
+        // All clear
+        rateLimitState.requestsInWindow.push(now);
+        rateLimitState.lastRequestTime = now;
+        return;
+    }
+}
+
+export function triggerBackoff(seconds = 5) {
+    console.warn(`[RateLimit] Triggering backoff for ${seconds}s...`);
+    rateLimitState.backoffuntil = Date.now() + (seconds * 1000);
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export async function login() {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
-    console.log("Logging in to Groww API...");
-    console.log("Timestamp:", timestamp, "| Checksum:", checksum.substring(0, 12) + "...");
+    // Singleton login lock
+    if (loginPromise) return loginPromise;
 
-    let attempts = 0, maxAttempts = 12; // 60 seconds total
+    loginPromise = (async () => {
+        const timestamp = Math.floor(Date.now() / 1000).toString();
+        const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
+        console.log("Logging in to Groww API...");
+        
+        // Wait for rate limit slot for login too
+        await rateLimit();
 
-    while (attempts < maxAttempts) {
+        let attempts = 0, maxAttempts = 12; // 60 seconds total
+
         try {
-            const res = await axios.post(TOKEN_URL, {
-                key_type: "approval",
-                checksum,
-                timestamp,
-            }, {
-                headers: {
-                    "Authorization": `Bearer ${CREDS.apiKey}`,
-                    "Content-Type": "application/json",
-                    "X-API-VERSION": "1.0",
-                },
-                timeout: 15000,
-            });
-            console.log("Groww auth response:", JSON.stringify(res.data).substring(0, 200));
+            while (attempts < maxAttempts) {
+                try {
+                    const res = await axios.post(TOKEN_URL, {
+                        key_type: "approval",
+                        checksum,
+                        timestamp,
+                    }, {
+                        headers: {
+                            "Authorization": `Bearer ${CREDS.apiKey}`,
+                            "Content-Type": "application/json",
+                            "X-API-VERSION": "1.0",
+                        },
+                        timeout: 15000,
+                    });
+                    
+                    const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
+                    if (token) {
+                        saveSession(token);
+                        console.log("Groww login successful ✓");
+                        return;
+                    }
+                    throw new Error("No token in response");
+                } catch (e) {
+                    if (e.response?.status === 429) {
+                        triggerBackoff(10);
+                        await sleep(10000);
+                        attempts++;
+                        continue;
+                    }
 
-            const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
-            if (token) {
-                saveSession(token);
-                console.log("Groww login successful ✓");
-                return;
-            }
+                    const isApprovalPending = e.response?.status === 403 &&
+                        (JSON.stringify(e.response?.data).toLowerCase().includes("approval required") ||
+                            JSON.stringify(e.response?.data).toLowerCase().includes("pending"));
 
-            throw new Error("No token in response: " + JSON.stringify(res.data));
-        } catch (e) {
-            const isApprovalPending = e.response?.status === 403 &&
-                (JSON.stringify(e.response?.data).toLowerCase().includes("approval required") ||
-                    JSON.stringify(e.response?.data).toLowerCase().includes("pending"));
-
-            if (isApprovalPending) {
-                attempts++;
-                console.warn(`[Attempt ${attempts}] Login approval pending... Please approve in your Groww mobile app.`);
-                if (attempts < maxAttempts) {
-                    await sleep(5000);
-                    continue;
+                    if (isApprovalPending) {
+                        attempts++;
+                        console.warn(`[Attempt ${attempts}] Login approval pending... Please approve in your Groww mobile app.`);
+                        if (attempts < maxAttempts) {
+                            await sleep(5000);
+                            continue;
+                        }
+                        throw new Error("Login timed out: Session approval not received.");
+                    }
+                    throw e;
                 }
-                throw new Error("Login timed out: Session approval not received within 60 seconds.");
             }
-
-            console.error("Groww login error:", e.response?.status, e.response?.data || e.message);
-            throw new Error(e.response?.data?.message || e.response?.data?.error || e.message);
+        } finally {
+            loginPromise = null;
         }
-    }
+    })();
+
+    return loginPromise;
 }
 
 export async function ensureSession() {
@@ -110,11 +177,17 @@ export async function fetchCandles(symbol, tf) {
         "X-API-VERSION": "1.0",
         "Accept": "application/json",
     };
-    const res = await axios.get(CANDLE_URL, { params, headers, timeout: 20000 });
-    const candles = res.data?.payload?.candles || res.data?.candles || res.data?.data?.candles || [];
-    return candles.map(c => ({
-        ts: c[0], open: +c[1], high: +c[2], low: +c[3], close: +c[4], volume: +c[5]
-    }));
+    await rateLimit();
+    try {
+        const res = await axios.get(CANDLE_URL, { params, headers, timeout: 20000 });
+        const candles = res.data?.payload?.candles || res.data?.candles || res.data?.data?.candles || [];
+        return candles.map(c => ({
+            ts: c[0], open: +c[1], high: +c[2], low: +c[3], close: +c[4], volume: +c[5]
+        }));
+    } catch (e) {
+        if (e.response?.status === 429) triggerBackoff(15);
+        throw e;
+    }
 }
 
 export async function fetchBulkLtp(symbols, segment = "CASH") {
@@ -134,6 +207,7 @@ export async function fetchBulkLtp(symbols, segment = "CASH") {
     };
 
     const fetchChunk = async (chunk) => {
+        await rateLimit();
         const exchangeSymbols = chunk.map(s => {
             if (s.startsWith("NSE_") || s.startsWith("BSE_") || s.startsWith("MCX_")) return s;
             return s === "SENSEX" ? `BSE_SENSEX` : `NSE_${s}`;
@@ -143,7 +217,8 @@ export async function fetchBulkLtp(symbols, segment = "CASH") {
             const res = await axios.get(url, { params: { segment, exchange_symbols: exchangeSymbols }, headers, timeout: 15000 });
             return res.data?.payload || {};
         } catch (e) {
-            console.error(`[Groww API] LTP Fetch Error for chunk:`, e.response?.data || e.message);
+            if (e.response?.status === 429) triggerBackoff(30);
+            console.error(`[Groww API] LTP Fetch Error:`, e.response?.data || e.message);
             return {};
         }
     };
@@ -220,10 +295,12 @@ export async function fetchOptionChain(symbol) {
         "Accept": "application/json",
     };
     
+    await rateLimit();
     try {
         const res = await axios.get(url, { headers, timeout: 20000 });
         return res.data?.payload || null;
     } catch (e) {
+        if (e.response?.status === 429) triggerBackoff(20);
         if (e.response?.status !== 404 && e.response?.status !== 400) {
             console.error(`[Groww API] Option Chain Fetch Error [${symbol}]:`, e.response?.data || e.message);
         }

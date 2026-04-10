@@ -29,6 +29,9 @@ export async function processOptionChain(symbol) {
         }
     }
 
+    // Groww API returns empty strikes — skip caching if no data
+    if (calls.length === 0 && puts.length === 0) return false;
+
     // Sort heavily by Open Interest, then by Volume, highest first
     const sortFn = (a, b) => {
         const aScore = (a.open_interest || 0) * 2 + (a.volume || 0);
@@ -65,10 +68,8 @@ async function pollNext() {
         successful = await processOptionChain(symbol);
     } catch (e) { }
 
-    // Throttle: LTP feed uses 200 req/min, we have 100 req/min remaining.
-    // Polling 1 option chain every 1500ms = 40 req/min.
-    // Combined total: 200 + 40 = 240 req/min = 80% of 300/min limit (safe buffer of 60 req/min).
-    _timer = setTimeout(pollNext, 1500);
+    // Polling 1 option chain every 2000ms = 30 req/min.
+    _timer = setTimeout(pollNext, 2000);
 
 }
 

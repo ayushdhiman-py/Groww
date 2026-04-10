@@ -357,6 +357,11 @@
     .controls select {
       min-width: 135px;
     }
+    .controls .idx-wrap {
+      margin-left:auto;
+      display:flex;
+      align-items:center;
+    }
 
     /* legend */
     .legend {
@@ -623,6 +628,28 @@
       color: var(--muted);
       font-size: 11px;
       font-family: var(--mono);
+    }
+
+    /* indices toggle */
+    .idx-tg{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--muted);font-size:11px;font-weight:600;background:var(--card);border:1px solid var(--border);padding:6px 12px;border-radius:10px;transition:all .2s; height:34px;}
+    .idx-tg:hover{border-color:rgba(0,212,170,.4);color:var(--text);}
+    .idx-tg input{display:none;}
+    .idx-tg-s{width:30px;height:16px;background:rgba(255,255,255,.05);border-radius:99px;position:relative;transition:.3s;}
+    .idx-tg-s::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--muted);border-radius:50%;transition:.3s;}
+    .idx-tg input:checked + .idx-tg-s{background:rgba(0,212,170,.15);}
+    .idx-tg input:checked + .idx-tg-s::after{left:16px;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+    .idx-tg input:checked ~ .idx-tg-l{color:var(--accent);}
+
+    .sort-meta {
+      margin-left: 5px;
+      font-size: 9px;
+      color: var(--accent);
+      background: rgba(0, 212, 170, 0.1);
+      padding: 1px 4px;
+      border-radius: 3px;
+      vertical-align: middle;
+      font-family: var(--mono);
+      font-weight: 700;
     }
 
     /* table */
@@ -1377,6 +1404,7 @@
         <input id="search" placeholder="Search symbol or sector (IT, BANK, PHARMA...)" oninput="render()" />
         <select id="tf" onchange="load()">
           <option value="ALL">All Timeframes</option>
+          <option value="rsi">RSI</option>
           <option value="1m">1 Min</option>
           <option value="5m">5 Min</option>
           <option value="10m">10 Min</option>
@@ -1385,6 +1413,13 @@
           <option value="1h">1 Hour</option>
           <option value="1d" selected>1 Day</option>
         </select>
+        <div class="idx-wrap">
+          <label class="idx-tg" title="Include Indices in main list">
+            <input type="checkbox" id="idxTgl" checked onchange="toggleIndices()"/>
+            <span class="idx-tg-s"></span>
+            <span class="idx-tg-l">Indices</span>
+          </label>
+        </div>
         <select id="sigF" onchange="render()">
           <option value="ALL">All Signals</option>
           <option value="BUY">BUY only</option>
@@ -1433,18 +1468,18 @@
 
       <div class="tw">
         <table>
-          <thead>
+          <thead id="tableHeader">
             <tr>
-              <th onclick="setSort('symbol')">Stock / Sector</th>
-              <th onclick="setSort('price')">CMP</th>
+              <th onclick="setSort('symbol', event)">Stock / Sector</th>
+              <th onclick="setSort('price', event)">CMP</th>
               <th>Chart</th>
-              <th onclick="setSort('emaGap')">EMA</th>
-              <th onclick="setSort('volume')">Volume</th>
-              <th onclick="setSort('macdVal')">MACD</th>
-              <th onclick="setSort('dayH')">Day Range</th>
-              <th onclick="setSort('w52H')">52W Range</th>
-              <th onclick="setSort('techScore')">Score</th>
-              <th onclick="setSort('rating')">Rating</th>
+              <th onclick="setSort('emaGap', event)">EMA</th>
+              <th onclick="setSort('volume', event)">Volume</th>
+              <th onclick="setSort('macdVal', event)">MACD</th>
+              <th onclick="setSort('dayH', event)">Day Range</th>
+              <th onclick="setSort('w52H', event)">52W Range</th>
+              <th onclick="setSort('techScore', event)">Score</th>
+              <th onclick="setSort('rating', event)">Rating</th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
@@ -1473,15 +1508,8 @@
     if ("Notification" in window) Notification.requestPermission().catch(() => { });
     function notify(t, b) { try { if (Notification.permission === "granted") new Notification(t, { body: b }); } catch (_) { } }
 
-    let activeSet = "ALL", data = null, nextAt = null, activeSymbol = null, foCountdownSec = 300;
+    let activeSet = "GOLDEN", data = null, sortStack = [{ col: 'techScore', asc: false }], tabSort = {}, nextAt = null, showIndices = true;
     const seen = new Set();
-    // Per-tab sort state — each tab remembers its own sort column & direction
-    const tabSort = {
-      ALL: { col: "techScore", asc: false }, BUY: { col: "techScore", asc: false },
-      SELL: { col: "techScore", asc: false }, GOLDEN: { col: "techScore", asc: false },
-      FO: { col: "volumeChange", asc: false }, SECTORS: { col: "name", asc: true }
-    };
-    let sortCol = tabSort["ALL"].col, sortAsc = tabSort["ALL"].asc;
 
     async function checkAuth() {
       try {
@@ -1518,13 +1546,13 @@
 
     document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
       // Save outgoing tab's sort
-      tabSort[activeSet] = { col: sortCol, asc: sortAsc };
+      tabSort[activeSet] = [...sortStack];
       document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
       t.classList.add("active");
       activeSet = t.dataset.set;
       // Restore saved sort for incoming tab
-      const sv = tabSort[activeSet] || { col: "techScore", asc: false };
-      sortCol = sv.col; sortAsc = sv.asc;
+      const sv = tabSort[activeSet] || [{ col: "techScore", asc: false }];
+      sortStack = Array.isArray(sv) ? [...sv] : [sv];
       // Smooth crossfade instead of jarring flicker
       const tb = document.getElementById("tbody");
       if (tb) { tb.style.opacity = "0"; setTimeout(() => { render(); tb.style.opacity = "1"; }, 120); }
@@ -1534,9 +1562,21 @@
       const el = document.getElementById(id);
       if (el) { el.addEventListener("change", () => { if (id === "tf") load(); else render(); }); el.addEventListener("input", render); }
     });
-    function setSort(c) {
-      if (sortCol === c) sortAsc = !sortAsc; else { sortCol = c; sortAsc = false; }
-      tabSort[activeSet] = { col: sortCol, asc: sortAsc };
+    function setSort(c, e) {
+      const shift = e && e.shiftKey;
+      if (!shift) {
+        if (sortStack.length === 1 && sortStack[0].col === c) sortStack[0].asc = !sortStack[0].asc;
+        else sortStack = [{ col: c, asc: false }];
+      } else {
+        const existing = sortStack.find(s => s.col === c);
+        if (existing) existing.asc = !existing.asc;
+        else sortStack.push({ col: c, asc: false });
+      }
+      tabSort[activeSet] = [...sortStack];
+      render();
+    }
+    function toggleIndices() {
+      showIndices = document.getElementById("idxTgl").checked;
       render();
     }
 
@@ -1684,18 +1724,7 @@
       }
     }
 
-    const defaultThead = `<tr>
-    <th onclick="setSort('symbol')">Stock / Sector</th>
-    <th onclick="setSort('price')">CMP</th>
-    <th>Chart</th>
-    <th onclick="setSort('emaGap')">EMA</th>
-    <th onclick="setSort('volume')">Volume</th>
-    <th onclick="setSort('macdVal')">MACD</th>
-    <th onclick="setSort('dayH')">Day Range</th>
-    <th onclick="setSort('w52H')">52W Range</th>
-    <th onclick="setSort('techScore')">Score</th>
-    <th onclick="setSort('rating')">Rating/Flags</th>
-  </tr>`;
+
 
     function renderSectors() {
       const q = (document.getElementById("search")?.value || "").trim().toUpperCase();
@@ -1728,7 +1757,10 @@
       }
 
       // Sort logic
-      const sortBy = sortCol === "sector" ? "name" : sortCol;
+      const sortObj = sortStack[0] || { col: "name", asc: true };
+      const sortBy = sortObj.col === "sector" ? "name" : sortObj.col;
+      const sortAsc = sortObj.asc;
+
       list.sort((a, b) => {
         let res = 0;
         if (sortBy === "name") res = a.name.localeCompare(b.name);
@@ -1741,17 +1773,17 @@
         return sortAsc ? res : -res;
       });
 
-      document.querySelector("thead").innerHTML = `<tr>
-        <th onclick="setSort('name')" style="text-align:left; width:20%">Sector</th>
-        <th onclick="setSort('avgChg')" style="width:20%">Average Change</th>
-        <th onclick="setSort('stocks')" style="width:20%">Stocks</th>
-        <th onclick="setSort('topGainer')" style="width:20%">Top Gainer</th>
-        <th onclick="setSort('topLoser')" style="width:20%">Bottom Loser</th>
+      document.getElementById("tableHeader").innerHTML = `<tr>
+        <th onclick="setSort('name', event)" style="text-align:left; width:20%">Sector</th>
+        <th onclick="setSort('avgChg', event)" style="width:20%">Average Change</th>
+        <th onclick="setSort('stocks', event)" style="width:20%">Stocks</th>
+        <th onclick="setSort('topGainer', event)" style="width:20%">Top Gainer</th>
+        <th onclick="setSort('topLoser', event)" style="width:20%">Bottom Loser</th>
     </tr>`;
 
-      document.querySelectorAll("thead th").forEach(th => {
+      document.querySelectorAll("#tableHeader th").forEach(th => {
         let text = th.innerText.replace(/ ▲| ▼/g, "");
-        if (th.getAttribute("onclick") === `setSort('${sortBy}')`) {
+        if (th.getAttribute("onclick").includes(`'${sortBy}'`)) {
           text += sortAsc ? " ▲" : " ▼";
         }
         th.innerText = text;
@@ -1781,7 +1813,6 @@
     function render() {
       if (!data) return;
       if (activeSet === "SECTORS") { renderSectors(); return; }
-      document.querySelector("thead").innerHTML = defaultThead;
 
       const genSparkline = (pHist, e21Hist, e50Hist) => {
         if (!pHist || !e21Hist || !e50Hist || pHist.length < 2) return "";
@@ -1807,7 +1838,6 @@
       const tf = document.getElementById("tf")?.value || "1d";
       const sigF = document.getElementById("sigF")?.value || "ALL";
       const q = (document.getElementById("search")?.value || "").trim().toUpperCase();
-      const sortBy = sortCol;
 
       let rows = [];
       if (activeSet === "FO") {
@@ -1841,40 +1871,44 @@
           });
         }
       }
+      if (!showIndices) rows = rows.filter(r => r.sector !== "INDEX");
 
       const tfOrder = { "1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7 };
-      rows.sort((a, b) => {
-        let res = 0;
-        if (activeSet === "FO" && sortBy === "sector") {
-          res = b.volumeChange - a.volumeChange;
-        } else if (sortBy === "symbol") {
-          res = a.symbol.localeCompare(b.symbol);
-        } else if (sortBy === "rating") {
-          const rm = { "STRONG BUY": 3, "MODERATE": 2, "SKIP": 1 };
-          res = (rm[a.rating] || 0) - (rm[b.rating] || 0);
-        } else if (a[sortBy] !== null && typeof a[sortBy] === "string") {
-          res = a[sortBy].localeCompare(b[sortBy] || "");
-          if (res === 0) res = (b.techScore || 0) - (a.techScore || 0);
-        } else {
-          const va = +a[sortBy] || 0, vb = +b[sortBy] || 0;
-          res = va - vb;
+      rows.sort((a,b)=>{
+        if (tf === "ALL") {
+            if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
+            return tfOrder[a.tf] - tfOrder[b.tf];
         }
-        if (!sortAsc) res = -res;
-
-        // tie-breaker for ALL timeframes
-        if (res === 0 && tf === "ALL") {
-          if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
-          return tfOrder[a.tf] - tfOrder[b.tf];
+        for(const s of sortStack){
+          let va=a[s.col], vb=b[s.col];
+          if(s.col === "symbol"){
+            const res = va.localeCompare(vb);
+            if(res !== 0) return s.asc ? res : -res;
+          } else {
+            va = +va||0; vb = +vb||0;
+            if(va !== vb) return s.asc ? va - vb : vb - va;
+          }
         }
-        return res;
+        return 0;
       });
 
-      document.querySelectorAll("thead th").forEach(th => {
-        let text = th.innerText.replace(/ ▲| ▼/g, "");
-        if (th.getAttribute("onclick") === `setSort('${sortCol}')`) {
-          text += sortAsc ? " ▲" : " ▼";
+      // Update header indicators
+      document.querySelectorAll("#tableHeader th").forEach(th => {
+        const onClick = th.getAttribute("onclick");
+        if(!onClick) return;
+        const colMatch = onClick.match(/'([^']+)'/);
+        if (!colMatch) return;
+        const col = colMatch[1];
+        const idx = sortStack.findIndex(s => s.col === col);
+        // Remove existing
+        th.querySelectorAll(".sort-meta").forEach(m => m.remove());
+        if(idx !== -1){
+          const s = sortStack[idx];
+          const span = document.createElement("span");
+          span.className = "sort-meta";
+          span.innerHTML = (sortStack.length > 1 ? (idx + 1) + " " : "") + (s.asc ? "↑" : "↓");
+          th.appendChild(span);
         }
-        th.innerText = text;
       });
 
       const uniqueStocksInRows = new Set(rows.map(r => r.symbol)).size;
@@ -1901,7 +1935,9 @@
       tbody.innerHTML = rows.map(r => {
         const sc = r.signal === "BUY" ? "sb" : r.signal === "SELL" ? "ss" : "sn";
         const cc = r.chgPct >= 0 ? "up" : "dn";
+        const chgP = (r.priceChange >= 0 ? "+" : "") + r.priceChange.toFixed(2);
         const chg = (r.chgPct >= 0 ? "+" : "") + r.chgPct.toFixed(2) + "%";
+        const fullChg = chgP + " (" + chg + ")";
         
         // EMA Logic
         const gapTxt = "<div class='muted-xl " + cc + "' style='font-weight:600; padding-top:2px;'>Gap: " + Math.abs(r.emaGap).toFixed(2) + "%</div>";
@@ -1957,7 +1993,7 @@
             <div class='sym' style="white-space:nowrap;"
               data-tip="${r.symbol} · ${r.sector} sector · Signal: ${r.signal} · RSI: ${rsiTxt} -> ${r.goldenCross ? 'GOLDEN CROSS -> BULLISH BREAKOUT' : r.deathCross ? 'DEATH CROSS -> BEARISH BREAKDOWN' : 'NO CROSS ACTIVE'}"
             >${expandToggle}${r.symbol} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
-            <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${chg}</span></div>
+            <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
           </td>
 
           <!-- CMP & VWAP -->
@@ -2115,17 +2151,22 @@
             prevIndexLtp[idx.symbol] = prevIndexLtp[idx.symbol] || ltp;
           }
 
-          const isUp = chgPct === null ? null : chgPct >= 0;
+          const isUp = idx.chgPct === null ? null : idx.chgPct >= 0;
           const cl = isUp === null ? "a" : (isUp ? "g" : "r");
           const sgn = isUp ? "+" : "";
           const arr = isUp ? "^" : "v";
           const rgba = isUp ? "34,197,94" : "239,68,68";
-          const pctHtml = chgPct !== null
-            ? "<span style='font-size:11px;background:rgba(" + rgba + ",0.15);padding:2px 6px;border-radius:4px;margin-left:6px'>" + arr + " " + sgn + chgPct.toFixed(2) + "%</span>"
+          
+          const showChange = idx.chgPct !== null && idx.priceChange !== null;
+          const pctHtml = showChange
+            ? "<div style='display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;'>"
+              + "<span style='font-size:11px;font-weight:700;color:rgb(" + rgba + ")'>" + arr + " " + (idx.priceChange >= 0 ? "+" : "") + idx.priceChange.toFixed(2) + "</span>"
+              + "<span style='font-size:9px;background:rgba(" + rgba + ",0.15);padding:1px 5px;border-radius:4px;color:rgb(" + rgba + ")'>" + sgn + idx.chgPct.toFixed(2) + "%</span>"
+              + "</div>"
             : "";
           html += "<div class='sc'>"
             + "<div class='scl'>" + idx.symbol + "</div>"
-            + "<div class='scv " + cl + "' style='font-size:14px;display:flex;align-items:center;'>"
+            + "<div class='scv " + cl + "' style='font-size:14px;display:flex;align-items:center;justify-content:space-between;'>"
             + "Rs " + ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })
             + pctHtml
             + "</div></div>";
@@ -2324,10 +2365,13 @@
             <table class="sub-t">${theadHtml}<tbody>${puts.map(o => mkGreekRow(o, "PE")).join("")}</tbody></table>
           </div>`;
 
+        const sourceLabel = chain.source === 'theoretical' ? 'THEORETICAL (BS)' : isLive ? 'LIVE FEED ACTIVE' : 'CACHED';
+        const sourceColor = chain.source === 'theoretical' ? 'var(--purple)' : isLive ? 'var(--accent)' : 'var(--yellow)';
+
         wrap.innerHTML = `
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; padding:0 4px">
             <span style="font-size:13px; font-weight:700; color:var(--text); text-transform:uppercase; letter-spacing:0.5px">✦ OPTION CHAIN OVERVIEW — ${symbol}</span>
-            <span class="fn-badge" style="color:var(--accent)">${isLive ? 'LIVE FEED ACTIVE' : 'DEMO MODE'}</span>
+            <span class="fn-badge" style="color:${sourceColor}">${sourceLabel}</span>
           </div>
           ${pivotHtml}
           <div class="fn-content-wrap">
@@ -2335,7 +2379,7 @@
             ${putsTable}
           </div>
           <div style="margin-top:12px; font-size:9px; color:var(--muted); text-align:right; font-family:var(--mono);">
-            ${isLive ? '● ACTIVE' : '● DEMO'} · DATA REFRESH 10S
+            ${fetchedAt ? `Last: ${fetchedAt} · ` : ''}● ${chain.source?.toUpperCase() || 'N/A'} · DATA REFRESH 10S
           </div>`;
 
       } catch (err) {

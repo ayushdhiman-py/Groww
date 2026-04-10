@@ -1,11 +1,10 @@
-import { fetchCandles, fetchBulkLtp } from "./groww.mjs";
+import { fetchCandles, fetchBulkLtp, rateLimit } from "./groww.mjs";
 import { ema, macd, rsi, vwap, historicalVolatility } from "./indicators.mjs";
 import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 import { optionsCache } from "./options_feed.mjs";
 import { startFeed } from "./feed.mjs";
 
-const rl = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export let state = emptyState();
@@ -34,14 +33,7 @@ export function emptyState() {
     return { lastUpdated: null, data, errors: [], universe: UNIVERSE.length };
 }
 
-async function rateLimit() {
-    while (true) {
-        const now = Date.now();
-        while (rl.length && now - rl[0] > 1000) rl.shift();
-        if (rl.length < 2) { rl.push(Date.now()); return; }
-        await sleep(500);
-    }
-}
+// Local rateLimit removed in favor of global one in groww.mjs
 
 function buildSignal(candles, tf, symbol, ltp = null) {
     const cls = candles.map(c => c.close).filter(Number.isFinite);
@@ -127,7 +119,8 @@ function buildSignal(candles, tf, symbol, ltp = null) {
     if (prevClose === null && n > 1) prevClose = candles[n - 2].close;
     if (prevClose === null) prevClose = last.open;
     
-    const chgPct = ((livePrice - prevClose) / prevClose) * 100;
+    const priceChange = livePrice - prevClose;
+    const chgPct = (priceChange / prevClose) * 100;
 
     const histLen = 60;
     const priceHist = cls.slice(-histLen);
@@ -189,6 +182,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
         isNew: false, isNewGolden: false,
         options: optionsCache.get(symbol) || null,
         w52H: h52w, w52L: l52w,
+        priceChange: +priceChange.toFixed(2),
     };
 }
 
@@ -200,6 +194,7 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
     let okCount = 0;
     for (const tf of tfs) {
         try {
+            // Scanner has lower priority, so we wait longer if needed
             await rateLimit();
             process.stdout.write(`\r\x1b[K⏳ ${progressInfo} ${symbol}: [${okCount}/${tfs.length}] Scanning ${tf}...`);
             const candles = await fetchCandles(symbol, tf);

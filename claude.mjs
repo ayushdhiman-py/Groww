@@ -27,8 +27,8 @@ const PORT = process.env.PORT || 4000;
 // , api secret - ***REDACTED_SECRET***
 // ─────────────────────────────────────────────────────────────────────────────
 const CREDS = {
-    apiKey: process.env.GROWW_API_KEY || "***REDACTED_JWT***",
-    apiSecret: process.env.GROWW_API_SECRET || "***REDACTED_SECRET***",
+  apiKey: process.env.GROWW_API_KEY || "***REDACTED_JWT***",
+  apiSecret: process.env.GROWW_API_SECRET || "***REDACTED_SECRET***",
 };
 
 // ── Groww API URLs ────────────────────────────────────────────────────────────
@@ -40,388 +40,390 @@ const CANDLE_URL = `${BASE}/v1/historical/candle/range`;
 let session = { accessToken: null, expires: 0 };
 
 function loadSession() {
-    try {
-        if (fs.existsSync(TOKEN_FILE)) {
-            const d = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf8"));
-            if (d.accessToken && Date.now() < d.expires) {
-                session = d;
-                console.log("Session loaded — valid until:", new Date(d.expires).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
-                return true;
-            }
-        }
-    } catch (_) { }
-    return false;
+  try {
+    if (fs.existsSync(TOKEN_FILE)) {
+      const d = JSON.parse(fs.readFileSync(TOKEN_FILE, "utf8"));
+      if (d.accessToken && Date.now() < d.expires) {
+        session = d;
+        console.log("Session loaded — valid until:", new Date(d.expires).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
+        return true;
+      }
+    }
+  } catch (_) { }
+  return false;
 }
 
 function saveSession(accessToken) {
-    session = { accessToken, expires: Date.now() + 23 * 3600 * 1000 };
-    fs.writeFileSync(TOKEN_FILE, JSON.stringify(session));
+  session = { accessToken, expires: Date.now() + 23 * 3600 * 1000 };
+  fs.writeFileSync(TOKEN_FILE, JSON.stringify(session));
 }
 
 // ── Auth: SHA256(secret + timestamp) ──────────────────────────────────────────
 async function login() {
-    const timestamp = Math.floor(Date.now() / 1000).toString();
-    const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
-    console.log("Logging in to Groww API...");
-    console.log("Timestamp:", timestamp, "| Checksum:", checksum.substring(0, 12) + "...");
-    try {
-        const res = await axios.post(TOKEN_URL, {
-            key_type: "approval",
-            checksum,
-            timestamp,
-        }, {
-            headers: {
-                "Authorization": `Bearer ${CREDS.apiKey}`,
-                "Content-Type": "application/json",
-                "X-API-VERSION": "1.0",
-            },
-            timeout: 15000,
-        });
-        console.log("Groww auth response:", JSON.stringify(res.data).substring(0, 200));
-        const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
-        if (!token) throw new Error("No token in response: " + JSON.stringify(res.data));
-        saveSession(token);
-        console.log("Groww login successful ✓");
-    } catch (e) {
-        console.error("Groww login error:", e.response?.status, e.response?.data || e.message);
-        throw new Error(e.response?.data?.message || e.response?.data?.error || e.message);
-    }
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
+  console.log("Logging in to Groww API...");
+  console.log("Timestamp:", timestamp, "| Checksum:", checksum.substring(0, 12) + "...");
+  try {
+    const res = await axios.post(TOKEN_URL, {
+      key_type: "approval",
+      checksum,
+      timestamp,
+    }, {
+      headers: {
+        "Authorization": `Bearer ${CREDS.apiKey}`,
+        "Content-Type": "application/json",
+        "X-API-VERSION": "1.0",
+      },
+      timeout: 15000,
+    });
+    console.log("Groww auth response:", JSON.stringify(res.data).substring(0, 200));
+    const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
+    if (!token) throw new Error("No token in response: " + JSON.stringify(res.data));
+    saveSession(token);
+    console.log("Groww login successful ✓");
+  } catch (e) {
+    console.error("Groww login error:", e.response?.status, e.response?.data || e.message);
+    throw new Error(e.response?.data?.message || e.response?.data?.error || e.message);
+  }
 }
 
 async function ensureSession() {
-    if (session.accessToken && Date.now() < session.expires) return;
-    await login();
+  if (session.accessToken && Date.now() < session.expires) return;
+  await login();
 }
 
 // ── Candle fetch (Groww API) ──────────────────────────────────────────────────
 const TF_MAP = {
-    "1m": 1, "5m": 5, "10m": 10, "15m": 15, "30m": 30,
-    "1h": 60, "1d": 1440
+  "1m": 1, "5m": 5, "10m": 10, "15m": 15, "30m": 30,
+  "1h": 60, "1d": 1440
 };
 const TF_DAYS = {
-    "1m": 2, "5m": 10, "10m": 15, "15m": 20,
-    "30m": 30, "1h": 60, "1d": 365
+  "1m": 2, "5m": 10, "10m": 15, "15m": 20,
+  "30m": 30, "1h": 60, "1d": 365
 };
 
 function fmtGroww(d) {
-    const ist = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const p = n => String(n).padStart(2, "0");
-    return `${ist.getFullYear()}-${p(ist.getMonth() + 1)}-${p(ist.getDate())} ${p(ist.getHours())}:${p(ist.getMinutes())}:${p(ist.getSeconds())}`;
+  const ist = new Date(d.toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+  const p = n => String(n).padStart(2, "0");
+  return `${ist.getFullYear()}-${p(ist.getMonth() + 1)}-${p(ist.getDate())} ${p(ist.getHours())}:${p(ist.getMinutes())}:${p(ist.getSeconds())}`;
 }
 
 const rl = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function startScan() {
-    while (true) {
-        await scanAll();
-        await sleep(60000);
-    }
+  while (true) {
+    await scanAll();
+    await sleep(60000);
+  }
 }
 async function rateLimit() {
-    while (true) {
-        const now = Date.now();
-        while (rl.length && now - rl[0] > 1000) rl.shift();
-        if (rl.length < 2) { rl.push(Date.now()); return; }
-        await sleep(500);
-    }
+  while (true) {
+    const now = Date.now();
+    while (rl.length && now - rl[0] > 1000) rl.shift();
+    if (rl.length < 2) { rl.push(Date.now()); return; }
+    await sleep(500);
+  }
 }
 
 async function fetchCandles(symbol, tf) {
-    await ensureSession();
-    const to = new Date(), from = new Date(to - TF_DAYS[tf] * 86400000);
-    const intervalMap = {
-        "1m": 1, "5m": 5, "10m": 10, "15m": 15,
-        "30m": 30, "1h": 60, "1d": 1440
-    };
-    const interval = intervalMap[tf];
-    const tradingSymbolMap = {
-        "MIDCPNIFTY": "NIFTYMIDSELECT"
-    };
-    const mappedSymbol = tradingSymbolMap[symbol] || symbol;
+  await ensureSession();
+  const to = new Date(), from = new Date(to - TF_DAYS[tf] * 86400000);
+  const intervalMap = {
+    "1m": 1, "5m": 5, "10m": 10, "15m": 15,
+    "30m": 30, "1h": 60, "1d": 1440
+  };
+  const interval = intervalMap[tf];
+  const tradingSymbolMap = {
+    "MIDCPNIFTY": "NIFTYMIDSELECT"
+  };
+  const mappedSymbol = tradingSymbolMap[symbol] || symbol;
 
-    const params = {
-        exchange: symbol === "SENSEX" ? "BSE" : "NSE",
-        segment: "CASH",
-        trading_symbol: mappedSymbol,
-        start_time: from.getTime(),
-        end_time: to.getTime(),
-        interval_in_minutes: interval
-    };
-    const headers = {
-        "Authorization": `Bearer ${session.accessToken}`,
-        "X-API-VERSION": "1.0",
-        "Accept": "application/json",
-    };
-    const res = await axios.get(CANDLE_URL, { params, headers, timeout: 20000 });
-    const candles = res.data?.payload?.candles || res.data?.candles || res.data?.data?.candles || [];
-    return candles.map(c => ({
-        ts: c[0], open: +c[1], high: +c[2], low: +c[3], close: +c[4], volume: +c[5]
-    }));
+  const params = {
+    exchange: symbol === "SENSEX" ? "BSE" : "NSE",
+    segment: "CASH",
+    trading_symbol: mappedSymbol,
+    start_time: from.getTime(),
+    end_time: to.getTime(),
+    interval_in_minutes: interval
+  };
+  const headers = {
+    "Authorization": `Bearer ${session.accessToken}`,
+    "X-API-VERSION": "1.0",
+    "Accept": "application/json",
+  };
+  const res = await axios.get(CANDLE_URL, { params, headers, timeout: 20000 });
+  const candles = res.data?.payload?.candles || res.data?.candles || res.data?.data?.candles || [];
+  return candles.map(c => ({
+    ts: c[0], open: +c[1], high: +c[2], low: +c[3], close: +c[4], volume: +c[5]
+  }));
 }
 
 // ── Indicators ────────────────────────────────────────────────────────────────
 function ema(values, period) {
-    if (values.length < period) return new Array(values.length).fill(null);
-    const k = 2 / (period + 1);
-    let e = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
-    const out = new Array(period - 1).fill(null);
-    out.push(e);
-    for (let i = period; i < values.length; i++) { e = values[i] * k + e * (1 - k); out.push(e); }
-    return out;
+  if (values.length < period) return new Array(values.length).fill(null);
+  const k = 2 / (period + 1);
+  let e = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  const out = new Array(period - 1).fill(null);
+  out.push(e);
+  for (let i = period; i < values.length; i++) { e = values[i] * k + e * (1 - k); out.push(e); }
+  return out;
 }
 
 function macd(closes, fast = 12, slow = 26, sig = 9) {
-    const ef = ema(closes, fast), es = ema(closes, slow);
-    const ml = ef.map((v, i) => v !== null && es[i] !== null ? v - es[i] : null);
-    const valid = ml.filter(v => v !== null);
-    const sl = ema(valid, sig);
-    const pad = ml.length - valid.length + sig - 1;
-    const slFull = new Array(pad).fill(null).concat(sl.filter(v => v !== null));
-    return { macd: ml, signal: slFull };
+  const ef = ema(closes, fast), es = ema(closes, slow);
+  const ml = ef.map((v, i) => v !== null && es[i] !== null ? v - es[i] : null);
+  const valid = ml.filter(v => v !== null);
+  const sl = ema(valid, sig);
+  const pad = ml.length - valid.length + sig - 1;
+  const slFull = new Array(pad).fill(null).concat(sl.filter(v => v !== null));
+  return { macd: ml, signal: slFull };
 }
 
 function rsi(closes, period = 14) {
-    if (closes.length < period + 1) return null;
-    let g = 0, l = 0;
-    for (let i = 1; i <= period; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) g += d; else l -= d; }
-    let ag = g / period, al = l / period;
-    for (let i = period + 1; i < closes.length; i++) {
-        const d = closes[i] - closes[i - 1];
-        ag = (ag * (period - 1) + Math.max(d, 0)) / period;
-        al = (al * (period - 1) + Math.max(-d, 0)) / period;
-    }
-    return al === 0 ? 100 : +(100 - 100 / (1 + ag / al)).toFixed(2);
+  if (closes.length < period + 1) return null;
+  let g = 0, l = 0;
+  for (let i = 1; i <= period; i++) { const d = closes[i] - closes[i - 1]; if (d > 0) g += d; else l -= d; }
+  let ag = g / period, al = l / period;
+  for (let i = period + 1; i < closes.length; i++) {
+    const d = closes[i] - closes[i - 1];
+    ag = (ag * (period - 1) + Math.max(d, 0)) / period;
+    al = (al * (period - 1) + Math.max(-d, 0)) / period;
+  }
+  return al === 0 ? 100 : +(100 - 100 / (1 + ag / al)).toFixed(2);
 }
 
 // ── Universe ──────────────────────────────────────────────────────────────────
 const UNIVERSE = [
-    "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
-    "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "BPCL",
-    "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY",
-    "EICHERMOT", "ETERNAL", "GRASIM", "HCLTECH", "HDFCBANK",
-    "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK",
-    "INFY", "ITC", "INDUSINDBK", "INDIGO", "JSWSTEEL",
-    "KOTAKBANK", "LT", "M&M", "MARUTI", "NESTLEIND",
-    "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE",
-    "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TCS", "TATACONSUM",
-    "TATAMOTORS", "TATASTEEL", "TECHM", "TITAN", "ULTRACEMCO", "WIPRO",
-    "BANKBARODA", "PNB", "AUBANK", "FEDERALBNK", "CANBK",
-    "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA",
-    "BEL", "MOTHERSON", "GAIL", "IRFC", "MARKSANS", "SJVN", "IOC", "AMBUJACEM", "TVSMOTOR",
-    "UNIONBANK", "IDBI", "INDIANB", "IOB", "YESBANK", "CENTRALBK",
-    "MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "HAL",
-    "LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "HYUNDAI",
-    "MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "VEDL", "HINDZINC",
-    "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "PFC", "SAIL",
-    "NUVAMA", "TAALTECH", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "ASTERDM",
-    "DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND"
+  "ADANIENT", "ADANIPORTS", "APOLLOHOSP", "ASIANPAINT", "AXISBANK",
+  "BAJAJ-AUTO", "BAJFINANCE", "BAJAJFINSV", "BHARTIARTL", "BPCL",
+  "BRITANNIA", "CIPLA", "COALINDIA", "DIVISLAB", "DRREDDY",
+  "EICHERMOT", "ETERNAL", "GRASIM", "HCLTECH", "HDFCBANK",
+  "HDFCLIFE", "HEROMOTOCO", "HINDALCO", "HINDUNILVR", "ICICIBANK",
+  "INFY", "ITC", "INDUSINDBK", "INDIGO", "JSWSTEEL",
+  "KOTAKBANK", "LT", "M&M", "MARUTI", "NESTLEIND",
+  "NTPC", "ONGC", "POWERGRID", "RELIANCE", "SBILIFE",
+  "SBIN", "SHRIRAMFIN", "SUNPHARMA", "TCS", "TATACONSUM",
+  "TATAMOTORS", "TATASTEEL", "TECHM", "TITAN", "ULTRACEMCO", "WIPRO",
+  "BANKBARODA", "PNB", "AUBANK", "FEDERALBNK", "CANBK",
+  "BANDHANBNK", "IDFCFIRSTB", "BANKINDIA",
+  "BEL", "MOTHERSON", "GAIL", "IRFC", "MARKSANS", "SJVN", "IOC", "AMBUJACEM", "TVSMOTOR",
+  "UNIONBANK", "IDBI", "INDIANB", "IOB", "YESBANK", "CENTRALBK",
+  "MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "HAL",
+  "LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "HYUNDAI",
+  "MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "VEDL", "HINDZINC",
+  "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "PFC", "SAIL",
+  "NUVAMA", "TAALTECH", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "ASTERDM",
+  "DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND"
 ];
 
 const SECTOR = {
-    ALWAYS_UP: ["BEL", "MOTHERSON", "EICHERMOT", "GAIL", "IRFC", "PNB", "MARKSANS", "ETERNAL", "SJVN", "IOC", "POWERGRID", "TATASTEEL", "AMBUJACEM", "ICICIBANK", "ONGC", "RELIANCE", "SBIN", "TVSMOTOR"],
-    BANK: ["AUBANK", "BANDHANBNK", "ICICIBANK", "HDFCBANK", "SBIN", "KOTAKBANK", "AXISBANK", "PNB", "BANKBARODA", "UNIONBANK", "IDBI", "CANBK", "INDIANB", "IOB", "INDUSINDBK", "YESBANK", "IDFCFIRSTB", "CENTRALBK", "FEDERALBNK", "BANKINDIA"],
-    DEFENCE: ["MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "BEL", "HAL"],
-    AUTO: ["LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "MOTHERSON", "TVSMOTOR", "EICHERMOT", "HYUNDAI", "BAJAJ-AUTO", "M&M", "MARUTI", "TATAMOTORS", "HEROMOTOCO", "INDIGO"],
-    METAL: ["MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "HINDALCO", "VEDL", "HINDZINC", "TATASTEEL", "JSWSTEEL", "SAIL"],
-    GOVT: ["IRFC", "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "AXISBANK", "CANBK", "PNB", "BANKINDIA", "CENTRALBK", "UNIONBANK", "BANKBARODA", "PFC", "SBIN", "NTPC", "ONGC", "SAIL"],
-    DIVIDEND: ["NUVAMA", "TAALTECH", "ICICIBANK", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "NTPC", "ONGC", "POWERGRID", "ITC", "CANBK", "GAIL", "HINDZINC", "COALINDIA", "VEDL", "ASTERDM"],
-    CLOSE_LOOK: ["DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "MRPL", "COALINDIA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND", "BPCL"],
-    IT: ["INFY", "TCS", "HCLTECH", "TECHM", "WIPRO"],
-    PHARMA: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP", "ASTERDM", "MARKSANS"],
-    ENERGY: ["RELIANCE", "ONGC", "BPCL", "NTPC", "POWERGRID", "COALINDIA", "IOC", "GAIL", "PETRONET"],
-    FMCG: ["HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM", "RENUKA", "BALRAMCHIN"],
-    INFRA: ["LT", "GRASIM", "ULTRACEMCO", "ADANIPORTS", "ADANIENT", "AMBUJACEM"],
-    FINANCE: ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "SHRIRAMFIN", "M&MFIN", "LTF", "PFC", "RECLTD", "IRFC", "NUVAMA", "CDSL", "CAMS"],
-    DAILY: ["KOTAKBANK", "CIPLA"]
+  ALWAYS_UP: ["BEL", "MOTHERSON", "EICHERMOT", "GAIL", "IRFC", "PNB", "MARKSANS", "ETERNAL", "SJVN", "IOC", "POWERGRID", "TATASTEEL", "AMBUJACEM", "ICICIBANK", "ONGC", "RELIANCE", "SBIN", "TVSMOTOR"],
+  BANK: ["AUBANK", "BANDHANBNK", "ICICIBANK", "HDFCBANK", "SBIN", "KOTAKBANK", "AXISBANK", "PNB", "BANKBARODA", "UNIONBANK", "IDBI", "CANBK", "INDIANB", "IOB", "INDUSINDBK", "YESBANK", "IDFCFIRSTB", "CENTRALBK", "FEDERALBNK", "BANKINDIA"],
+  DEFENCE: ["MIDHANI", "PARAS", "ASTRAMICRO", "ITI", "GRSE", "COCHINSHIP", "BDL", "MAZDOCK", "SOLARINDS", "BEL", "HAL"],
+  AUTO: ["LUMAXIND", "LGBROSLTD", "ATHERENERG", "FORCEMOT", "EXIDEIND", "ESCORTS", "ENDURANCE", "UNOMINDA", "BOSCHLTD", "MOTHERSON", "TVSMOTOR", "EICHERMOT", "HYUNDAI", "BAJAJ-AUTO", "M&M", "MARUTI", "TATAMOTORS", "HEROMOTOCO", "INDIGO"],
+  METAL: ["MRPL", "PRECWIRE", "JBMA", "GRAVITA", "HINDCOPPER", "LLOYDSME", "HINDALCO", "VEDL", "HINDZINC", "TATASTEEL", "JSWSTEEL", "SAIL"],
+  GOVT: ["IRFC", "OSWALAGRO", "JSWCEMENT", "BALRAMCHIN", "MOSCHIP", "DIXON", "LTF", "AXISBANK", "CANBK", "PNB", "BANKINDIA", "CENTRALBK", "UNIONBANK", "BANKBARODA", "PFC", "SBIN", "NTPC", "ONGC", "SAIL"],
+  DIVIDEND: ["NUVAMA", "TAALTECH", "ICICIBANK", "M&MFIN", "MSTCLTD", "PGINVIT", "NATIONALUM", "CASTROLIND", "RECLTD", "NTPC", "ONGC", "POWERGRID", "ITC", "CANBK", "GAIL", "HINDZINC", "COALINDIA", "VEDL", "ASTERDM"],
+  CLOSE_LOOK: ["DIGILOGIC", "CDSL", "CAMS", "WEL", "RAJOOENG", "GSTL", "JAINREC", "RENUKA", "MRPL", "COALINDIA", "PETRONET", "WAAREEENER", "CUBEINVIT", "PAGEIND", "BPCL"],
+  IT: ["INFY", "TCS", "HCLTECH", "TECHM", "WIPRO"],
+  PHARMA: ["SUNPHARMA", "DRREDDY", "CIPLA", "DIVISLAB", "APOLLOHOSP", "ASTERDM", "MARKSANS"],
+  ENERGY: ["RELIANCE", "ONGC", "BPCL", "NTPC", "POWERGRID", "COALINDIA", "IOC", "GAIL", "PETRONET"],
+  FMCG: ["HINDUNILVR", "ITC", "BRITANNIA", "NESTLEIND", "TATACONSUM", "RENUKA", "BALRAMCHIN"],
+  INFRA: ["LT", "GRASIM", "ULTRACEMCO", "ADANIPORTS", "ADANIENT", "AMBUJACEM"],
+  FINANCE: ["BAJFINANCE", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "SHRIRAMFIN", "M&MFIN", "LTF", "PFC", "RECLTD", "IRFC", "NUVAMA", "CDSL", "CAMS"],
+  DAILY: ["KOTAKBANK", "CIPLA"]
 };
 const getSector = s => Object.keys(SECTOR).find(k => SECTOR[k].includes(s)) || "OTHER";
 
 // ── Signal builder ─────────────────────────────────────────────────────────────
 function buildSignal(candles, tf, symbol) {
-    const cls = candles.map(c => c.close).filter(Number.isFinite);
-    const vol = candles.map(c => c.volume).filter(Number.isFinite);
-    if (cls.length < 55 || vol.length < 15) return null;
+  const cls = candles.map(c => c.close).filter(Number.isFinite);
+  const vol = candles.map(c => c.volume).filter(Number.isFinite);
+  if (cls.length < 55 || vol.length < 15) return null;
 
-    const e21 = ema(cls, 21), e50 = ema(cls, 50);
-    const { macd: ml, signal: sl } = macd(cls, 12, 26, 9);
-    const rsiVal = rsi(cls);
-    const n = cls.length;
+  const e21 = ema(cls, 21), e50 = ema(cls, 50);
+  const { macd: ml, signal: sl } = macd(cls, 12, 26, 9);
+  const rsiVal = rsi(cls);
+  const n = cls.length;
 
-    const c21 = e21[n - 1], p21 = e21[n - 2];
-    const c50 = e50[n - 1], p50 = e50[n - 2];
-    const cM = ml[n - 1], pM = ml[n - 2];
-    const cS = sl[n - 1], pS = sl[n - 2];
+  const c21 = e21[n - 1], p21 = e21[n - 2];
+  const c50 = e50[n - 1], p50 = e50[n - 2];
+  const cM = ml[n - 1], pM = ml[n - 2];
+  const cS = sl[n - 1], pS = sl[n - 2];
 
-    const goldenCross = p21 !== null && p50 !== null && p21 <= p50 && c21 > c50;
-    const deathCross = p21 !== null && p50 !== null && p21 >= p50 && c21 < c50;
-    const ema21above = c21 > c50;
-    const macdBull = pM !== null && pS !== null && pM <= pS && cM > cS;
-    const macdBear = pM !== null && pS !== null && pM >= pS && cM < cS;
-    const macdAbove = cM !== null && cS !== null && cM > cS;
+  const goldenCross = p21 !== null && p50 !== null && p21 <= p50 && c21 > c50;
+  const deathCross = p21 !== null && p50 !== null && p21 >= p50 && c21 < c50;
+  const ema21above = c21 > c50;
+  const macdBull = pM !== null && pS !== null && pM <= pS && cM > cS;
+  const macdBear = pM !== null && pS !== null && pM >= pS && cM < cS;
+  const macdAbove = cM !== null && cS !== null && cM > cS;
 
-    const recentVol = vol.slice(-10);
-    const avgVol = recentVol.reduce((a, b) => a + b, 0) / recentVol.length;
-    const lastVol = vol[vol.length - 1];
-    const prevVol = vol[vol.length - 2] || 0;
-    const volSpike = lastVol > avgVol * 1.5;
+  const recentVol = vol.slice(-10);
+  const avgVol = recentVol.reduce((a, b) => a + b, 0) / recentVol.length;
+  const lastVol = vol[vol.length - 1];
+  const prevVol = vol[vol.length - 2] || 0;
+  const volSpike = lastVol > avgVol * 1.5;
 
-    const last = candles[candles.length - 1];
-    const chgPct = ((last.close - last.open) / last.open) * 100;
-    const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
+  const last = candles[candles.length - 1];
+  const priceChange = livePrice - prevClose;
+  const chgPct = (priceChange / prevClose) * 100;
+  const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
 
-    const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
-    const lastTs = normalizeTs(last.ts);
-    const livePrice = last.close;
-    const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
-    
-    // Day High/Low
-    let dayH = -Infinity, dayL = Infinity;
-    // Weekly High/Low (last 7 days)
-    let weekH = -Infinity, weekL = Infinity;
-    // 52-Week High/Low (only calculated correctly on 1d TF)
-    let h52w = -Infinity, l52w = Infinity;
-    
-    const weekThresh = lastTs - (7 * 86400000);
-    const yearThresh = lastTs - (365 * 86400000);
-    
-    for (let i = n - 1; i >= 0; i--) {
-        const c = candles[i];
-        const ts = normalizeTs(c.ts);
-        
-        // 52-Week logic (only if 1d timeframe)
-        if (tf === "1d" && ts >= yearThresh) {
-            h52w = Math.max(h52w, c.high);
-            l52w = Math.min(l52w, c.low);
-        }
+  const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
+  const lastTs = normalizeTs(last.ts);
+  const livePrice = last.close;
+  const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
 
-        // Weekly logic
-        if (ts >= weekThresh) {
-            weekH = Math.max(weekH, c.high);
-            weekL = Math.min(weekL, c.low);
-        }
-        
-        if (new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" }) === tzStr) {
-            dayH = Math.max(dayH, c.high);
-            dayL = Math.min(dayL, c.low);
-        }
+  // Day High/Low
+  let dayH = -Infinity, dayL = Infinity;
+  // Weekly High/Low (last 7 days)
+  let weekH = -Infinity, weekL = Infinity;
+  // 52-Week High/Low (only calculated correctly on 1d TF)
+  let h52w = -Infinity, l52w = Infinity;
+
+  const weekThresh = lastTs - (7 * 86400000);
+  const yearThresh = lastTs - (365 * 86400000);
+
+  for (let i = n - 1; i >= 0; i--) {
+    const c = candles[i];
+    const ts = normalizeTs(c.ts);
+
+    // 52-Week logic (only if 1d timeframe)
+    if (tf === "1d" && ts >= yearThresh) {
+      h52w = Math.max(h52w, c.high);
+      l52w = Math.min(l52w, c.low);
     }
-    
-    // Fallbacks and incorporating livePrice
-    if (dayH === -Infinity) { dayH = Math.max(last.high, livePrice); dayL = Math.min(last.low, livePrice); }
-    else { dayH = Math.max(dayH, livePrice); dayL = Math.min(dayL, livePrice); }
-    
-    if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
-    if (h52w === -Infinity && tf === "1d") { h52w = dayH; l52w = dayL; }
 
-    const histLen = 20;
-    const priceHist = cls.slice(-histLen);
-    const ema21Hist = e21.slice(-histLen);
-    const ema50Hist = e50.slice(-histLen);
+    // Weekly logic
+    if (ts >= weekThresh) {
+      weekH = Math.max(weekH, c.high);
+      weekL = Math.min(weekL, c.low);
+    }
 
-    const checks = {
-        "Golden Cross (EMA 21>50)": goldenCross,
-        "EMA 21 above 50": ema21above,
-        "MACD Bull cross": macdBull,
-        "MACD above signal": macdAbove,
-        "Vol spike + price up": volSpike && chgPct > 0,
-        "RSI healthy (45-75)": rsiVal !== null && rsiVal >= 45 && rsiVal <= 75,
-    };
+    if (new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" }) === tzStr) {
+      dayH = Math.max(dayH, c.high);
+      dayL = Math.min(dayL, c.low);
+    }
+  }
 
-    const redFlags = {
-        "Death Cross": deathCross,
-        "MACD Bear cross": macdBear,
-        "RSI overbought >80": rsiVal !== null && rsiVal > 80,
-        "RSI oversold <25": rsiVal !== null && rsiVal < 25,
-        "Volume collapsing": lastVol < avgVol * 0.4,
-    };
+  // Fallbacks and incorporating livePrice
+  if (dayH === -Infinity) { dayH = Math.max(last.high, livePrice); dayL = Math.min(last.low, livePrice); }
+  else { dayH = Math.max(dayH, livePrice); dayL = Math.min(dayL, livePrice); }
 
-    const techScore = Object.values(checks).filter(Boolean).length;
-    const redCount = Object.values(redFlags).filter(Boolean).length;
+  if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
+  if (h52w === -Infinity && tf === "1d") { h52w = dayH; l52w = dayL; }
 
-    let signal = "NONE";
-    if (goldenCross) signal = "BUY";
-    else if (deathCross) signal = "SELL";
-    else if (ema21above && macdBull) signal = "BUY";
-    else if (!ema21above && macdBear) signal = "SELL";
+  const histLen = 20;
+  const priceHist = cls.slice(-histLen);
+  const ema21Hist = e21.slice(-histLen);
+  const ema50Hist = e50.slice(-histLen);
 
-    const rating = techScore >= 5 ? "STRONG BUY" : techScore >= 3 ? "WATCHLIST" : "SKIP";
+  const checks = {
+    "Golden Cross (EMA 21>50)": goldenCross,
+    "EMA 21 above 50": ema21above,
+    "MACD Bull cross": macdBull,
+    "MACD above signal": macdAbove,
+    "Vol spike + price up": volSpike && chgPct > 0,
+    "RSI healthy (45-75)": rsiVal !== null && rsiVal >= 45 && rsiVal <= 75,
+  };
 
-    return {
-        symbol, sector: getSector(symbol), tf, signal,
-        goldenCross, deathCross,
-        price: +last.close.toFixed(2), open: +last.open.toFixed(2),
-        high: +last.high.toFixed(2), low: +last.low.toFixed(2),
-        dayH, dayL, weekH, weekL, w52H: h52w, w52L: l52w,
-        chgPct: +chgPct.toFixed(2),
-        volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
-        ema21: c21 !== null ? +c21.toFixed(2) : null,
-        ema50: c50 !== null ? +c50.toFixed(2) : null,
-        emaGap, ema21above,
-        ema21Hist, ema50Hist, priceHist,
-        macdBull, macdBear, macdAbove,
-        macdVal: cM !== null ? +cM.toFixed(4) : null,
-        rsi: rsiVal,
-        checks, redFlags,
-        techScore, redCount,
-        rating,
-        ts: last.ts,
-        isNew: false, isNewGolden: false,
-    };
+  const redFlags = {
+    "Death Cross": deathCross,
+    "MACD Bear cross": macdBear,
+    "RSI overbought >80": rsiVal !== null && rsiVal > 80,
+    "RSI oversold <25": rsiVal !== null && rsiVal < 25,
+    "Volume collapsing": lastVol < avgVol * 0.4,
+  };
+
+  const techScore = Object.values(checks).filter(Boolean).length;
+  const redCount = Object.values(redFlags).filter(Boolean).length;
+
+  let signal = "NONE";
+  if (goldenCross) signal = "BUY";
+  else if (deathCross) signal = "SELL";
+  else if (ema21above && macdBull) signal = "BUY";
+  else if (!ema21above && macdBear) signal = "SELL";
+
+  const rating = techScore >= 5 ? "STRONG BUY" : techScore >= 3 ? "WATCHLIST" : "SKIP";
+
+  return {
+    symbol, sector: getSector(symbol), tf, signal,
+    goldenCross, deathCross,
+    price: +last.close.toFixed(2), open: +last.open.toFixed(2),
+    high: +last.high.toFixed(2), low: +last.low.toFixed(2),
+    dayH, dayL, weekH, weekL, w52H: h52w, w52L: l52w,
+    chgPct: +chgPct.toFixed(2),
+    volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
+    ema21: c21 !== null ? +c21.toFixed(2) : null,
+    ema50: c50 !== null ? +c50.toFixed(2) : null,
+    emaGap, ema21above,
+    ema21Hist, ema50Hist, priceHist,
+    macdBull, macdBear, macdAbove,
+    macdVal: cM !== null ? +cM.toFixed(4) : null,
+    rsi: rsiVal,
+    checks, redFlags,
+    techScore, redCount,
+    rating,
+    ts: last.ts,
+    priceChange: +priceChange.toFixed(2),
+    isNew: false, isNewGolden: false,
+  };
 }
 
 // ── Scan state ────────────────────────────────────────────────────────────────
 function emptyState() {
-    const data = {};
-    for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
-    return { lastUpdated: null, data, errors: [], universe: UNIVERSE.length };
+  const data = {};
+  for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
+  return { lastUpdated: null, data, errors: [], universe: UNIVERSE.length };
 }
 
 function generateDummyState() {
-    const s = emptyState();
-    s.lastUpdated = new Date().toISOString();
-    for (const tf of Object.keys(TF_MAP)) {
-        const dummyRow1 = {
-            symbol: "RELIANCE", sector: "ENERGY", tf, signal: "BUY",
-            goldenCross: true, deathCross: false,
-            price: 2950.50, open: 2900, high: 2960, low: 2890,
-            chgPct: 1.74, volume: 5000000, volumeChange: 200000, volSpike: true,
-            ema20: 2900, ema50: 2850, emaGap: 1.75, ema20above: true,
-            macdBull: true, macdBear: false, macdAbove: true,
-            macdVal: 15.2, rsi: 65,
-            checks: { "Golden Cross (EMA 20>50)": true, "EMA 20 above 50": true, "MACD Bull cross": true, "MACD above signal": true, "Vol spike + price up": true },
-            redFlags: {}, techScore: 5, redCount: 0, rating: "STRONG BUY",
-            ts: new Date().toISOString(), isNew: true, isNewGolden: true
-        };
-        const dummyRow2 = {
-            symbol: "HDFCBANK", sector: "BANK", tf, signal: "SELL",
-            goldenCross: false, deathCross: true,
-            price: 1510.20, open: 1530, high: 1540, low: 1500,
-            chgPct: -1.29, volume: 8000000, volumeChange: -100000, volSpike: false,
-            ema20: 1550, ema50: 1580, emaGap: -1.89, ema20above: false,
-            macdBull: false, macdBear: true, macdAbove: false,
-            macdVal: -4.5, rsi: 35,
-            checks: {}, redFlags: { "Death Cross": true },
-            techScore: 0, redCount: 3, rating: "SKIP",
-            ts: new Date().toISOString(), isNew: false, isNewGolden: false
-        };
-        const dummyRow3 = {
-            symbol: "TCS", sector: "IT", tf, signal: "NONE",
-            goldenCross: false, deathCross: false,
-            price: 4050.00, open: 4040, high: 4080, low: 4020,
-            chgPct: 0.24, volume: 1500000, volumeChange: 50000, volSpike: false,
-            ema20: 4000, ema50: 3950, emaGap: 1.26, ema20above: true,
-            macdBull: false, macdBear: false, macdAbove: true,
-            macdVal: 5.1, rsi: 55,
-            checks: { "EMA 20 above 50": true }, redFlags: {},
-            techScore: 3, redCount: 0, rating: "WATCHLIST",
-            ts: new Date().toISOString(), isNew: false, isNewGolden: false
-        };
-        s.data[`${tf}_ALL`].push(dummyRow1, dummyRow2, dummyRow3);
-        s.data[`${tf}_BUY`].push(dummyRow1);
-        s.data[`${tf}_SELL`].push(dummyRow2);
-        s.data[`${tf}_GOLDEN`].push(dummyRow1);
-    }
-    return s;
+  const s = emptyState();
+  s.lastUpdated = new Date().toISOString();
+  for (const tf of Object.keys(TF_MAP)) {
+    const dummyRow1 = {
+      symbol: "RELIANCE", sector: "ENERGY", tf, signal: "BUY",
+      goldenCross: true, deathCross: false,
+      price: 2950.50, open: 2900, high: 2960, low: 2890,
+      chgPct: 1.74, volume: 5000000, volumeChange: 200000, volSpike: true,
+      ema20: 2900, ema50: 2850, emaGap: 1.75, ema20above: true,
+      macdBull: true, macdBear: false, macdAbove: true,
+      macdVal: 15.2, rsi: 65,
+      checks: { "Golden Cross (EMA 20>50)": true, "EMA 20 above 50": true, "MACD Bull cross": true, "MACD above signal": true, "Vol spike + price up": true },
+      redFlags: {}, techScore: 5, redCount: 0, rating: "STRONG BUY",
+      ts: new Date().toISOString(), isNew: true, isNewGolden: true
+    };
+    const dummyRow2 = {
+      symbol: "HDFCBANK", sector: "BANK", tf, signal: "SELL",
+      goldenCross: false, deathCross: true,
+      price: 1510.20, open: 1530, high: 1540, low: 1500,
+      chgPct: -1.29, volume: 8000000, volumeChange: -100000, volSpike: false,
+      ema20: 1550, ema50: 1580, emaGap: -1.89, ema20above: false,
+      macdBull: false, macdBear: true, macdAbove: false,
+      macdVal: -4.5, rsi: 35,
+      checks: {}, redFlags: { "Death Cross": true },
+      techScore: 0, redCount: 3, rating: "SKIP",
+      ts: new Date().toISOString(), isNew: false, isNewGolden: false
+    };
+    const dummyRow3 = {
+      symbol: "TCS", sector: "IT", tf, signal: "NONE",
+      goldenCross: false, deathCross: false,
+      price: 4050.00, open: 4040, high: 4080, low: 4020,
+      chgPct: 0.24, volume: 1500000, volumeChange: 50000, volSpike: false,
+      ema20: 4000, ema50: 3950, emaGap: 1.26, ema20above: true,
+      macdBull: false, macdBear: false, macdAbove: true,
+      macdVal: 5.1, rsi: 55,
+      checks: { "EMA 20 above 50": true }, redFlags: {},
+      techScore: 3, redCount: 0, rating: "WATCHLIST",
+      ts: new Date().toISOString(), isNew: false, isNewGolden: false
+    };
+    s.data[`${tf}_ALL`].push(dummyRow1, dummyRow2, dummyRow3);
+    s.data[`${tf}_BUY`].push(dummyRow1);
+    s.data[`${tf}_SELL`].push(dummyRow2);
+    s.data[`${tf}_GOLDEN`].push(dummyRow1);
+  }
+  return s;
 }
 
 let state = emptyState();
@@ -431,149 +433,149 @@ let isAuthenticated = false;
 const w52Cache = new Map();
 
 async function scanSymbol(symbol, buckets, errors) {
-    const tfs = Object.keys(TF_MAP).sort((a, b) => a === "1d" ? -1 : (b === "1d" ? 1 : 0));
-    for (const tf of tfs) {
-        try {
-            await rateLimit();
-            process.stdout.write(`Scanning ${symbol} (${tf})... `);
-            const candles = await fetchCandles(symbol, tf);
-            const row = buildSignal(candles, tf, symbol);
-            if (!row) { console.log(" (no data)"); continue; }
+  const tfs = Object.keys(TF_MAP).sort((a, b) => a === "1d" ? -1 : (b === "1d" ? 1 : 0));
+  for (const tf of tfs) {
+    try {
+      await rateLimit();
+      process.stdout.write(`Scanning ${symbol} (${tf})... `);
+      const candles = await fetchCandles(symbol, tf);
+      const row = buildSignal(candles, tf, symbol);
+      if (!row) { console.log(" (no data)"); continue; }
 
-            if (tf === "1d") {
-                w52Cache.set(symbol, { w52H: row.w52H, w52L: row.w52L });
-            } else {
-                const cached = w52Cache.get(symbol);
-                if (cached) {
-                    row.w52H = cached.w52H;
-                    row.w52L = cached.w52L;
-                }
-            }
-            console.log(" ✓");
-
-            const key = `${symbol}|${tf}`;
-            const prev = prevSigs.get(key);
-            row.isNew = !prev || prev !== row.signal;
-            row.isNewGolden = row.goldenCross && row.isNew;
-            prevSigs.set(key, row.signal);
-
-            buckets[`${tf}_ALL`].push(row);
-            if (row.signal === "BUY") buckets[`${tf}_BUY`].push(row);
-            if (row.signal === "SELL") buckets[`${tf}_SELL`].push(row);
-            if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
-        } catch (e) {
-            let errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
-            if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
-            errors.push(`${symbol}/${tf}: ${errMsg}`);
+      if (tf === "1d") {
+        w52Cache.set(symbol, { w52H: row.w52H, w52L: row.w52L });
+      } else {
+        const cached = w52Cache.get(symbol);
+        if (cached) {
+          row.w52H = cached.w52H;
+          row.w52L = cached.w52L;
         }
+      }
+      console.log(" ✓");
+
+      const key = `${symbol}|${tf}`;
+      const prev = prevSigs.get(key);
+      row.isNew = !prev || prev !== row.signal;
+      row.isNewGolden = row.goldenCross && row.isNew;
+      prevSigs.set(key, row.signal);
+
+      buckets[`${tf}_ALL`].push(row);
+      if (row.signal === "BUY") buckets[`${tf}_BUY`].push(row);
+      if (row.signal === "SELL") buckets[`${tf}_SELL`].push(row);
+      if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
+    } catch (e) {
+      let errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
+      if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
+      errors.push(`${symbol}/${tf}: ${errMsg}`);
     }
+  }
 }
 
 async function pool(items, concurrency, fn) {
-    let i = 0;
-    await Promise.all(Array.from({ length: concurrency }, async () => { while (i < items.length) { const x = items[i++]; await fn(x); } }));
+  let i = 0;
+  await Promise.all(Array.from({ length: concurrency }, async () => { while (i < items.length) { const x = items[i++]; await fn(x); } }));
 }
 
 async function scanAll() {
-    if (!isAuthenticated || scanning) return;
-    scanning = true;
-    console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
-    const next = emptyState();
-    try {
-        const sortFn = (a, b) => {
-            if (a.goldenCross !== b.goldenCross) return a.goldenCross ? -1 : 1;
-            if (b.techScore !== a.techScore) return b.techScore - a.techScore;
-            return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
-        };
+  if (!isAuthenticated || scanning) return;
+  scanning = true;
+  console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
+  const next = emptyState();
+  try {
+    const sortFn = (a, b) => {
+      if (a.goldenCross !== b.goldenCross) return a.goldenCross ? -1 : 1;
+      if (b.techScore !== a.techScore) return b.techScore - a.techScore;
+      return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
+    };
 
-        for (const sym of UNIVERSE) {
-            await scanSymbol(sym, next.data, next.errors);
+    for (const sym of UNIVERSE) {
+      await scanSymbol(sym, next.data, next.errors);
 
-            for (const tf of Object.keys(TF_MAP)) {
-                next.data[`${tf}_BUY`].sort(sortFn);
-                next.data[`${tf}_GOLDEN`].sort(sortFn);
-                next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
-            }
-            next.lastUpdated = new Date().toISOString();
-            state = JSON.parse(JSON.stringify(next));
-        }
-        console.log(`Scan done | Errors: ${state.errors.length}`);
-    } finally { scanning = false; }
+      for (const tf of Object.keys(TF_MAP)) {
+        next.data[`${tf}_BUY`].sort(sortFn);
+        next.data[`${tf}_GOLDEN`].sort(sortFn);
+        next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
+      }
+      next.lastUpdated = new Date().toISOString();
+      state = JSON.parse(JSON.stringify(next));
+    }
+    console.log(`Scan done | Errors: ${state.errors.length}`);
+  } finally { scanning = false; }
 }
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.get("/api/state", (_, res) => res.json(state));
 app.get("/api/status", (_, res) => res.json({
-    authenticated: isAuthenticated,
-    scanning,
-    lastUpdated: state.lastUpdated,
-    errors: state.errors.length,
-    universe: UNIVERSE.length,
+  authenticated: isAuthenticated,
+  scanning,
+  lastUpdated: state.lastUpdated,
+  errors: state.errors.length,
+  universe: UNIVERSE.length,
 }));
 
 app.post("/api/login", async (req, res) => {
-    try {
-        await login();
-        isAuthenticated = true;
-        scanAll();
-        res.json({ ok: true });
-    } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
+  try {
+    await login();
+    isAuthenticated = true;
+    scanAll();
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
 // ── Indices LTP endpoint ──────────────────────────────────────────────────────
 const INDEX_SYMBOLS = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "SENSEX", "NIFTY MID SELECT"];
-const INDEX_LABELS  = ["NIFTY",   "BANKNIFTY", "FINNIFTY",          "SENSEX", "MIDCPNIFTY"];
-let   indexCache    = { ts: 0, data: [] };
+const INDEX_LABELS = ["NIFTY", "BANKNIFTY", "FINNIFTY", "SENSEX", "MIDCPNIFTY"];
+let indexCache = { ts: 0, data: [] };
 
 app.get("/api/indices", async (_, res) => {
-    try {
-        if (!isAuthenticated) return res.json([]);
-        // Return cached copy if fresher than 3s
-        if (Date.now() - indexCache.ts < 3000) return res.json(indexCache.data);
+  try {
+    if (!isAuthenticated) return res.json([]);
+    // Return cached copy if fresher than 3s
+    if (Date.now() - indexCache.ts < 3000) return res.json(indexCache.data);
 
-        await ensureSession();
-        // Groww uses exchange_symbols like NSE_NIFTY 50, BSE_SENSEX for indices
-        const exchangeSymbols = INDEX_LABELS.map(sym => {
-            if (sym === "SENSEX") return "BSE_SENSEX";
-            if (sym === "MIDCPNIFTY") return "NSE_NIFTY MID SELECT";
-            if (sym === "BANKNIFTY") return "NSE_NIFTY BANK";
-            if (sym === "FINNIFTY") return "NSE_NIFTY FIN SERVICE";
-            if (sym === "NIFTY") return "NSE_NIFTY 50";
-            return `NSE_${sym}`;
-        }).join(",");
+    await ensureSession();
+    // Groww uses exchange_symbols like NSE_NIFTY 50, BSE_SENSEX for indices
+    const exchangeSymbols = INDEX_LABELS.map(sym => {
+      if (sym === "SENSEX") return "BSE_SENSEX";
+      if (sym === "MIDCPNIFTY") return "NSE_NIFTY MID SELECT";
+      if (sym === "BANKNIFTY") return "NSE_NIFTY BANK";
+      if (sym === "FINNIFTY") return "NSE_NIFTY FIN SERVICE";
+      if (sym === "NIFTY") return "NSE_NIFTY 50";
+      return `NSE_${sym}`;
+    }).join(",");
 
-        const url = `https://api.groww.in/v1/live-data/ltp`;
-        const headers = {
-            "Authorization": `Bearer ${session.accessToken}`,
-            "X-API-VERSION": "1.0",
-            "Accept": "application/json",
-        };
-        const r = await axios.get(url, {
-            params: { segment: "CASH", exchange_symbols: exchangeSymbols },
-            headers, timeout: 10000,
-        });
-        const payload = r.data?.payload || {};
+    const url = `https://api.groww.in/v1/live-data/ltp`;
+    const headers = {
+      "Authorization": `Bearer ${session.accessToken}`,
+      "X-API-VERSION": "1.0",
+      "Accept": "application/json",
+    };
+    const r = await axios.get(url, {
+      params: { segment: "CASH", exchange_symbols: exchangeSymbols },
+      headers, timeout: 10000,
+    });
+    const payload = r.data?.payload || {};
 
-        // Build result array with label names
-        const result = INDEX_LABELS.map((label, i) => {
-            const keyMap = {
-                "SENSEX": "BSE_SENSEX",
-                "MIDCPNIFTY": "NSE_NIFTY MID SELECT",
-                "BANKNIFTY": "NSE_NIFTY BANK",
-                "FINNIFTY": "NSE_NIFTY FIN SERVICE",
-                "NIFTY": "NSE_NIFTY 50"
-            };
-            const key = keyMap[label] || `NSE_${label}`;
-            const ltp = payload[key] || payload[label.toUpperCase()] || null;
-            return { symbol: label, ltp };
-        });
+    // Build result array with label names
+    const result = INDEX_LABELS.map((label, i) => {
+      const keyMap = {
+        "SENSEX": "BSE_SENSEX",
+        "MIDCPNIFTY": "NSE_NIFTY MID SELECT",
+        "BANKNIFTY": "NSE_NIFTY BANK",
+        "FINNIFTY": "NSE_NIFTY FIN SERVICE",
+        "NIFTY": "NSE_NIFTY 50"
+      };
+      const key = keyMap[label] || `NSE_${label}`;
+      const ltp = payload[key] || payload[label.toUpperCase()] || null;
+      return { symbol: label, ltp };
+    });
 
-        indexCache = { ts: Date.now(), data: result };
-        res.json(result);
-    } catch (e) {
-        console.error("[Indices] fetch error:", e.message);
-        res.json(indexCache.data.length ? indexCache.data : []);
-    }
+    indexCache = { ts: Date.now(), data: result };
+    res.json(result);
+  } catch (e) {
+    console.error("[Indices] fetch error:", e.message);
+    res.json(indexCache.data.length ? indexCache.data : []);
+  }
 });
 
 // ── UI ────────────────────────────────────────────────────────────────────────
@@ -726,7 +728,17 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 .grp-child td:first-child{padding-left:32px;}
 .grp-child td{background:rgba(0,0,0,.15);}
 
-@media(max-width:700px){.controls{flex-direction:column;}.sc{min-width:80px;}}
+/* indices toggle */
+.idx-tg{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--muted);font-size:11px;font-weight:600;background:var(--card);border:1px solid var(--border);padding:6px 12px;border-radius:10px;transition:all .2s;}
+.idx-tg:hover{border-color:rgba(0,212,170,.4);color:var(--text);}
+.idx-tg input{display:none;}
+.idx-tg-s{width:30px;height:16px;background:rgba(255,255,255,.05);border-radius:99px;position:relative;transition:.3s;}
+.idx-tg-s::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--muted);border-radius:50%;transition:.3s;}
+.idx-tg input:checked + .idx-tg-s{background:rgba(0,212,170,.15);}
+.idx-tg input:checked + .idx-tg-s::after{left:16px;background:var(--accent);box-shadow:0 0 6px var(--accent);}
+.idx-tg input:checked ~ .idx-tg-l{color:var(--accent);}
+
+@media(max-width:700px){.controls{flex-direction:column;}.sc{min-width:80px;}.idx-tg{width:fit-content;}}
 </style>
 </head>
 <body>
@@ -807,6 +819,12 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
     <option value="emaGap">EMA Gap</option>
     <option value="rsi">RSI</option>
   </select>
+  <!-- Indices Toggle -->
+  <label class="idx-tg" title="Include Indices in main list">
+    <input type="checkbox" id="idxTgl" checked onchange="toggleIndices()"/>
+    <span class="idx-tg-s"></span>
+    <span class="idx-tg-l">Indices</span>
+  </label>
 </div>
 
 <div id="errBar" class="errbar" style="display:none"></div>
@@ -824,15 +842,15 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 
 <div class="tw">
 <table>
-  <thead><tr>
-    <th onclick="setSort('symbol')">Stock / Sector / Change%</th>
-    <th onclick="setSort('volume')">Volume</th>
-    <th onclick="setSort('price')">CMP</th>
-    <th onclick="setSort('emaGap')">EMA</th>
+  <thead><tr id="tableHeader">
+    <th onclick="setSort('symbol', event)">Stock / Sector / Change%</th>
+    <th onclick="setSort('volume', event)">Volume</th>
+    <th onclick="setSort('price', event)">CMP</th>
+    <th onclick="setSort('emaGap', event)">EMA</th>
     <th>MACD</th>
     <th>Day H/L</th>
     <th>Week H/L</th>
-    <th onclick="setSort('techScore')">Score</th>
+    <th onclick="setSort('techScore', event)">Score</th>
     <th title="6 tech checks — hover squares for label">Checks</th>
     <th>Green Flag</th>
     <th>Red Flag</th>
@@ -851,7 +869,7 @@ tbody tr.new-row{background:rgba(0,212,170,.03);}
 if("Notification" in window) Notification.requestPermission().catch(()=>{});
 function notify(t,b){try{if(Notification.permission==="granted") new Notification(t,{body:b});}catch(_){}}
 
-let activeSet="GOLDEN", data=null, sortCol="techScore", sortAsc=false, nextAt=null;
+let activeSet="GOLDEN", data=null, sortStack=[{col:'techScore', asc:false}], showIndices=true, nextAt=null;
 const seen=new Set();
 
 async function checkAuth(){
@@ -880,11 +898,26 @@ document.querySelectorAll(".tab").forEach(t=>t.addEventListener("click",()=>{
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
   t.classList.add("active");activeSet=t.dataset.set;render();
 }));
+function toggleIndices(){
+  showIndices = document.getElementById("idxTgl").checked;
+  render();
+}
 ["search","tf","sigF","sortBy"].forEach(id=>{
   const el=document.getElementById(id);
   if(el){el.addEventListener("change",()=>{if(id==="tf")load();else render();});el.addEventListener("input",render);}
 });
-function setSort(c){if(sortCol===c)sortAsc=!sortAsc;else{sortCol=c;sortAsc=false;}render();}
+function setSort(c, e){
+  const shift = e && e.shiftKey;
+  if(!shift){
+    if(sortStack.length === 1 && sortStack[0].col === c) sortStack[0].asc = !sortStack[0].asc;
+    else sortStack = [{col: c, asc: false}];
+  } else {
+    const existing = sortStack.find(s => s.col === c);
+    if(existing) existing.asc = !existing.asc;
+    else sortStack.push({col: c, asc: false});
+  }
+  render();
+}
 
 function isOpen(){
   const ist=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Kolkata"}));
@@ -1010,6 +1043,7 @@ function render(){
 
   if(sigF!=="ALL") rows=rows.filter(r=>r.signal===sigF);
   if(q) rows=rows.filter(r=>r.symbol.includes(q)||r.sector?.includes(q));
+  if(!showIndices) rows=rows.filter(r=>r.sector!=="INDEX");
 
   const tfOrder = {"1m":1,"5m":2,"10m":3,"15m":4,"30m":5,"1h":6,"1d":7};
 
@@ -1018,10 +1052,35 @@ function render(){
         if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
         return tfOrder[a.tf] - tfOrder[b.tf];
     }
-    if(sortBy==="symbol") return sortAsc?a.symbol.localeCompare(b.symbol):b.symbol.localeCompare(a.symbol);
-    if(sortBy==="goldenCross"){if(a.goldenCross!==b.goldenCross)return a.goldenCross?-1:1;return b.techScore-a.techScore;}
-    const va=+a[sortBy]||0, vb=+b[sortBy]||0;
-    return sortAsc?va-vb:vb-va;
+    for(const s of sortStack){
+      let va=a[s.col], vb=b[s.col];
+      if(s.col === "symbol"){
+        const res = va.localeCompare(vb);
+        if(res !== 0) return s.asc ? res : -res;
+      } else {
+        va = +va||0; vb = +vb||0;
+        if(va !== vb) return s.asc ? va - vb : vb - va;
+      }
+    }
+    return 0;
+  });
+
+  // Update header indicators
+  document.querySelectorAll("#tableHeader th").forEach(th => {
+    const onClick = th.getAttribute("onclick");
+    if(!onClick) return;
+    const col = onClick.match(/'([^']+)'/)[1];
+    const idx = sortStack.findIndex(s => s.col === col);
+    // Remove existing
+    th.querySelectorAll(".sort-meta").forEach(m => m.remove());
+    if(idx !== -1){
+      const s = sortStack[idx];
+      const span = document.createElement("span");
+      span.className = "sort-meta";
+      span.style.cssText = "margin-left:5px;font-size:9px;color:var(--accent);background:rgba(0,212,170,0.1);padding:1px 4px;border-radius:3px;vertical-align:middle;";
+      span.innerHTML = (sortStack.length > 1 ? (idx + 1) + " " : "") + (s.asc ? "↑" : "↓");
+      th.appendChild(span);
+    }
   });
 
   const uniqueStocksInRows = new Set(rows.map(r => r.symbol)).size;
@@ -1043,7 +1102,9 @@ function render(){
     tbody.innerHTML=rows.map(r=>{
       const sc=r.signal==="BUY"?"sb":r.signal==="SELL"?"ss":"sn";
       const cc=r.chgPct>=0?"up":"dn";
+      const chgP = (r.priceChange>=0?"+":"")+r.priceChange.toFixed(2);
       const chg=(r.chgPct>=0?"+":"")+r.chgPct.toFixed(2)+"%";
+      const fullChg = chgP + " (" + chg + ")";
       let emaTxt="";
       const gapTxt="<span class='ema-val "+cc+"'>Gap: "+Math.abs(r.emaGap).toFixed(2)+"%</span>";
       let statusTxt="";
@@ -1064,7 +1125,7 @@ function render(){
       const rf=r.redCount>0?"<span class='rf'>⚑ "+r.redCount+"</span>":"—";
       const ratCls=r.rating==="STRONG BUY"?"rat-sb":r.rating==="WATCHLIST"?"rat-wl":"rat-sk";
       return "<tr class='"+(r.goldenCross?"gc-row":r.isNew?"new-row":"")+"'>"
-        +"<td><div class='sym'>"+r.symbol+" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcBadge+newBadge+"</div><div class='sec'>"+r.sector+" · <span class='"+cc+"'>"+chg+"</span></div></td>"
+        +"<td><div class='sym'>"+r.symbol+" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcBadge+newBadge+"</div><div class='sec'>"+r.sector+" · <span class='"+cc+"'>"+fullChg+"</span></div></td>"
         +"<td>"+volTxt+"</td>"
         +"<td>₹"+r.price.toFixed(2)+"</td>"
         +"<td>"+emaTxt+"</td>"
@@ -1139,7 +1200,9 @@ function render(){
     symRows.forEach(r => {
       const sc2   = r.signal==="BUY"?"sb":r.signal==="SELL"?"ss":"sn";
       const cc2   = r.chgPct>=0?"up":"dn";
+      const chgP2 = (r.priceChange>=0?"+":"")+r.priceChange.toFixed(2);
       const chg2  = (r.chgPct>=0?"+":"")+r.chgPct.toFixed(2)+"%";
+      const fullChg2 = chgP2 + " (" + chg2 + ")";
       const gapTxt= "<span class='ema-val "+cc2+"'>Gap: "+Math.abs(r.emaGap).toFixed(2)+"%</span>";
       let statusTxt="";
       if(r.goldenCross) statusTxt="<span class='ea lb sb' style='display:inline-block'>CROSS 21>50 UP</span>";
@@ -1162,7 +1225,7 @@ function render(){
       html += "<tr class='grp-child grp-child-"+gi+(r.goldenCross?" gc-row":r.isNew?" new-row":"")+"'>"
         +"<td><div class='sym' style='font-size:12px'>"+r.symbol
         +" <span style='font-size:10px;color:rgba(167,139,250,0.8);font-weight:600'>("+r.tf+")</span>"+gcB2+newB2+"</div>"
-        +"<div class='sec'>"+r.sector+" · <span class='"+cc2+"'>"+chg2+"</span></div></td>"
+        +"<div class='sec'>"+r.sector+" · <span class='"+cc2+"'>"+fullChg2+"</span></div></td>"
         +"<td>"+volTxt+"</td>"
         +"<td>₹"+r.price.toFixed(2)+"</td>"
         +"<td>"+emaTxt+"</td>"
@@ -1209,17 +1272,22 @@ async function fetchIndices(){
       const prev = prevIndexLtp[idx.symbol];
       const chgPct = prev ? ((ltp - prev) / prev * 100) : null;
       prevIndexLtp[idx.symbol] = prevIndexLtp[idx.symbol] || ltp;
-      const isUp = chgPct === null ? null : chgPct >= 0;
+      const isUp = idx.chgPct === null ? null : idx.chgPct >= 0;
       const cl   = isUp === null ? "a" : (isUp ? "g" : "r");
       const sgn  = isUp ? "+" : "";
       const arr  = isUp ? "^" : "v";
       const rgba = isUp ? "34,197,94" : "239,68,68";
-      const pctHtml = chgPct !== null
-        ? "<span style='font-size:11px;background:rgba("+rgba+",0.15);padding:2px 6px;border-radius:4px;margin-left:6px'>"+arr+" "+sgn+chgPct.toFixed(2)+"%</span>"
+
+      const showChange = idx.chgPct !== null && idx.priceChange !== null;
+      const pctHtml = showChange
+        ? "<div style='display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;'>"
+          +"<span style='font-size:11px;font-weight:700;color:rgb("+rgba+")'>"+arr+" "+sgn+idx.priceChange.toFixed(2)+"</span>"
+          +"<span style='font-size:9px;background:rgba("+rgba+",0.15);padding:1px 5px;border-radius:4px;color:rgb("+rgba+")'>"+sgn+idx.chgPct.toFixed(2)+"%</span>"
+          +"</div>"
         : "";
       html += "<div class='sc'>"
         +"<div class='scl'>"+idx.symbol+"</div>"
-        +"<div class='scv "+cl+"' style='font-size:14px;display:flex;align-items:center;'>"
+        +"<div class='scv "+cl+"' style='font-size:14px;display:flex;align-items:center;justify-content:space-between;'>"
         +"Rs "+ltp.toLocaleString("en-IN",{minimumFractionDigits:2})
         +pctHtml
         +"</div></div>";
@@ -1241,12 +1309,12 @@ checkAuth().then(()=>fetchIndices());
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 app.listen(PORT, async () => {
-    console.log(`\n⚡ Ayush's Personal Scanner (Groww API) → http://localhost:${PORT}`);
-    if (loadSession()) {
-        isAuthenticated = true;
-        console.log("Existing Groww session found. Starting scan...\n");
-        scanAll();
-    } else {
-        console.log("No active session. Please login via the UI to start scanning.\n");
-    }
+  console.log(`\n⚡ Ayush's Personal Scanner (Groww API) → http://localhost:${PORT}`);
+  if (loadSession()) {
+    isAuthenticated = true;
+    console.log("Existing Groww session found. Starting scan...\n");
+    scanAll();
+  } else {
+    console.log("No active session. Please login via the UI to start scanning.\n");
+  }
 });

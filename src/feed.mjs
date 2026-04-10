@@ -16,8 +16,8 @@ import { fetchBulkLtp } from "./groww.mjs";
 import { UNIVERSE } from "./universe.mjs";
 
 const BATCH_SIZE        = 50;    // Groww max symbols per LTP call (doc confirmed)
-const POLL_INTERVAL_MS  = 1500;  // 1.5s between full poll rounds → 200 req/min avg
-const BATCH_DELAY_MS    = 120;   // Inter-batch delay → keeps burst ≤ 8.3 req/sec (limit: 10)
+const POLL_INTERVAL_MS  = 3000;  // 3s between full poll rounds -> 100 req/min avg
+const BATCH_DELAY_MS    = 150;   // Inter-batch delay
 
 export const livePrices = new Map(); // symbol → last known LTP
 
