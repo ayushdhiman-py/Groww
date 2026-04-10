@@ -1,4 +1,15 @@
-import 'dotenv/config'; // Load .env file FIRST (before any env vars are read)
+import dotenv from 'dotenv';
+import fs from 'fs';
+
+// Try loading .env from Render Secret Files location first, then fallback to app root
+const secretPath = '/etc/secrets/.env';
+if (fs.existsSync(secretPath)) {
+    console.log(`[Config] Found .env at Render Secret Files path: ${secretPath}`);
+    dotenv.config({ path: secretPath });
+} else {
+    console.log(`[Config] No .env at ${secretPath}, trying app root...`);
+    dotenv.config(); // Try app root (for local dev)
+}
 import path from "path";
 import { fileURLToPath } from "url";
 
