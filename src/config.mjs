@@ -4,9 +4,25 @@ import { fileURLToPath } from "url";
 export const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const TOKEN_FILE = path.join(__dirname, "..", ".groww_session.json");
 
+// Environment variable handling for special characters in secrets
+// If secret contains special chars, URL-encode it or use base64 encoding
+const getApiSecret = () => {
+    const envSecret = process.env.GROWW_API_SECRET;
+    if (envSecret) {
+        // If it starts with "base64:", decode it
+        if (envSecret.startsWith("base64:")) {
+            return Buffer.from(envSecret.slice(7), "base64").toString("utf-8");
+        }
+        // Otherwise use as-is (Render may have corrupted special chars)
+        return envSecret;
+    }
+    // Fallback to hardcoded secret (only for local dev)
+    return "***REDACTED_SECRET***";
+};
+
 export const CREDS = {
     apiKey: process.env.GROWW_API_KEY || "***REDACTED_JWT***",
-    apiSecret: process.env.GROWW_API_SECRET || "***REDACTED_SECRET***",
+    apiSecret: getApiSecret(),
 };
 
 export const BASE_URL = "https://api.groww.in";
