@@ -1,51 +1,44 @@
-import dotenv from 'dotenv';
-import fs from 'fs';
-
-// Try loading .env from Render Secret Files location first, then fallback to app root
-const secretPath = '/etc/secrets/.env';
-if (fs.existsSync(secretPath)) {
-    console.log(`[Config] Found .env at Render Secret Files path: ${secretPath}`);
-    dotenv.config({ path: secretPath });
-} else {
-    console.log(`[Config] No .env at ${secretPath}, trying app root...`);
-    dotenv.config(); // Try app root (for local dev)
-}
 import path from "path";
 import { fileURLToPath } from "url";
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const TOKEN_FILE = path.join(__dirname, "..", ".groww_session.json");
 
-// Environment variable handling for special characters in secrets
-// If secret contains special chars, URL-encode it or use base64 encoding
-const getApiSecret = () => {
-    const envSecret = process.env.GROWW_API_SECRET;
-    if (envSecret) {
-        // If it starts with "base64:", decode it
-        if (envSecret.startsWith("base64:")) {
-            const decoded = Buffer.from(envSecret.slice(7), "base64").toString("utf-8");
-            console.log(`[Config] API Secret decoded from base64. Length: ${decoded.length}`);
-            return decoded;
+// ── Environment Variable Handling ──────────────────────────────────────────────
+// Render sets process.env.* automatically from Environment Variables section.
+// No dotenv needed. No file loading needed.
+
+// Helper: Get env var with trimming and required check
+const getEnv = (key, fallback) => {
+    const val = process.env[key];
+    if (val === undefined || val === "") {
+        if (fallback) {
+            console.log(`[Config] ⚠️ ${key} not set, using fallback (local dev only)`);
+            return fallback;
         }
-        // Log for debugging (show if there are hidden characters)
-        const hasHiddenChars = envSecret.includes('\r') || envSecret.includes('\t');
-        if (hasHiddenChars) {
-            console.warn(`[Config] ⚠️ WARNING: API Secret contains hidden characters (\\r or \\t)!`);
-            console.warn(`[Config] Secret length: ${envSecret.length} (expected 30)`);
-            console.warn(`[Config] This will cause 401 errors. Please check your .env file line endings.`);
-        } else {
-            console.log(`[Config] API Secret loaded from env. Length: ${envSecret.length} (expected 30)`);
-        }
-        // Otherwise use as-is (Render may have corrupted special chars)
-        return envSecret;
+        throw new Error(`[Config] ❌ Missing required environment variable: ${key}`);
     }
-    // Fallback to hardcoded secret (only for local dev)
-    console.log(`[Config] Using HARDCODED API Secret (local development)`);
-    return "***REDACTED_SECRET***";
+    return val.trim(); // Remove invisible newlines/whitespace
+};
+
+// Helper: Decode base64 secret if prefixed
+const getApiSecret = () => {
+    const raw = getEnv("GROWW_API_SECRET", null);
+    
+    // Base64 encoded (recommended for Render to avoid special char corruption)
+    if (raw.startsWith("base64:")) {
+        const decoded = Buffer.from(raw.slice(7), "base64").toString("utf-8");
+        console.log(`[Config] ✅ API Secret decoded from base64. Length: ${decoded.length}`);
+        return decoded;
+    }
+    
+    // Raw value (may have corrupted special chars if pasted directly)
+    console.log(`[Config] ✅ API Secret loaded from env. Length: ${raw.length} (expected: 30)`);
+    return raw;
 };
 
 export const CREDS = {
-    apiKey: process.env.GROWW_API_KEY || "***REDACTED_JWT***",
+    apiKey: getEnv("GROWW_API_KEY", "***REDACTED_JWT***"),
     apiSecret: getApiSecret(),
 };
 

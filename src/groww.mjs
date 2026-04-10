@@ -86,7 +86,7 @@ export async function login() {
         const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
         console.log("Logging in to Groww API...");
         console.log(`[Debug] API Key length: ${CREDS.apiKey?.length || 0}, starts with: ${CREDS.apiKey?.substring(0, 20)}...`);
-        console.log(`[Debug] API Secret: ${CREDS.apiSecret === "***REDACTED_SECRET***" ? "HARDCODED (local)" : "FROM ENV VAR"}`);
+        console.log(`[Debug] API Secret length: ${CREDS.apiSecret?.length || 0} (expected: 30)`);
         console.log(`[Debug] Token URL: ${TOKEN_URL}`);
         console.log(`[Debug] Timestamp: ${timestamp}, Checksum: ${checksum.substring(0, 16)}...`);
 
