@@ -304,6 +304,6 @@ export async function startScan() {
         } catch (e) {
             console.error("Critical error in startScan background loop:", e.message);
         }
-        await sleep(60000);
+        await sleep(30000); // 30s - doubled freshness, still within rate limits
     }
 }

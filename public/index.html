@@ -1233,14 +1233,47 @@
     .p-lo { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 
     @media(max-width:700px) {
-      .controls {
-        flex-direction: column;
+      .controls { flex-direction: column; }
+      .sc { min-width: 80px; }
+      
+      /* Mobile responsive table */
+      .wrap { padding: 10px; }
+      .stats { gap: 5px; }
+      .sc { padding: 8px 10px; }
+      .scv { font-size: 16px; }
+      
+      /* Hide non-critical columns on mobile */
+      thead th:nth-child(3), /* Chart */
+      thead th:nth-child(6), /* MACD */
+      thead th:nth-child(7), /* Day Range */
+      thead th:nth-child(8), /* 52W Range */
+      thead th:nth-child(9), /* Score */
+      td:nth-child(3),
+      td:nth-child(6),
+      td:nth-child(7),
+      td:nth-child(8),
+      td:nth-child(9) {
+        display: none;
       }
-
-      .sc {
-        min-width: 80px;
-      }
+      
+      table { table-layout: auto; }
+      .fn-content-wrap { flex-direction: column; }
+      .fn-card { min-width: 100%; }
     }
+
+    /* Keyboard shortcut hints */
+    .kbd {
+      display: inline-block;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 9px;
+      font-family: var(--mono);
+      color: var(--muted);
+      margin-left: 4px;
+    }
+
     .modal-overlay {
       position: fixed;
       inset: 0;
@@ -1431,6 +1464,7 @@
       <div class="meta">
         <span id="rowCount">Showing --</span>
         <span id="lastScan">Last scan: --</span>
+        <span id="lastUpdatedBadge" style="color:var(--accent);font-weight:600;">Updated --</span>
       </div>
 
       <div class="tabs">
@@ -1628,69 +1662,195 @@
         const next = await res.json();
         data = next;
         nextAt = Date.now() + 5000;
-        const tf = document.getElementById("tf")?.value || "1d";
-        let all = [], buys = [], sells = [], golden = [];
-        if (tf === "ALL") {
-          const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
-          allTfs.forEach(t => {
-            all.push(...(next.data[t + "_ALL"] || []));
-            buys.push(...(next.data[t + "_BUY"] || []));
-            sells.push(...(next.data[t + "_SELL"] || []));
-            golden.push(...(next.data[t + "_GOLDEN"] || []));
-          });
-        } else {
-          all = next.data[tf + "_ALL"] || []; buys = next.data[tf + "_BUY"] || []; sells = next.data[tf + "_SELL"] || []; golden = next.data[tf + "_GOLDEN"] || [];
-        }
-        const spikes = all.filter(r => r.volSpike).length;
-        const sbCount = all.filter(r => r.rating === "STRONG BUY").length;
-        const wlCount = all.filter(r => r.rating === "MODERATE").length;
-        const g = id => document.getElementById(id);
-        if (g("sG")) g("sG").textContent = golden.length;
-        if (g("sB")) g("sB").textContent = buys.length;
-        if (g("sS")) g("sS").textContent = sells.length;
-        if (g("sSp")) g("sSp").textContent = spikes;
-        if (g("sSB")) g("sSB").textContent = sbCount;
-        if (g("sWL")) g("sWL").textContent = wlCount;
-        if (g("sE")) g("sE").textContent = next.errors?.length || 0;
-        if (g("sT")) g("sT").textContent = next.lastUpdated ? new Date(next.lastUpdated).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" }) : "Scanning...";
-        if (g("lastScan")) g("lastScan").textContent = "Last: " + (next.lastUpdated ? new Date(next.lastUpdated).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "--");
-        const eb = g("errBar");
-        if (eb) { eb.style.display = next.errors?.length ? "block" : "none"; if (next.errors?.length) eb.textContent = "Errors (" + next.errors.length + "): " + next.errors.slice(0, 4).join(" | "); }
-
-        // ── Index Cards (fetched from /api/indices) ─────────────────────
-        fetchIndices();
-
-        // ── Update tab badges ──────────────────────────────────────────
-        const allUniq = new Set(all.map(r => r.symbol)).size;
-        const goldUniq = new Set(golden.map(r => r.symbol)).size;
-        const buyUniq = new Set(buys.map(r => r.symbol)).size;
-        const sellUniq = new Set(sells.map(r => r.symbol)).size;
-        const sectorUniq = new Set(all.map(r => r.sector).filter(Boolean)).size;
-        const setBadge = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
-        setBadge('badge-GOLDEN', goldUniq || '—');
-        setBadge('badge-ALL', allUniq || '—');
-        setBadge('badge-BUY', buyUniq || '—');
-        setBadge('badge-SELL', sellUniq || '—');
-        setBadge('badge-FO', 30);
-        setBadge('badge-SECTORS', sectorUniq || '—');
-        document.getElementById("scanning").style.display = "none";
-
-        // If F&O row is expanded, ONLY update that row's option chain, don't re-render table
-        if (isFoExpanded()) {
-          // Update only the expanded row's option chain data
-          const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
-          if (wrap) {
-            await loadOptionChain(expandedFoSymbol, wrap);
-          }
-          return; // Skip render() entirely to prevent scroll jumping
-        }
-
-        requestAnimationFrame(render);
+        updateStatsAndRender();
       } catch (e) {
         console.error("Load error:", e);
         const sn = document.getElementById("scanning");
         if (sn) sn.style.display = "block";
       }
+    }
+
+    // Lightweight live price update using /api/ltp endpoint (tiny payload ~2KB)
+    async function updateLivePrices() {
+      if (!data || !isMarketOpen()) return;
+      
+      try {
+        const res = await fetch("/api/ltp");
+        if (!res.ok) return;
+        const ltpData = await res.json();
+        
+        // Update prices in state without full re-render
+        let updatedCount = 0;
+        const tf = document.getElementById("tf")?.value || "1d";
+        const timeframes = tf === "ALL" ? ["1m", "5m", "10m", "15m", "30m", "1h", "1d"] : [tf];
+        
+        for (const t of timeframes) {
+          const keys = [`${t}_ALL`, `${t}_BUY`, `${t}_SELL`, `${t}_GOLDEN`];
+          for (const k of keys) {
+            const arr = data.data[k];
+            if (!arr) continue;
+            for (const row of arr) {
+              const newPrice = ltpData[row.symbol];
+              if (newPrice && row.open) {
+                const oldPrice = row.price;
+                row.price = +(newPrice.toFixed(2));
+                row.chgPct = +(((newPrice - row.prevClose) / row.prevClose) * 100).toFixed(2);
+                if (row.vwap !== null) row.aboveVwap = newPrice > row.vwap;
+                
+                // Update DOM incrementally if row exists
+                if (activeSet === "FO" && !isFoExpanded()) {
+                  updateRowIncremental(row, oldPrice);
+                }
+                updatedCount++;
+              }
+            }
+          }
+        }
+        
+        // Update last updated timestamp
+        updateLastUpdatedBadge();
+        
+        // If F&O expanded, only update that row's option chain
+        if (isFoExpanded()) {
+          const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
+          if (wrap) await loadOptionChain(expandedFoSymbol, wrap);
+          return;
+        }
+        
+        // Update badges
+        updateBadges();
+        
+      } catch (e) {
+        // Silently fail - next poll will catch up
+      }
+    }
+
+    // Incrementally update a single row's DOM without full re-render
+    function updateRowIncremental(row, oldPrice) {
+      const existingRow = document.getElementById(`row-${row.symbol}`);
+      if (!existingRow) return;
+      
+      const cells = existingRow.querySelectorAll("td");
+      if (cells.length < 10) return;
+      
+      // Update price with flash if changed >0.1%
+      const priceEl = cells[1]?.querySelector(".price-bold");
+      if (priceEl) {
+        const newPriceText = `₹${row.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
+        if (priceEl.textContent !== newPriceText) {
+          priceEl.textContent = newPriceText;
+          
+          // Flash effect for >0.1% change
+          const pctChange = Math.abs((row.price - oldPrice) / oldPrice * 100);
+          if (pctChange > 0.1) {
+            priceEl.style.transition = "color 0.4s ease, text-shadow 0.4s ease";
+            priceEl.style.color = row.price > oldPrice ? "var(--green)" : "var(--red)";
+            priceEl.style.textShadow = row.price > oldPrice 
+              ? "0 0 8px rgba(34,197,94,0.6)" 
+              : "0 0 8px rgba(239,68,68,0.6)";
+            setTimeout(() => { 
+              priceEl.style.color = ""; 
+              priceEl.style.textShadow = ""; 
+            }, 600);
+          }
+        }
+      }
+      
+      // Update change%
+      const cc = row.chgPct >= 0 ? "up" : "dn";
+      const chg = (row.chgPct >= 0 ? "+" : "") + row.chgPct.toFixed(2) + "%";
+      const chgEl = cells[0]?.querySelector(".muted-xl span");
+      if (chgEl && chgEl.textContent !== chg) {
+        chgEl.textContent = chg;
+        chgEl.className = cc;
+      }
+      
+      // Update volume
+      const volEl = cells[4]?.querySelector("div:first-child");
+      if (volEl) {
+        const newVolText = row.volSpike ? `⚡ ${fmtV(row.volume)}` : fmtV(row.volume);
+        if (volEl.textContent !== newVolText) {
+          volEl.textContent = newVolText;
+          volEl.style.color = row.volSpike ? "var(--yellow)" : "";
+        }
+      }
+    }
+
+    function updateLastUpdatedBadge() {
+      const el = document.getElementById("lastUpdatedBadge");
+      if (el) {
+        const now = new Date();
+        el.textContent = `Updated ${now.toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+      }
+    }
+
+    function updateBadges() {
+      const tf = document.getElementById("tf")?.value || "1d";
+      let all = [], buys = [], sells = [], golden = [];
+      if (tf === "ALL") {
+        ["1m", "5m", "10m", "15m", "30m", "1h", "1d"].forEach(t => {
+          all.push(...(data.data[t + "_ALL"] || []));
+          buys.push(...(data.data[t + "_BUY"] || []));
+          sells.push(...(data.data[t + "_SELL"] || []));
+          golden.push(...(data.data[t + "_GOLDEN"] || []));
+        });
+      } else {
+        all = data.data[tf + "_ALL"] || [];
+        buys = data.data[tf + "_BUY"] || [];
+        sells = data.data[tf + "_SELL"] || [];
+        golden = data.data[tf + "_GOLDEN"] || [];
+      }
+      
+      const setBadge = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '—'; };
+      setBadge('badge-GOLDEN', new Set(golden.map(r => r.symbol)).size || '—');
+      setBadge('badge-ALL', new Set(all.map(r => r.symbol)).size || '—');
+      setBadge('badge-BUY', new Set(buys.map(r => r.symbol)).size || '—');
+      setBadge('badge-SELL', new Set(sells.map(r => r.symbol)).size || '—');
+      setBadge('badge-FO', 30);
+      setBadge('badge-SECTORS', new Set(all.map(r => r.sector).filter(Boolean)).size || '—');
+    }
+
+    function updateStatsAndRender() {
+      const tf = document.getElementById("tf")?.value || "1d";
+      let all = [], buys = [], sells = [], golden = [];
+      if (tf === "ALL") {
+        const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
+        allTfs.forEach(t => {
+          all.push(...(data.data[t + "_ALL"] || []));
+          buys.push(...(data.data[t + "_BUY"] || []));
+          sells.push(...(data.data[t + "_SELL"] || []));
+          golden.push(...(data.data[t + "_GOLDEN"] || []));
+        });
+      } else {
+        all = data.data[tf + "_ALL"] || []; buys = data.data[tf + "_BUY"] || []; sells = data.data[tf + "_SELL"] || []; golden = data.data[tf + "_GOLDEN"] || [];
+      }
+      const spikes = all.filter(r => r.volSpike).length;
+      const sbCount = all.filter(r => r.rating === "STRONG BUY").length;
+      const wlCount = all.filter(r => r.rating === "MODERATE").length;
+      const g = id => document.getElementById(id);
+      if (g("sG")) g("sG").textContent = golden.length;
+      if (g("sB")) g("sB").textContent = buys.length;
+      if (g("sS")) g("sS").textContent = sells.length;
+      if (g("sSp")) g("sSp").textContent = spikes;
+      if (g("sSB")) g("sSB").textContent = sbCount;
+      if (g("sWL")) g("sWL").textContent = wlCount;
+      if (g("sE")) g("sE").textContent = data.errors?.length || 0;
+      if (g("sT")) g("sT").textContent = data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" }) : "Scanning...";
+      if (g("lastScan")) g("lastScan").textContent = "Last: " + (data.lastUpdated ? new Date(data.lastUpdated).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "--");
+      const eb = g("errBar");
+      if (eb) { eb.style.display = data.errors?.length ? "block" : "none"; if (data.errors?.length) eb.textContent = "Errors (" + data.errors.length + "): " + data.errors.slice(0, 4).join(" | "); }
+
+      fetchIndices();
+      updateBadges();
+      document.getElementById("scanning").style.display = "none";
+
+      if (isFoExpanded()) {
+        const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
+        if (wrap) loadOptionChain(expandedFoSymbol, wrap);
+        return;
+      }
+
+      requestAnimationFrame(render);
     }
 
     let lastScanState = false;
@@ -2331,10 +2491,15 @@
     setInterval(tick, 1000);
     setInterval(pollStatus, 2000);
     
-    // Real-time update every 3 seconds - matches backend LTP feed polling
+    // Real-time price updates every 3s using lightweight /api/ltp endpoint (~2KB payload)
+    setInterval(() => { 
+      updateLivePrices(); 
+    }, 3000);
+    
+    // Full state reload every 30s (matches scanner interval)
     setInterval(() => { 
       if (isOpen()) load(); 
-    }, 3000);
+    }, 30000);
     
     setInterval(fetchIndices, 5000);
 
@@ -2628,6 +2793,60 @@
         gTooltip.classList.remove('visible');
         gTooltip.style.opacity = '0';
         gTooltip.style.transform = 'scale(0.95) translateY(5px)';
+      }
+    });
+
+    // ── Keyboard Shortcuts ─────────────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+      // Don't trigger if user is typing in input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+      
+      const key = e.key.toLowerCase();
+      
+      switch(key) {
+        case 'r':
+          // Refresh data
+          e.preventDefault();
+          load();
+          break;
+        case '/':
+          // Focus search
+          e.preventDefault();
+          document.getElementById('search')?.focus();
+          break;
+        case 'escape':
+          // Collapse expanded F&O row or close modal
+          if (document.getElementById('chartModal').style.display === 'flex') {
+            closeModal();
+          } else if (expandedFoSymbol) {
+            const btn = document.querySelector(`#row-${expandedFoSymbol} .exp-btn`);
+            if (btn) toggleRow(expandedFoSymbol, btn, null);
+          }
+          break;
+        case '1':
+          e.preventDefault();
+          document.querySelector('[data-set="ALL"]')?.click();
+          break;
+        case '2':
+          e.preventDefault();
+          document.querySelector('[data-set="GOLDEN"]')?.click();
+          break;
+        case '3':
+          e.preventDefault();
+          document.querySelector('[data-set="BUY"]')?.click();
+          break;
+        case '4':
+          e.preventDefault();
+          document.querySelector('[data-set="SELL"]')?.click();
+          break;
+        case '5':
+          e.preventDefault();
+          document.querySelector('[data-set="FO"]')?.click();
+          break;
+        case '6':
+          e.preventDefault();
+          document.querySelector('[data-set="SECTORS"]')?.click();
+          break;
       }
     });
 

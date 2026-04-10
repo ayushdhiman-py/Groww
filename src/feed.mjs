@@ -49,6 +49,7 @@ async function pollOnce() {
     const updated = new Map();
     const batches  = toBatches(UNIVERSE, BATCH_SIZE);
     let   ok       = 0;
+    let   retryQueue = [];
 
     for (let i = 0; i < batches.length; i++) {
         // ── Per-second guard: sleep between each batch ────────────────────
@@ -67,6 +68,25 @@ async function pollOnce() {
             const status = e.response?.status ?? "–";
             const msg    = (e.response?.data?.message || e.message || "").substring(0, 80);
             console.error(`[Feed] LTP batch error (${i + 1}/${batches.length}) HTTP ${status}: ${msg}`);
+            // Queue failed batch for retry
+            retryQueue.push({ batch: batches[i], attempt: 1 });
+        }
+    }
+
+    // Retry failed batches with exponential backoff
+    for (const retry of retryQueue) {
+        const delay = Math.min(1000 * Math.pow(2, retry.attempt), 15000);
+        await sleep(delay);
+        try {
+            console.log(`[Feed] Retrying batch (attempt ${retry.attempt + 1})...`);
+            const prices = await fetchBulkLtp(retry.batch);
+            for (const [sym, ltp] of Object.entries(prices)) {
+                livePrices.set(sym, ltp);
+                updated.set(sym, ltp);
+            }
+            ok++;
+        } catch (e) {
+            console.error(`[Feed] Retry failed: ${e.message}`);
         }
     }
 

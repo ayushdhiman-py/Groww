@@ -1,9 +1,11 @@
 import express from "express";
 import path from "path";
+import { createHash } from "crypto";
 import { __dirname } from "./src/config.mjs";
 import { loadSession, login, fetchBulkLtp } from "./src/groww.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
+import { livePrices } from "./src/feed.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
 import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
@@ -17,8 +19,42 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 
 const PORT = process.env.PORT || 4000;
 
+// ── Option Chain Cache with TTL (10s) ────────────────────────────────────────
+const optionChainCacheTTL = 10000; // 10 seconds
+const optionChainCache = new Map(); // symbol → { data, timestamp }
+
+function getCachedOptionChain(symbol) {
+    const cached = optionChainCache.get(symbol);
+    if (cached && Date.now() - cached.timestamp < optionChainCacheTTL) {
+        return cached.data;
+    }
+    optionChainCache.delete(symbol); // Expired
+    return null;
+}
+
+function setCachedOptionChain(symbol, data) {
+    optionChainCache.set(symbol, { data, timestamp: Date.now() });
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.get("/api/state", (_, res) => res.json(state));
+
+// Lightweight LTP endpoint - returns only live prices (tiny payload ~2KB)
+app.get("/api/ltp", (_, res) => {
+    res.json(Object.fromEntries(livePrices));
+});
+
+// ETag support for /api/state - skip if unchanged
+let lastStateEtag = null;
+app.get("/api/state", (req, res) => {
+    const etag = createHash("md5").update(JSON.stringify(state.lastUpdated)).digest("hex");
+    if (req.headers["if-none-match"] === etag) {
+        return res.sendStatus(304); // Not modified
+    }
+    lastStateEtag = etag;
+    res.set("ETag", etag);
+    res.json(state);
+});
+
 app.get("/api/status", (_, res) => res.json({
     authenticated: isAuthenticated,
     scanning,
@@ -40,13 +76,21 @@ app.post("/api/login", async (req, res) => {
 app.get("/api/option-chain/:symbol", async (req, res) => {
     const sym = req.params.symbol;
 
-    // 1. Check shared cache first (populated by background feed)
-    const cached = optionsCache.get(sym);
-    if (cached) {
-        return res.json({ ...cached, source: "cache", fetchedAt: cached.updatedAt });
+    // 1. Check TTL cache first (10s cache to reduce API calls)
+    const ttlCached = getCachedOptionChain(sym);
+    if (ttlCached) {
+        return res.json(ttlCached);
     }
 
-    // 2. Generate theoretical option chain from scanner data (Black-Scholes)
+    // 2. Check shared cache (populated by background feed)
+    const cached = optionsCache.get(sym);
+    if (cached) {
+        const result = { ...cached, source: "cache", fetchedAt: cached.updatedAt };
+        setCachedOptionChain(sym, result);
+        return res.json(result);
+    }
+
+    // 3. Generate theoretical option chain from scanner data (Black-Scholes)
     let rowData = null;
     for (const tf of ["5m", "15m", "1h", "1d"]) {
         const found = (state.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
@@ -62,7 +106,7 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         const chain = theoreticalOptionChain(rowData.price, rowData.hv || 0.25, daysToThursday, sym);
         const fetchedAt = new Date().toISOString();
 
-        return res.json({
+        const result = {
             symbol: sym,
             spot: rowData.price,
             hv: chain.hv,
@@ -75,10 +119,12 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
             theoretical: true,
             source: "theoretical",
             fetchedAt,
-        });
+        };
+        setCachedOptionChain(sym, result);
+        return res.json(result);
     }
 
-    // 3. Nothing available (scanner hasn't processed this symbol yet)
+    // 4. Nothing available (scanner hasn't processed this symbol yet)
     return res.status(404).json({ error: "no_data", message: `Scanner hasn't processed ${sym} yet. Please wait for the next scan cycle.` });
 });
 
