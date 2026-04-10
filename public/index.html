@@ -1593,10 +1593,10 @@
       // Restore saved sort for incoming tab
       const sv = tabSort[activeSet] || [{ col: "techScore", asc: false }];
       sortStack = Array.isArray(sv) ? [...sv] : [sv];
-      // Smooth crossfade instead of jarring flicker
-      const tb = document.getElementById("tbody");
-      if (tb) { tb.style.opacity = "0"; setTimeout(() => { render(); tb.style.opacity = "1"; }, 120); }
-      else render();
+      // Clear cached F&O symbols so next render picks fresh list
+      lastFoSymbols = null;
+      // Always fetch fresh data when switching tabs
+      load();
     }));
     ["search", "tf", "sigF", "sortBy"].forEach(id => {
       const el = document.getElementById(id);
@@ -1673,17 +1673,17 @@
     // Lightweight live price update using /api/ltp endpoint (tiny payload ~2KB)
     async function updateLivePrices() {
       if (!data || !isMarketOpen()) return;
-      
+
       try {
         const res = await fetch("/api/ltp");
         if (!res.ok) return;
         const ltpData = await res.json();
-        
-        // Update prices in state without full re-render
-        let updatedCount = 0;
+
+        // Update prices in state
+        let anyChanged = false;
         const tf = document.getElementById("tf")?.value || "1d";
         const timeframes = tf === "ALL" ? ["1m", "5m", "10m", "15m", "30m", "1h", "1d"] : [tf];
-        
+
         for (const t of timeframes) {
           const keys = [`${t}_ALL`, `${t}_BUY`, `${t}_SELL`, `${t}_GOLDEN`];
           for (const k of keys) {
@@ -1696,83 +1696,33 @@
                 row.price = +(newPrice.toFixed(2));
                 row.chgPct = +(((newPrice - row.prevClose) / row.prevClose) * 100).toFixed(2);
                 if (row.vwap !== null) row.aboveVwap = newPrice > row.vwap;
-                
-                // Update DOM incrementally if row exists
-                if (activeSet === "FO" && !isFoExpanded()) {
-                  updateRowIncremental(row, oldPrice);
-                }
-                updatedCount++;
+                if (oldPrice !== row.price) anyChanged = true;
               }
             }
           }
         }
-        
-        // Update last updated timestamp
+
+        if (!anyChanged) {
+          updateLastUpdatedBadge();
+          return;
+        }
+
         updateLastUpdatedBadge();
-        
-        // If F&O expanded, only update that row's option chain
+
+        // If F&O expanded, only update that row's option chain, skip table re-render
         if (isFoExpanded()) {
           const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
           if (wrap) await loadOptionChain(expandedFoSymbol, wrap);
           return;
         }
-        
-        // Update badges
+
         updateBadges();
-        
+
+        // Re-render the table with new sort order
+        requestAnimationFrame(render);
+
       } catch (e) {
         // Silently fail - next poll will catch up
-      }
-    }
-
-    // Incrementally update a single row's DOM without full re-render
-    function updateRowIncremental(row, oldPrice) {
-      const existingRow = document.getElementById(`row-${row.symbol}`);
-      if (!existingRow) return;
-      
-      const cells = existingRow.querySelectorAll("td");
-      if (cells.length < 10) return;
-      
-      // Update price with flash if changed >0.1%
-      const priceEl = cells[1]?.querySelector(".price-bold");
-      if (priceEl) {
-        const newPriceText = `₹${row.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
-        if (priceEl.textContent !== newPriceText) {
-          priceEl.textContent = newPriceText;
-          
-          // Flash effect for >0.1% change
-          const pctChange = Math.abs((row.price - oldPrice) / oldPrice * 100);
-          if (pctChange > 0.1) {
-            priceEl.style.transition = "color 0.4s ease, text-shadow 0.4s ease";
-            priceEl.style.color = row.price > oldPrice ? "var(--green)" : "var(--red)";
-            priceEl.style.textShadow = row.price > oldPrice 
-              ? "0 0 8px rgba(34,197,94,0.6)" 
-              : "0 0 8px rgba(239,68,68,0.6)";
-            setTimeout(() => { 
-              priceEl.style.color = ""; 
-              priceEl.style.textShadow = ""; 
-            }, 600);
-          }
-        }
-      }
-      
-      // Update change%
-      const cc = row.chgPct >= 0 ? "up" : "dn";
-      const chg = (row.chgPct >= 0 ? "+" : "") + row.chgPct.toFixed(2) + "%";
-      const chgEl = cells[0]?.querySelector(".muted-xl span");
-      if (chgEl && chgEl.textContent !== chg) {
-        chgEl.textContent = chg;
-        chgEl.className = cc;
-      }
-      
-      // Update volume
-      const volEl = cells[4]?.querySelector("div:first-child");
-      if (volEl) {
-        const newVolText = row.volSpike ? `⚡ ${fmtV(row.volume)}` : fmtV(row.volume);
-        if (volEl.textContent !== newVolText) {
-          volEl.textContent = newVolText;
-          volEl.style.color = row.volSpike ? "var(--yellow)" : "";
-        }
       }
     }
 
@@ -1811,6 +1761,7 @@
     }
 
     function updateStatsAndRender() {
+      if (!data) return;
       const tf = document.getElementById("tf")?.value || "1d";
       let all = [], buys = [], sells = [], golden = [];
       if (tf === "ALL") {
@@ -1890,6 +1841,11 @@
           load();
         }
         lastScanState = s.scanning;
+
+        // If data is empty and scan isn't running, fetch data (covers case where page loaded between scans)
+        if (!data && !s.scanning) {
+          load();
+        }
 
         const li = document.getElementById("liveInd"), mt = document.getElementById("mktTxt");
         const o = isOpen();
@@ -2049,19 +2005,23 @@
       }
       if (!showIndices) rows = rows.filter(r => r.sector !== "INDEX");
 
+      // Apply sortStack for ALL cases
       const tfOrder = { "1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7 };
       rows.sort((a,b)=>{
+        // For ALL timeframe, first group by symbol, then by tf
         if (tf === "ALL") {
             if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
             return tfOrder[a.tf] - tfOrder[b.tf];
         }
+        // For single TF or F&O, use sortStack
         for(const s of sortStack){
           let va=a[s.col], vb=b[s.col];
           if(s.col === "symbol"){
             const res = va.localeCompare(vb);
             if(res !== 0) return s.asc ? res : -res;
           } else {
-            va = +va||0; vb = +vb||0;
+            va = (va !== null && va !== undefined) ? +va : 0;
+            vb = (vb !== null && vb !== undefined) ? +vb : 0;
             if(va !== vb) return s.asc ? va - vb : vb - va;
           }
         }
@@ -2276,35 +2236,17 @@
 
       }).join("");
 
-      // For F&O tab, only re-render if the stocks in the list actually changed
-      if (activeSet === "FO") {
-        const currentFoSymbols = new Set(rows.map(r => r.symbol));
-        if (lastFoSymbols) {
-          const symbolsUnchanged = currentFoSymbols.size === lastFoSymbols.size && 
-            [...currentFoSymbols].every(s => lastFoSymbols.has(s));
-          
-          if (symbolsUnchanged) {
-            // Don't re-render the entire table, just update the expanded row if needed
-            if (expandedFoSymbol && currentFoSymbols.has(expandedFoSymbol)) {
-              loadOptionChain(expandedFoSymbol, document.getElementById(`wrap-${expandedFoSymbol}`));
-            }
-            return; // Skip full render - table stays intact!
-          }
-        }
-        lastFoSymbols = currentFoSymbols;
-      }
-
       // Save which row was at the top before full render
       const tableContainer = document.querySelector(".tw");
       const mainRows = tbody.querySelectorAll(".main-row");
       let topRowIndex = 0;
       let topSymbol = rows[0]?.symbol;
-      
+
       // Find which row is currently most visible at top of viewport
       if (tableContainer && mainRows.length > 0) {
         const containerTop = tableContainer.getBoundingClientRect().top;
         const containerScroll = tableContainer.scrollTop;
-        
+
         for (let i = 0; i < mainRows.length; i++) {
           const rowTop = mainRows[i].offsetTop;
           if (rowTop <= containerScroll + 50) {
@@ -2316,72 +2258,8 @@
         }
       }
 
-      // Smart incremental update: only update changed cells instead of full re-render
-      const prevRowCount = tbody.querySelectorAll(".main-row").length;
-      const needsFullRender = prevRowCount === 0 || prevRowCount !== rows.length;
-
-      if (needsFullRender) {
-        // First render or row count changed - full render needed
-        tbody.innerHTML = rowsHtml;
-      } else {
-        // Incremental update: only update cells that actually changed
-        rows.forEach((r) => {
-          const existingRow = document.getElementById(`row-${r.symbol}`);
-          if (!existingRow) return; // Row doesn't exist yet
-
-          const cells = existingRow.querySelectorAll("td");
-          if (cells.length < 10) return;
-
-          // Update price if changed
-          const priceEl = cells[1]?.querySelector(".price-bold");
-          if (priceEl) {
-            const newPriceText = `₹${r.price.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`;
-            if (priceEl.textContent !== newPriceText) {
-              priceEl.textContent = newPriceText;
-              // Flash effect
-              priceEl.style.transition = "color 0.3s ease";
-              priceEl.style.color = "var(--accent)";
-              setTimeout(() => { priceEl.style.color = ""; }, 500);
-            }
-          }
-
-          // Update change% if changed
-          const cc = r.chgPct >= 0 ? "up" : "dn";
-          const chgP = (r.priceChange >= 0 ? "+" : "") + r.priceChange.toFixed(2);
-          const chg = (r.chgPct >= 0 ? "+" : "") + r.chgPct.toFixed(2) + "%";
-          const chgEl = cells[0]?.querySelector(".muted-xl span");
-          if (chgEl) {
-            const newChgText = `${chg}`;
-            if (chgEl.textContent !== newChgText) {
-              chgEl.textContent = newChgText;
-              chgEl.className = cc;
-            }
-          }
-
-          // Update volume if changed
-          const volEl = cells[4]?.querySelector("div:first-child");
-          if (volEl) {
-            const newVolText = r.volSpike ? `⚡ ${fmtV(r.volume)}` : fmtV(r.volume);
-            if (volEl.textContent !== newVolText) {
-              volEl.textContent = newVolText;
-              if (r.volSpike) {
-                volEl.style.color = "var(--yellow)";
-              } else {
-                volEl.style.color = "";
-              }
-            }
-          }
-
-          // Update score if changed
-          const scoreEl = cells[8]?.querySelector("span:first-child");
-          if (scoreEl) {
-            const newScoreText = `${r.techScore}/7`;
-            if (!scoreEl.textContent.includes(newScoreText)) {
-              scoreEl.innerHTML = `${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span>`;
-            }
-          }
-        });
-      }
+      // Full render - always needed for sorting
+      tbody.innerHTML = rowsHtml;
 
       // Restore scroll to the same row after render
       requestAnimationFrame(() => {
@@ -2492,15 +2370,15 @@
     setInterval(pollStatus, 2000);
     
     // Real-time price updates every 3s using lightweight /api/ltp endpoint (~2KB payload)
-    setInterval(() => { 
-      updateLivePrices(); 
+    setInterval(() => {
+      updateLivePrices();
     }, 3000);
-    
-    // Full state reload every 30s (matches scanner interval)
-    setInterval(() => { 
-      if (isOpen()) load(); 
+
+    // Full state reload every 30s (matches scanner interval) - always fetch regardless of market hours
+    setInterval(() => {
+      load();
     }, 30000);
-    
+
     setInterval(fetchIndices, 5000);
 
     // F&O dedicated 5-minute refresh — only during market hours
