@@ -890,6 +890,29 @@
       filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.7));
     }
 
+    /* PORTFOLIO — cyan/teal */
+    .tab[data-set="PORTFOLIO"].active {
+      background: rgba(6, 182, 212, 0.12);
+      color: #06b6d4;
+      border-color: rgba(6, 182, 212, 0.3);
+      box-shadow: 0 0 18px rgba(6, 182, 212, 0.12), inset 0 1px 0 rgba(6, 182, 212, 0.15);
+    }
+
+    .tab[data-set="PORTFOLIO"].active::after {
+      width: 60%;
+      background: #06b6d4;
+      opacity: 1;
+    }
+
+    .tab[data-set="PORTFOLIO"].active .tab-badge {
+      background: rgba(6, 182, 212, 0.2);
+      color: #06b6d4;
+    }
+
+    .tab[data-set="PORTFOLIO"].active .tab-icon {
+      filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.7));
+    }
+
     .meta {
       display: flex;
       justify-content: space-between;
@@ -1986,14 +2009,14 @@
             </div>
             <div class="custom-select-options" id="tfOptions">
               <div class="option-grid">
-                <div class="option" data-value="ALL" onclick="selectTf('ALL', this)">ALL</div>
+                <div class="option active" data-value="ALL" onclick="selectTf('ALL', this)">ALL</div>
                 <div class="option" data-value="1m" onclick="selectTf('1m', this)">1m</div>
                 <div class="option" data-value="5m" onclick="selectTf('5m', this)">5m</div>
                 <div class="option" data-value="10m" onclick="selectTf('10m', this)">10m</div>
                 <div class="option" data-value="15m" onclick="selectTf('15m', this)">15m</div>
                 <div class="option" data-value="30m" onclick="selectTf('30m', this)">30m</div>
                 <div class="option" data-value="1h" onclick="selectTf('1h', this)">1h</div>
-                <div class="option active" data-value="1d" onclick="selectTf('1d', this)">1d</div>
+                <div class="option" data-value="1d" onclick="selectTf('1d', this)">1d</div>
               </div>
             </div>
           </div>
@@ -2092,10 +2115,14 @@
     function notify(t, b) { try { if (Notification.permission === "granted") new Notification(t, { body: b }); } catch (_) { } }
 
     let activeSet = "ALL", data = null, sortStack = [{ col: 'techScore', asc: false }], tabSort = {}, nextAt = null, showIndices = true;
-    let currentTF = "1d"; // Track current timeframe globally
+    let currentTF = localStorage.getItem("scanner_tf") || "ALL"; // Persist timeframe, default to ALL
     const seen = new Set();
     let expandedFoSymbol = null; // Track which F&O row is expanded
     let lastFoSymbols = null; // Track which stocks were in F&O list to avoid unnecessary re-renders
+    let portfolioData = null;
+    let portfolioRefreshInterval = null;
+    let portfolioCacheTs = 0;
+    const PORTFOLIO_CACHE_TTL = 300000; // 5 minutes (survives refresh)
 
     async function checkAuth() {
       try {
@@ -2156,7 +2183,18 @@
       }
       // Load portfolio data if portfolio tab is selected
       if (activeSet === "PORTFOLIO") {
-        loadPortfolio();
+        // Show loading state if no data yet
+        if (!portfolioData) {
+          document.getElementById("tbody").innerHTML = "";
+          document.getElementById("empty").style.display = "block";
+          document.getElementById("empty").textContent = "Loading portfolio...";
+        } else {
+          // Render cached data immediately
+          renderPortfolio();
+          startPortfolioRefresh();
+        }
+        // Fetch fresh data in background
+        loadPortfolio(true);
         return;
       }
       // Restore saved sort for incoming tab
@@ -2197,7 +2235,8 @@
     }
 
     function selectTf(value, optionEl) {
-      currentTF = value; // Update global variable
+      currentTF = value;
+      localStorage.setItem("scanner_tf", value); // Persist
 
       // Update active state
       document.querySelectorAll("#tfOptions .option").forEach(o => o.classList.remove("active"));
@@ -2528,81 +2567,101 @@
       tbody.innerHTML = list.map(s => {
         const cc = s.avgChg >= 0 ? "up" : "dn";
         const chg = (s.avgChg >= 0 ? "+" : "") + s.avgChg.toFixed(2) + "%";
+        // Build Groww link helper
+        const mkGrowwLink = (sym) => {
+          const sl = sym.toLowerCase().replace(/\s+/g, '-');
+          return `<a href="https://groww.in/stocks/${sl}" target="_blank" rel="noopener noreferrer"
+            style="color:inherit; text-decoration:none; cursor:pointer;"
+            onmouseover="this.style.color='var(--accent)'"
+            onmouseout="this.style.color='inherit'"
+            onclick="event.preventDefault(); event.stopPropagation();
+              window.location.href='groww://stock/${sl}';
+              setTimeout(() => { window.open('https://groww.in/stocks/${sl}', '_blank'); }, 500);">
+            ${sym}<svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3; vertical-align:middle;"><polyline points="15 3 21 3 21 9"/></svg></a>`;
+        };
+
         return "<tr>" +
           "<td><b>" + s.name + "</b></td>" +
           "<td style='text-align:center'><span class='" + cc + "' style='font-weight:bold;font-size:14px;'>" + chg + "</span></td>" +
           "<td style='text-align:center'>" + s.stocks + " stocks</td>" +
-          "<td style='text-align:center'>" + s.topGainer.symbol + " <span class='up'>(+" + s.topGainer.chgPct.toFixed(2) + "%)</span></td>" +
-          "<td style='text-align:center'>" + s.topLoser.symbol + " <span class='dn'>(" + s.topLoser.chgPct.toFixed(2) + "%)</span></td>" +
+          "<td style='text-align:center'>" + mkGrowwLink(s.topGainer.symbol) + " <span class='up'>(+" + s.topGainer.chgPct.toFixed(2) + "%)</span></td>" +
+          "<td style='text-align:center'>" + mkGrowwLink(s.topLoser.symbol) + " <span class='dn'>(" + s.topLoser.chgPct.toFixed(2) + "%)</span></td>" +
           "</tr>";
       }).join("");
 
       document.getElementById("rowCount").textContent = `Sectors: ${list.length}`;
     }
 
-    let portfolioData = null;
-    let portfolioRefreshInterval = null;
+    async function loadPortfolio(force = false) {
+      // Use cached data if fresh enough and not forced
+      if (!force && portfolioData && (Date.now() - portfolioCacheTs < PORTFOLIO_CACHE_TTL)) {
+        return; // Already rendered by tab switcher
+      }
 
-    async function loadPortfolio() {
+      // Fetch in background, don't block the caller
       try {
-        // Always fetch fresh portfolio data from backend (backend fetches fresh LTP each time)
         const res = await fetch("/api/portfolio?fresh=1&t=" + Date.now());
         if (!res.ok) throw new Error("Failed to fetch portfolio data");
         portfolioData = await res.json();
+        portfolioCacheTs = Date.now();
+
+        // Save to localStorage for instant loading on refresh
+        try {
+          localStorage.setItem("scanner_portfolio", JSON.stringify({ data: portfolioData, ts: portfolioCacheTs }));
+        } catch (_) { } // May fail if data too large for localStorage
+
         renderPortfolio();
-
-        // Start auto-refresh every 5s while on portfolio tab
-        if (!portfolioRefreshInterval) {
-          portfolioRefreshInterval = setInterval(async () => {
-            try {
-              const ltpRes = await fetch("/api/ltp?t=" + Date.now());
-              if (!ltpRes.ok) return;
-              const liveLtp = await ltpRes.json();
-
-              // Update holdings with fresh LTP
-              if (portfolioData && portfolioData.holdings) {
-                let changed = false;
-                portfolioData.holdings = portfolioData.holdings.map(h => {
-                  // Try exact match first, then try NSE_ prefix
-                  const freshPrice = liveLtp[h.trading_symbol] || liveLtp["NSE_" + h.trading_symbol];
-                  if (freshPrice && freshPrice !== h.current_price) {
-                    const newCurrentValue = freshPrice * h.quantity;
-                    const investedValue = h.average_price * h.quantity;
-                    const newPnl = newCurrentValue - investedValue;
-                    const newPnlPercent = investedValue !== 0 ? (newPnl / investedValue) * 100 : 0;
-                    changed = true;
-                    return {
-                      ...h,
-                      current_price: +freshPrice.toFixed(2),
-                      current_value: +newCurrentValue.toFixed(2),
-                      pnl: +newPnl.toFixed(2),
-                      pnl_percent: +newPnlPercent.toFixed(2)
-                    };
-                  }
-                  return h;
-                });
-
-                if (changed) {
-                  // Recalculate summary
-                  const totalInvested = portfolioData.holdings.reduce((s, h) => s + h.invested_value, 0);
-                  const totalCurrent = portfolioData.holdings.reduce((s, h) => s + h.current_value, 0);
-                  const totalHoldingsPnL = totalCurrent - totalInvested;
-                  portfolioData.summary.total_holdings_invested = +totalInvested.toFixed(2);
-                  portfolioData.summary.total_holdings_current = +totalCurrent.toFixed(2);
-                  portfolioData.summary.total_holdings_pnl = +totalHoldingsPnL.toFixed(2);
-                  portfolioData.summary.total_portfolio_pnl = +(totalHoldingsPnL + portfolioData.summary.total_positions_pnl).toFixed(2);
-                }
-
-                renderPortfolio();
-              }
-            } catch (e) {
-              // Silently ignore refresh errors
-            }
-          }, 5000);
-        }
+        startPortfolioRefresh();
       } catch (e) {
         console.error("[Portfolio] Load error:", e.message);
       }
+    }
+
+    function startPortfolioRefresh() {
+      if (portfolioRefreshInterval) return;
+      portfolioRefreshInterval = setInterval(async () => {
+        try {
+          const ltpRes = await fetch("/api/ltp?t=" + Date.now());
+          if (!ltpRes.ok) return;
+          const liveLtp = await ltpRes.json();
+
+          if (portfolioData && portfolioData.holdings) {
+            let changed = false;
+            portfolioData.holdings = portfolioData.holdings.map(h => {
+              const freshPrice = liveLtp[h.trading_symbol] || liveLtp["NSE_" + h.trading_symbol];
+              if (freshPrice && freshPrice !== h.current_price) {
+                const newCurrentValue = freshPrice * h.quantity;
+                const investedValue = h.average_price * h.quantity;
+                const newPnl = newCurrentValue - investedValue;
+                const newPnlPercent = investedValue !== 0 ? (newPnl / investedValue) * 100 : 0;
+                changed = true;
+                return {
+                  ...h,
+                  current_price: +freshPrice.toFixed(2),
+                  current_value: +newCurrentValue.toFixed(2),
+                  pnl: +newPnl.toFixed(2),
+                  pnl_percent: +newPnlPercent.toFixed(2)
+                };
+              }
+              return h;
+            });
+
+            if (changed) {
+              const totalInvested = portfolioData.holdings.reduce((s, h) => s + h.invested_value, 0);
+              const totalCurrent = portfolioData.holdings.reduce((s, h) => s + h.current_value, 0);
+              const totalHoldingsPnL = totalCurrent - totalInvested;
+              portfolioData.summary.total_holdings_invested = +totalInvested.toFixed(2);
+              portfolioData.summary.total_holdings_current = +totalCurrent.toFixed(2);
+              portfolioData.summary.total_holdings_pnl = +totalHoldingsPnL.toFixed(2);
+              portfolioData.summary.total_portfolio_pnl = +(totalHoldingsPnL + portfolioData.summary.total_positions_pnl).toFixed(2);
+            }
+
+            renderPortfolio();
+          }
+        } catch (e) {
+          // Silently ignore refresh errors
+        }
+      }, 5000);
     }
 
     function renderPortfolio() {
@@ -2618,13 +2677,14 @@
 
       // Custom table header for portfolio
       document.getElementById("tableHeader").innerHTML = `<tr>
-        <th style="text-align:left; width:20%">Symbol</th>
-        <th style="width:10%">Qty</th>
-        <th style="width:12%">Avg Price</th>
-        <th style="width:12%">Current Price</th>
-        <th style="width:14%">Current Value</th>
-        <th style="width:14%">P&L</th>
-        <th style="width:18%">Type / Segment</th>
+        <th style="text-align:left; width:14%; padding:8px 10px; font-size:8px;">Symbol</th>
+        <th style="width:6%; padding:8px 6px; font-size:8px;">Qty</th>
+        <th style="width:11%; padding:8px 6px; font-size:8px;">Avg Price</th>
+        <th style="width:11%; padding:8px 6px; font-size:8px;">LTP</th>
+        <th style="width:12%; padding:8px 6px; font-size:8px;">Invested</th>
+        <th style="width:12%; padding:8px 6px; font-size:8px;">Current</th>
+        <th style="width:14%; padding:8px 6px; font-size:8px;">P&L</th>
+        <th style="width:12%; padding:8px 6px; font-size:8px;">Type</th>
       </tr>`;
 
       const tbody = document.getElementById("tbody");
@@ -2745,244 +2805,191 @@
 
       empty.style.display = "none";
 
-      // Update the external summary card
-      const summaryEl = document.getElementById("portfolioSummary");
-      if (summaryEl) {
-        summaryEl.style.display = "flex";
+      // Hide the default table header for portfolio
+      document.getElementById("tableHeader").innerHTML = "";
 
-        // Calculate per-section metrics
-        const equityPnl = equityOpen.reduce((s, i) => s + i.pnl, 0) + equityClosed.reduce((s, i) => s + i.pnl, 0);
-        const equityInvested = equityOpen.reduce((s, i) => s + (i.avg_price * i.quantity), 0);
-        const equityCurrent = equityOpen.reduce((s, i) => s + i.current_value, 0);
-        const fnoPnl = fnoOpen.reduce((s, i) => s + i.pnl, 0) + fnoClosed.reduce((s, i) => s + i.pnl, 0);
-        const fnoOpenCount = fnoOpen.length;
-        const fnoClosedCount = fnoClosed.length;
-        const commPnl = commodityOpen.reduce((s, i) => s + i.pnl, 0) + commodityClosed.reduce((s, i) => s + i.pnl, 0);
-        const commOpenCount = commodityOpen.length;
-        const commClosedCount = commodityClosed.length;
+      // ── Calculate metrics ──────────────────────────────────────────
+      const equityPnl = equityOpen.reduce((s, i) => s + i.pnl, 0);
+      const equityInvested = equityOpen.reduce((s, i) => s + (i.avg_price * i.quantity), 0);
+      const equityCurrent = equityOpen.reduce((s, i) => s + i.current_value, 0);
+      const fnoPnl = fnoOpen.reduce((s, i) => s + i.pnl, 0) + fnoClosed.reduce((s, i) => s + i.pnl, 0);
+      const commPnl = commodityOpen.reduce((s, i) => s + i.pnl, 0) + commodityClosed.reduce((s, i) => s + i.pnl, 0);
+      const totalPnl = equityPnl + fnoPnl + commPnl;
+      const totalInvested = summary.total_holdings_invested || 0;
+      const totalCurrent = summary.total_holdings_current || 0;
+      const pnlSign = (v) => v >= 0 ? "+" : "";
+      const pnlColor = (v) => v >= 0 ? '#22c55e' : '#ef4444';
+      const pnlBg = (v) => v >= 0 ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)';
 
-        const totalPnl = equityPnl + fnoPnl + commPnl;
-        const pnlSign = (v) => v >= 0 ? "+" : "";
-        const pnlClass = (v) => v >= 0 ? "profit" : "loss";
+      // Allocation helpers
+      const allocationPct = (val) => totalInvested > 0 ? ((val / totalInvested) * 100).toFixed(1) : '0.0';
 
-        summaryEl.innerHTML = `
-          <!-- Overall Portfolio Overview -->
-          <div class="ps-overview">
-            <span class="ps-overview-title">💼 Portfolio Overview</span>
-            <div class="ps-overview-stats">
-              <div class="ps-overview-stat">
-                <span class="ps-label">Invested</span>
-                <span class="ps-value">₹${summary.total_holdings_invested.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+      // Generate mini allocation bar
+      const allocBar = (items) => {
+        const sorted = [...items].sort((a, b) => b.pnl - a.pnl).slice(0, 8);
+        const maxAbsPnl = Math.max(...sorted.map(i => Math.abs(i.pnl)), 1);
+        return sorted.map(i => {
+          const w = Math.max(4, (Math.abs(i.pnl) / maxAbsPnl) * 100);
+          const bg = i.pnl >= 0 ? 'rgba(34,197,94,0.7)' : 'rgba(239,68,68,0.7)';
+          return `<div style="height:18px; width:${w}%; background:${bg}; border-radius:3px; position:relative; cursor:pointer;" title="${i.symbol}: ${pnlSign(i.pnl)}₹${i.pnl.toFixed(2)} (${pnlSign(i.pnl_percent?.toFixed(1) || 0)}%)">
+            <span style="position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:8px; font-weight:700; font-family:var(--mono); color:rgba(255,255,255,0.9); white-space:nowrap; overflow:hidden;">${i.symbol}</span>
+          </div>`;
+        }).join('<div style="width:2px;"></div>');
+      };
+
+      // Generate sparkline-like mini trend for a position
+      const miniTrend = (pnlPct) => {
+        const isUp = pnlPct >= 0;
+        const pts = [];
+        const steps = 12;
+        for (let i = 0; i < steps; i++) {
+          const progress = i / (steps - 1);
+          const noise = (Math.sin(i * 1.3) * 0.15 + Math.cos(i * 2.1) * 0.1);
+          const y = isUp ? progress * 0.7 + noise * 0.3 : (1 - progress) * 0.7 + noise * 0.3;
+          pts.push(`${(i / (steps - 1)) * 50},${20 - y * 16}`);
+        }
+        const color = isUp ? '#22c55e' : '#ef4444';
+        return `<svg width="50" height="22" viewBox="0 0 50 20" style="opacity:0.6;"><polyline points="${pts.join(' ')}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+      };
+
+      // Build single position card
+      const buildPositionCard = (item) => {
+        const pct = item.pnl_percent !== null ? item.pnl_percent : 0;
+        const clr = pnlColor(item.pnl);
+        const bgClr = pnlBg(item.pnl);
+        const investVal = item.avg_price * item.quantity;
+
+        // Groww deep link / web URL
+        const growwUrl = `https://groww.in/stocks/${item.symbol.toLowerCase()}`;
+        const growwAppUrl = `groww://stock/${item.symbol.toLowerCase()}`;
+
+        return `<div style="background:rgba(255,255,255,0.02); border:1px solid ${clr}30; border-radius:10px; padding:10px 14px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
+          <!-- Left: Symbol + details -->
+          <div style="display:flex; align-items:center; gap:12px;">
+            ${miniTrend(pct)}
+            <div>
+              <div style="display:flex; align-items:center; gap:6px;">
+                <a href="${growwUrl}" target="_blank" rel="noopener noreferrer"
+                   style="font-weight:700; font-family:var(--mono); font-size:12px; color:var(--text); text-decoration:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px; transition:color 0.2s;"
+                   onmouseover="this.style.color='var(--accent)'"
+                   onmouseout="this.style.color='var(--text)'"
+                   onclick="event.preventDefault(); event.stopPropagation();
+                     // Try app first, fallback to web
+                     window.location.href='${growwAppUrl}';
+                     setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 500);">
+                  ${item.symbol}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <span style="font-size:8px; padding:1px 5px; border-radius:3px; background:${item.type === 'Holding' ? 'rgba(167,139,250,0.15)' : 'rgba(0,212,170,0.15)'}; color:${item.type === 'Holding' ? 'var(--purple)' : 'var(--accent)'}; font-weight:600;">${item.type}</span>
               </div>
-              <div class="ps-overview-stat">
-                <span class="ps-label">Current</span>
-                <span class="ps-value">₹${summary.total_holdings_current.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-              </div>
-              <div class="ps-overview-stat">
-                <span class="ps-label">Total P&L</span>
-                <span class="ps-value ${pnlClass(totalPnl)}">${pnlSign(totalPnl)}₹${totalPnl.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
+              <div style="display:flex; gap:12px; margin-top:3px; font-size:9px; color:var(--muted);">
+                <span>Qty: <b style="color:var(--text); font-family:var(--mono);">${item.quantity}</b></span>
+                <span>Avg: <b style="color:var(--text); font-family:var(--mono);">₹${item.avg_price.toFixed(2)}</b></span>
+                <span>LTP: <b style="color:var(--text); font-family:var(--mono);">₹${item.current_price?.toFixed(2) || '—'}</b></span>
               </div>
             </div>
           </div>
 
-          <!-- Section Cards -->
-          <div class="ps-sections">
-            <!-- Equity Card -->
-            <div class="ps-section-card equity">
-              <div class="ps-section-header">
-                <span class="ps-section-icon">📈</span>
-                <span class="ps-section-title">Equity</span>
-                <span class="ps-section-pnl ${pnlClass(equityPnl)}">${pnlSign(equityPnl)}₹${equityPnl.toFixed(2)}</span>
+          <!-- Right: P&L -->
+          <div style="text-align:right;">
+            <div style="font-weight:700; font-size:14px; font-family:var(--mono); color:${clr};">${pnlSign(item.pnl)}₹${item.pnl.toFixed(2)}</div>
+            <div style="font-size:10px; font-weight:600; font-family:var(--mono); color:${clr}; background:${bgClr}; padding:1px 6px; border-radius:4px; display:inline-block; margin-top:2px;">${pnlSign(pct)}${pct.toFixed(2)}%</div>
+            <div style="font-size:8px; color:var(--muted); margin-top:3px;">Inv: ₹${investVal.toFixed(2)} (${allocationPct(investVal)}%)</div>
+          </div>
+        </div>`;
+      };
+
+      // Build section with header and position list
+      const buildSection = (title, icon, color, items, pnl) => {
+        if (!items.length) return '';
+        const clr = pnlColor(pnl);
+        return `
+        <div style="margin:14px 0;">
+          <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; padding:8px 12px; background:linear-gradient(90deg, ${color}15, transparent); border-radius:8px;">
+            <span style="font-size:16px;">${icon}</span>
+            <span style="font-size:12px; font-weight:700; color:var(--text); letter-spacing:0.5px;">${title}</span>
+            <span style="font-size:9px; color:var(--muted); margin-left:auto;">${items.length} items</span>
+            <span style="font-size:12px; font-weight:700; font-family:var(--mono); color:${clr};">${pnlSign(pnl)}₹${pnl.toFixed(2)}</span>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:6px;">
+            ${items.map(buildPositionCard).join('')}
+          </div>
+        </div>`;
+      };
+
+      // ── Build portfolio summary ────────────────────────────────────
+      const summaryEl = document.getElementById("portfolioSummary");
+      if (summaryEl) {
+        summaryEl.style.display = "flex";
+        summaryEl.innerHTML = `
+          <!-- Main Portfolio Header -->
+          <div style="background:linear-gradient(135deg, rgba(13,18,32,0.95), rgba(17,25,39,0.8)); border:1px solid var(--border); border-radius:14px; padding:16px 20px; margin-bottom:10px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+              <div>
+                <div style="font-size:9px; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:1.5px;">💼 Total Portfolio</div>
+                <div style="font-size:24px; font-weight:800; font-family:var(--mono); color:var(--text); margin-top:2px;">₹${totalCurrent.toLocaleString("en-IN", {minimumFractionDigits:2})}</div>
               </div>
-              <div class="ps-section-stats">
-                <div class="ps-stat">
-                  <span class="ps-label">Invested</span>
-                  <span class="ps-value">₹${equityInvested.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Current</span>
-                  <span class="ps-value">₹${equityCurrent.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Holdings</span>
-                  <span class="ps-value">${holdings.length}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Cash Pos.</span>
-                  <span class="ps-value">${Math.max(0, equityOpen.length + equityClosed.length - holdings.length)}</span>
-                </div>
-                <div class="ps-stat highlight">
-                  <span class="ps-label">Open P&L</span>
-                  <span class="ps-value ${pnlClass(equityOpen.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(equityOpen.reduce((s, i) => s + i.pnl, 0))}₹${equityOpen.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
-                </div>
+              <div style="text-align:right;">
+                <div style="font-size:9px; font-weight:600; color:var(--muted);">TOTAL P&L</div>
+                <div style="font-size:18px; font-weight:800; font-family:var(--mono); color:${pnlColor(totalPnl)};">${pnlSign(totalPnl)}₹${totalPnl.toFixed(2)}</div>
               </div>
             </div>
-
-            <!-- F&O Card -->
-            <div class="ps-section-card fno">
-              <div class="ps-section-header">
-                <span class="ps-section-icon">◈</span>
-                <span class="ps-section-title">Futures & Options</span>
-                <span class="ps-section-pnl ${pnlClass(fnoPnl)}">${pnlSign(fnoPnl)}₹${fnoPnl.toFixed(2)}</span>
+            <!-- Allocation bars -->
+            <div style="display:flex; gap:10px;">
+              ${equityInvested > 0 ? `<div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted); margin-bottom:4px;">EQUITY ${allocationPct(equityInvested)}%</div>
+                <div style="height:4px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                  <div style="height:100%; width:${allocationPct(equityInvested)}%; background:linear-gradient(90deg,#06b6d4,rgba(6,182,212,0.6)); border-radius:3px;"></div>
+                </div>
+              </div>` : ''}
+              ${fnoOpen.length > 0 ? `<div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted); margin-bottom:4px;">F&O ${fnoOpen.length} open</div>
+                <div style="height:4px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                  <div style="height:100%; width:100%; background:linear-gradient(90deg,var(--purple),rgba(167,139,250,0.6)); border-radius:3px;"></div>
+                </div>
+              </div>` : ''}
+              ${commodityOpen.length > 0 ? `<div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted); margin-bottom:4px;">COMMODITY ${commodityOpen.length} open</div>
+                <div style="height:4px; background:rgba(255,255,255,0.05); border-radius:3px; overflow:hidden;">
+                  <div style="height:100%; width:100%; background:linear-gradient(90deg,var(--yellow),rgba(245,158,11,0.6)); border-radius:3px;"></div>
+                </div>
+              </div>` : ''}
+            </div>
+            <!-- PnL breakdown -->
+            <div style="display:flex; gap:16px; margin-top:10px; padding-top:10px; border-top:1px solid rgba(255,255,255,0.05);">
+              <div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted);">TODAY'S P&L</div>
+                <div style="font-size:13px; font-weight:700; font-family:var(--mono); color:${pnlColor(equityPnl)};">${pnlSign(equityPnl)}₹${equityPnl.toFixed(2)}</div>
               </div>
-              <div class="ps-section-stats">
-                <div class="ps-stat">
-                  <span class="ps-label">Open</span>
-                  <span class="ps-value">${fnoOpenCount}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Closed</span>
-                  <span class="ps-value">${fnoClosedCount}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Unrealised P&L</span>
-                  <span class="ps-value ${pnlClass(fnoOpen.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(fnoOpen.reduce((s, i) => s + i.pnl, 0))}₹${fnoOpen.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Realised P&L</span>
-                  <span class="ps-value ${pnlClass(fnoClosed.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(fnoClosed.reduce((s, i) => s + i.pnl, 0))}₹${fnoClosed.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
-                </div>
+              <div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted);">F&O P&L</div>
+                <div style="font-size:13px; font-weight:700; font-family:var(--mono); color:${pnlColor(fnoPnl)};">${pnlSign(fnoPnl)}₹${fnoPnl.toFixed(2)}</div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted);">INVESTED</div>
+                <div style="font-size:13px; font-weight:700; font-family:var(--mono); color:var(--text);">₹${totalInvested.toFixed(2)}</div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:8px; font-weight:600; color:var(--muted);">ITEMS</div>
+                <div style="font-size:13px; font-weight:700; font-family:var(--mono); color:var(--text);">${equityOpen.length + fnoOpen.length + commodityOpen.length}</div>
               </div>
             </div>
-
-            <!-- Commodity Card (only if exists) -->
-            ${commodityOpen.length || commodityClosed.length ? `
-            <div class="ps-section-card commodity">
-              <div class="ps-section-header">
-                <span class="ps-section-icon">⚙</span>
-                <span class="ps-section-title">Commodity</span>
-                <span class="ps-section-pnl ${pnlClass(commPnl)}">${pnlSign(commPnl)}₹${commPnl.toFixed(2)}</span>
-              </div>
-              <div class="ps-section-stats">
-                <div class="ps-stat">
-                  <span class="ps-label">Open</span>
-                  <span class="ps-value">${commOpenCount}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Closed</span>
-                  <span class="ps-value">${commClosedCount}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Unrealised P&L</span>
-                  <span class="ps-value ${pnlClass(commOpen.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(commOpen.reduce((s, i) => s + i.pnl, 0))}₹${commOpen.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
-                </div>
-                <div class="ps-stat">
-                  <span class="ps-label">Realised P&L</span>
-                  <span class="ps-value ${pnlClass(commClosed.reduce((s, i) => s + i.pnl, 0))}">${pnlSign(commClosed.reduce((s, i) => s + i.pnl, 0))}₹${commClosed.reduce((s, i) => s + i.pnl, 0).toFixed(2)}</span>
-                </div>
-              </div>
-            </div>` : ''}
           </div>
         `;
       }
 
-      // ── Build section HTML ─────────────────────────────────────────
-      const buildMainDivider = (label, icon, sectionType) => `
-        <tr class="main-section-divider">
-          <td colspan="7">
-            <div class="main-divider ${sectionType}">
-              <span class="main-divider-icon">${icon}</span>
-              <span class="main-divider-label ${sectionType}">${label}</span>
-            </div>
-          </td>
-        </tr>`;
-
-      const buildSubDivider = (label, pnl) => {
-        const pnlSign = pnl >= 0 ? '+' : '';
-        const pnlColor = pnl >= 0 ? 'var(--green)' : 'var(--red)';
-        return `
-          <tr class="sub-section-divider">
-            <td colspan="7">
-              <div class="sub-divider">
-                <span class="sub-divider-label">
-                  <span>▸</span>
-                  ${label}
-                  <span class="sub-divider-pnl" style="color: ${pnlColor};">${pnlSign}₹${pnl.toFixed(2)}</span>
-                </span>
-              </div>
-            </td>
-          </tr>`;
-      };
-
-      const buildRows = (items) => items.map(item => {
-        const pnlClass = item.pnl >= 0 ? "up" : "dn";
-        const pnlSign = item.pnl >= 0 ? "+" : "";
-        let pctDisplay = '';
-        if (item.pnl_percent !== null) {
-          pctDisplay = ` <span style="font-size: 10px;">(${pnlSign}${item.pnl_percent.toFixed(2)}%)</span>`;
-        }
-
-        const isClosed = item.status === "closed";
-        let priceCell = isClosed ? `<span style="color: var(--muted); font-size: 10px; font-style: italic;">Closed</span>` : `₹${item.avg_price.toFixed(2)}`;
-        let currentPriceCell = isClosed ? `<span style="color: var(--muted); font-size: 10px; font-style: italic;">—</span>` : `₹${(item.current_price || 0).toFixed(2)}`;
-        let currentValueCell = isClosed ? `<span style="color: var(--muted); font-size: 10px;">Realised</span>` : `₹${(item.current_value || 0).toFixed(2)}`;
-
-        return `<tr class="${isClosed ? 'closed-position-row' : ''}">
-          <td style="font-weight: 700; font-family: var(--mono);">${item.symbol}</td>
-          <td style="text-align: center; font-family: var(--mono);">${item.quantity}</td>
-          <td style="text-align: right; font-family: var(--mono);">${priceCell}</td>
-          <td style="text-align: right; font-family: var(--mono);">${currentPriceCell}</td>
-          <td style="text-align: right; font-family: var(--mono);">${currentValueCell}</td>
-          <td style="text-align: right; font-family: var(--mono);" class="${pnlClass}">
-            ${pnlSign}₹${item.pnl.toFixed(2)}${pctDisplay}
-          </td>
-          <td style="text-align: center;">
-            <span style="font-size: 10px; font-weight: 600; padding: 2px 6px; border-radius: 4px; background: ${item.type === 'Holding' ? 'rgba(167, 139, 250, 0.15)' : 'rgba(0, 212, 170, 0.15)'}; color: ${item.type === 'Holding' ? 'var(--purple)' : 'var(--accent)'};">
-              ${item.type}${isClosed ? ' · Closed' : ''}
-            </span>
-          </td>
-        </tr>`;
-      }).join('');
-
+      // ── Build all sections ────────────────────────────────────────
       let html = '';
+      html += buildSection("EQUITY HOLDINGS", "📈", "#06b6d4", equityOpen, equityPnl);
+      if (fnoOpen.length) html += buildSection("F&O OPEN POSITIONS", "◈", "#a78bfa", fnoOpen, fnoOpen.reduce((s, i) => s + i.pnl, 0));
+      if (fnoClosed.length) html += buildSection("F&O CLOSED POSITIONS", "◈", "#a78bfa", fnoClosed, fnoClosed.reduce((s, i) => s + i.pnl, 0));
+      if (commodityOpen.length) html += buildSection("COMMODITY OPEN", "⚙", "#f59e0b", commodityOpen, commodityOpen.reduce((s, i) => s + i.pnl, 0));
+      if (commodityClosed.length) html += buildSection("COMMODITY CLOSED", "⚙", "#f59e0b", commodityClosed, commodityClosed.reduce((s, i) => s + i.pnl, 0));
+      if (equityClosed.length) html += buildSection("CLOSED CASH POSITIONS", "💰", "#526a85", equityClosed, equityClosed.reduce((s, i) => s + i.pnl, 0));
 
-      // ── EQUITY SECTION ─────────────────────────────────────────────
-      if (equityOpen.length || equityClosed.length) {
-        html += buildMainDivider("EQUITY", "📈", "equity");
-        if (equityOpen.length) {
-          const eqOpenPnl = equityOpen.reduce((s, i) => s + i.pnl, 0);
-          html += buildSubDivider("Open Positions", eqOpenPnl);
-          html += buildRows(equityOpen);
-        }
-        if (equityClosed.length) {
-          const eqClosedPnl = equityClosed.reduce((s, i) => s + i.pnl, 0);
-          html += buildSubDivider("Closed Positions", eqClosedPnl);
-          html += buildRows(equityClosed);
-        }
-      }
+      tbody.innerHTML = html || `<tr><td colspan="10" style="padding:40px; text-align:center; color:var(--muted); font-size:12px;">No holdings or positions found.</td></tr>`;
 
-      // ── F&O SECTION ────────────────────────────────────────────────
-      if (fnoOpen.length || fnoClosed.length) {
-        html += buildMainDivider("FUTURES & OPTIONS", "◈", "fno");
-        if (fnoOpen.length) {
-          const fnoOpenPnl = fnoOpen.reduce((s, i) => s + i.pnl, 0);
-          html += buildSubDivider("Open Positions", fnoOpenPnl);
-          html += buildRows(fnoOpen);
-        }
-        if (fnoClosed.length) {
-          const fnoClosedPnl = fnoClosed.reduce((s, i) => s + i.pnl, 0);
-          html += buildSubDivider("Closed Positions", fnoClosedPnl);
-          html += buildRows(fnoClosed);
-        }
-      }
-
-      // ── COMMODITY SECTION ──────────────────────────────────────────
-      if (commodityOpen.length || commodityClosed.length) {
-        html += buildMainDivider("COMMODITY", "⚙", "commodity");
-        if (commodityOpen.length) {
-          const commOpenPnl = commodityOpen.reduce((s, i) => s + i.pnl, 0);
-          html += buildSubDivider("Open Positions", commOpenPnl);
-          html += buildRows(commodityOpen);
-        }
-        if (commodityClosed.length) {
-          const commClosedPnl = commodityClosed.reduce((s, i) => s + i.pnl, 0);
-          html += buildSubDivider("Closed Positions", commClosedPnl);
-          html += buildRows(commodityClosed);
-        }
-      }
-
-      tbody.innerHTML = html;
-      document.getElementById("rowCount").textContent = `Portfolio: ${equityOpen.length + equityClosed.length + fnoOpen.length + fnoClosed.length + commodityOpen.length + commodityClosed.length} items (${summary.holdings_count} holdings, ${summary.positions_count} positions)`;
+      document.getElementById("rowCount").textContent = `Portfolio: ${equityOpen.length + equityClosed.length + fnoOpen.length + fnoClosed.length + commodityOpen.length + commodityClosed.length} items`;
       document.getElementById("badge-PORTFOLIO").textContent = equityOpen.length + equityClosed.length + fnoOpen.length + fnoClosed.length + commodityOpen.length + commodityClosed.length;
     }
 
@@ -3183,6 +3190,20 @@
           : "<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(" + macdVal + ")</span></span></div>";
         
         const gcBadge = r.goldenCross ? "<span class='bgc'>🟣GC</span>" : "";
+
+        // Groww link for symbol
+        const symLower = r.symbol.toLowerCase().replace(/\s+/g, '-');
+        const growwUrl = `https://groww.in/stocks/${symLower}`;
+        const growwAppUrl = `groww://stock/${symLower}`;
+        const symLink = `<a href="${growwUrl}" target="_blank" rel="noopener noreferrer"
+          style="color:inherit; text-decoration:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
+          onmouseover="this.style.color='var(--accent)'"
+          onmouseout="this.style.color='inherit'"
+          onclick="event.preventDefault(); event.stopPropagation();
+            window.location.href='${growwAppUrl}';
+            setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 500);">
+          ${r.symbol}<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`;
+
         const rsiTxt = r.rsi !== null ? r.rsi : "—";
         const scoreTooltips = [
           "EMA 21 > 50 -> BULLISH TREND",
@@ -3214,7 +3235,7 @@
 
           <!-- Symbol / Sector -->
           <td style="text-align:left;">
-            <div class='sym' style="white-space:nowrap;">${expandToggle}${r.symbol} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
+            <div class='sym' style="white-space:nowrap;">${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
             <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
           </td>
 
@@ -3412,7 +3433,7 @@
               + "</div>"
             : "";
           html += "<div class='sc'>"
-            + "<div class='scl'>" + idx.symbol + "</div>"
+            + "<div class='scl'><a href='https://groww.in/indices/" + idx.symbol.toLowerCase().replace(/\s+/g, '-') + "' target='_blank' rel='noopener noreferrer' style='color:inherit; text-decoration:none; cursor:pointer;' onmouseover=\"this.style.color='var(--accent)'\" onmouseout=\"this.style.color='inherit'\">" + idx.symbol + "</a></div>"
             + "<div class='scv " + cl + "' style='font-size:14px;display:flex;align-items:center;justify-content:space-between;'>"
             + "Rs " + ltp.toLocaleString("en-IN", { minimumFractionDigits: 2 })
             + pctHtml
@@ -3456,6 +3477,35 @@
         rcEl.textContent = `F&O: 30 stocks · Next refresh: ${mm}m ${ss}s`;
       }
     }, 1000);
+
+    // ── Restore UI state from localStorage on load ─────────────────────
+    (function initUI() {
+      // Set timeframe dropdown to saved value (or default ALL)
+      const savedTF = localStorage.getItem("scanner_tf") || "ALL";
+      currentTF = savedTF;
+      const opts = document.querySelectorAll("#tfOptions .option");
+      opts.forEach(o => {
+        o.classList.toggle("active", o.dataset.value === savedTF);
+      });
+      const label = document.querySelector(`#tfOptions .option[data-value="${savedTF}"]`)?.textContent?.trim() || savedTF;
+      document.getElementById("tfSelected").textContent = label;
+
+      // Try loading cached portfolio data for instant display
+      try {
+        const cached = localStorage.getItem("scanner_portfolio");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.data && (Date.now() - parsed.ts < PORTFOLIO_CACHE_TTL)) {
+            portfolioData = parsed.data;
+            portfolioCacheTs = parsed.ts;
+            // Update badge count from cached data
+            const items = (portfolioData.holdings?.length || 0) + (portfolioData.positions?.length || 0);
+            const badgeEl = document.getElementById("badge-PORTFOLIO");
+            if (badgeEl) badgeEl.textContent = items;
+          }
+        }
+      } catch (_) { }
+    })();
 
     tick();
     pollStatus();
