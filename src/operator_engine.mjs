@@ -25,27 +25,27 @@
 export function detectSilentAccumulation(stockData) {
   const signals = [];
   let conviction = 0;
-  
+
   // Tight price range
-  if (stockData.priceRange10d !== null && stockData.priceRange10d < 5) {
+  if (stockData.priceRange10d != null && stockData.priceRange10d < 5) {
     signals.push(`Tight range: ${stockData.priceRange10d.toFixed(2)}% over 10 days`);
     conviction += 25;
   }
-  
+
   // Low volume
-  if (stockData.volumeRatio !== null && stockData.volumeRatio < 0.8) {
+  if (stockData.volumeRatio != null && stockData.volumeRatio < 0.8) {
     signals.push(`Low volume: ${stockData.volumeRatio.toFixed(2)}x avg`);
     conviction += 20;
   }
-  
+
   // Delivery % rising (if available)
-  if (stockData.deliveryPercent !== null && stockData.deliveryPercent > 50) {
+  if (stockData.deliveryPercent != null && stockData.deliveryPercent > 50) {
     signals.push(`Delivery %: ${stockData.deliveryPercent.toFixed(1)}% (accumulation signal)`);
     conviction += 25;
   }
-  
+
   // OI in calls building (for F&O stocks)
-  if (stockData.oiChangePercent !== null && stockData.oiChangePercent > 10) {
+  if (stockData.oiChangePercent != null && stockData.oiChangePercent > 10) {
     signals.push(`OI building: +${stockData.oiChangePercent.toFixed(1)}%`);
     conviction += 30;
   }
@@ -120,25 +120,25 @@ export function detectMarkupRally(stockData) {
   let conviction = 0;
   
   // Volume explosion
-  if (stockData.volumeRatio !== null && stockData.volumeRatio >= 2) {
+  if (stockData.volumeRatio != null && stockData.volumeRatio >= 2) {
     signals.push(`Volume explosion: ${stockData.volumeRatio.toFixed(1)}x avg`);
     conviction += 25;
   }
-  
+
   // Breaking multi-week resistance
   if (stockData.brokeResistance) {
     signals.push(`Broke multi-week resistance cleanly`);
     conviction += 30;
   }
-  
+
   // OI in calls surging
-  if (stockData.oiChangePercent !== null && stockData.oiChangePercent > 15) {
+  if (stockData.oiChangePercent != null && stockData.oiChangePercent > 15) {
     signals.push(`OI surging: +${stockData.oiChangePercent.toFixed(1)}%`);
     conviction += 25;
   }
-  
+
   // Delivery % high on breakout
-  if (stockData.deliveryPercent !== null && stockData.deliveryPercent > 55) {
+  if (stockData.deliveryPercent != null && stockData.deliveryPercent > 55) {
     signals.push(`High delivery on breakout: ${stockData.deliveryPercent.toFixed(1)}%`);
     conviction += 20;
   }
@@ -172,7 +172,7 @@ export function detectShortSqueeze(stockData) {
   let conviction = 0;
   
   // High put OI
-  if (stockData.putOI !== null && stockData.putOI > stockData.callOI * 1.5) {
+  if (stockData.putOI != null && stockData.putOI > stockData.callOI * 1.5) {
     signals.push(`High put OI: ${stockData.putOI} vs call OI ${stockData.callOI}`);
     conviction += 25;
   }
@@ -184,7 +184,7 @@ export function detectShortSqueeze(stockData) {
   }
   
   // PCR < 0.6
-  if (stockData.pcr !== null && stockData.pcr < 0.6) {
+  if (stockData.pcr != null && stockData.pcr < 0.6) {
     signals.push(`PCR extreme: ${stockData.pcr.toFixed(2)}`);
     conviction += 25;
   }
@@ -218,25 +218,25 @@ export function detectDistribution(stockData) {
   let conviction = 0;
   
   // Near 52W high
-  if (stockData.position52W !== null && stockData.position52W > 85) {
+  if (stockData.position52W != null && stockData.position52W > 85) {
     signals.push(`Near 52W high: ${stockData.position52W.toFixed(1)}% of range`);
     conviction += 20;
   }
-  
+
   // High volume but price not moving
-  if (stockData.volumeRatio !== null && stockData.volumeRatio > 1.5 && stockData.priceStagnant) {
+  if (stockData.volumeRatio != null && stockData.volumeRatio > 1.5 && stockData.priceStagnant) {
     signals.push(`High volume ${stockData.volumeRatio.toFixed(1)}x but price stagnant`);
     conviction += 30;
   }
-  
+
   // Delivery % falling
-  if (stockData.deliveryPercent !== null && stockData.deliveryPercent < 35) {
+  if (stockData.deliveryPercent != null && stockData.deliveryPercent < 35) {
     signals.push(`Falling delivery %: ${stockData.deliveryPercent.toFixed(1)}%`);
     conviction += 25;
   }
-  
+
   // FII selling
-  if (stockData.fiiFlow !== null && stockData.fiiFlow < 0) {
+  if (stockData.fiiFlow != null && stockData.fiiFlow < 0) {
     signals.push(`FII selling: ₹${Math.abs(stockData.fiiFlow).toFixed(0)} Cr net`);
     conviction += 25;
   }
@@ -270,19 +270,19 @@ export function detectFORallyCatch(stockData) {
   let conviction = 0;
   
   // OI building rapidly
-  if (stockData.oiChangePercent !== null && stockData.oiChangePercent > 20) {
+  if (stockData.oiChangePercent != null && stockData.oiChangePercent > 20) {
     signals.push(`OI building rapidly: +${stockData.oiChangePercent.toFixed(1)}%`);
     conviction += 30;
   }
-  
+
   // IV rising but still < 35%
-  if (stockData.iv !== null && stockData.iv > 15 && stockData.iv < 35) {
+  if (stockData.iv != null && stockData.iv > 15 && stockData.iv < 35) {
     signals.push(`IV rising: ${stockData.iv.toFixed(1)}% (sweet spot)`);
     conviction += 25;
   }
-  
+
   // Price coiling tight 3+ days
-  if (stockData.coilDays !== null && stockData.coilDays >= 3) {
+  if (stockData.coilDays != null && stockData.coilDays >= 3) {
     signals.push(`Price coiling tight: ${stockData.coilDays} days`);
     conviction += 25;
   }
@@ -316,7 +316,7 @@ export function detectSectorRotation(stockData) {
   let conviction = 0;
   
   // 3+ stocks in sector with volume spikes
-  if (stockData.sectorVolumeSpikes !== null && stockData.sectorVolumeSpikes >= 3) {
+  if (stockData.sectorVolumeSpikes != null && stockData.sectorVolumeSpikes >= 3) {
     signals.push(`${stockData.sectorVolumeSpikes} stocks in sector with volume spikes`);
     conviction += 40;
   }
@@ -446,7 +446,7 @@ function scoreOperatorSignals(footprints, stockData) {
   }
   
   // Delivery % confirms smart money
-  if (stockData.deliveryPercent !== null && stockData.deliveryPercent > 55) {
+  if (stockData.deliveryPercent != null && stockData.deliveryPercent > 55) {
     score += 8;
     details.push(`Delivery % confirms smart money: ${stockData.deliveryPercent.toFixed(1)}% (+8)`);
   }
@@ -480,19 +480,19 @@ function scoreTechnicalSignals(stockData) {
   }
   
   // Volume spike confirmed
-  if (stockData.volumeRatio !== null && stockData.volumeRatio > 1.5) {
+  if (stockData.volumeRatio != null && stockData.volumeRatio > 1.5) {
     score += 8;
     details.push(`Volume spike: ${stockData.volumeRatio.toFixed(1)}x (+8)`);
   }
-  
+
   // Supertrend aligned
   if (stockData.supertrendAligned) {
     score += 7;
     details.push(`Supertrend aligned (+7)`);
   }
-  
+
   // RSI in ideal zone
-  if (stockData.rsi !== null) {
+  if (stockData.rsi != null) {
     if ((stockData.tradeType === "CE" && stockData.rsi >= 55 && stockData.rsi <= 72) ||
         (stockData.tradeType === "PE" && stockData.rsi >= 28 && stockData.rsi <= 45)) {
       score += 5;
@@ -517,7 +517,7 @@ function scoreRiskTiming(stockData, vixValue) {
   }
   
   // VIX in safe zone
-  if (vixValue !== null && vixValue < 20) {
+  if (vixValue != null && vixValue < 20) {
     score += 8;
     details.push(`VIX in safe zone: ${vixValue.toFixed(2)} (+8)`);
   }

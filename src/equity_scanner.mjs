@@ -439,7 +439,9 @@ export function analyzeEquityStock(
     if (!dailyCandles || dailyCandles.length < 60) return null;
 
     const closes = dailyCandles.map(c => c.close).filter(Number.isFinite);
-    const currentPrice = ltp?.price || closes[closes.length - 1];
+    if (closes.length < 60) return null;
+    const currentPrice = ltp?.price ?? closes[closes.length - 1];
+    if (!Number.isFinite(currentPrice)) return null;
 
     // ── 1. Operator footprint (1-8) ──
     const operatorData = {
@@ -654,10 +656,10 @@ export function analyzeEquityStock(
     if (weeklyEmaPass) reasons.push(`Weekly EMA 21 > EMA 50 ${goldenCrossForming ? "(golden cross forming)" : ""}`);
     if (macdPass) reasons.push(`MACD bullish ${macdBullDaily ? "daily" : ""}${macdBullWeekly ? " and weekly" : ""}`);
     if (supertrendGreen) reasons.push("Supertrend green on daily");
-    if (rsPass && rsVsNifty !== null) reasons.push(`RS vs Nifty ${rsVsNifty.toFixed(2)} (min: ${MIN_RS_VS_NIFTY})`);
+    if (rsPass && rsVsNifty !== null && Number.isFinite(rsVsNifty)) reasons.push(`RS vs Nifty ${rsVsNifty.toFixed(2)} (min: ${MIN_RS_VS_NIFTY})`);
     if (aboveDma) reasons.push("Price above all key DMAs (20, 50, 100, 200)");
-    if (pos52WPass) reasons.push(`At ${pos52W.toFixed(1)}% of 52W range — strong momentum position`);
-    if (dePass) reasons.push(`Clean balance sheet: D/E ${fundamentalData.debtToEquity?.toFixed(2) ?? "N/A"} < ${MAX_DEBT_TO_EQUITY}`);
+    if (pos52WPass && Number.isFinite(pos52W)) reasons.push(`At ${pos52W.toFixed(1)}% of 52W range — strong momentum position`);
+    if (dePass) reasons.push(`Clean balance sheet: D/E ${fundamentalData.debtToEquity != null && Number.isFinite(fundamentalData.debtToEquity) ? fundamentalData.debtToEquity.toFixed(2) : "N/A"} < ${MAX_DEBT_TO_EQUITY}`);
 
     return {
         rank: null, // set after sorting
