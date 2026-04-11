@@ -148,7 +148,10 @@ export async function fetchIndiaVix() {
       }
     }
   } catch (e) {
-    console.log(`[VIX] NSE fetch failed: ${e.message}. Using fallback.`);
+    // NSE blocks automated access - fallback is used
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[VIX] NSE fetch failed: ${e.message}. Using fallback.`);
+    }
   }
 
   // Fallback: Use estimated VIX from market data

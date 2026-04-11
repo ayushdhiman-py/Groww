@@ -1,76 +1,12 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// nse_data.mjs — NSE India Data Fetcher
+// nse_data.mjs — NSE India Data Fetcher (Wrapper for data_fetcher.mjs)
 // F&O Ban List, Delivery %, Earnings Calendar, VIX
 // ─────────────────────────────────────────────────────────────────────────────
 
-import axios from "axios";
-
-const NSE_BASE = "https://www.nseindia.com";
-const NSE_API = "https://api.nseindia.com";
-
-// NSE session management
-let nseSession = { cookies: "", expiresAt: 0, refreshing: false };
-
-async function refreshNseSession() {
-  if (nseSession.refreshing) return false;
-  nseSession.refreshing = true;
-  try {
-    const res = await axios.get(NSE_BASE, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Cache-Control": "no-cache",
-      },
-      timeout: 15000,
-      maxRedirects: 5,
-    });
-    const setCookies = res.headers["set-cookie"] || [];
-    nseSession.cookies = setCookies.map(c => c.split(";")[0]).join("; ");
-    nseSession.expiresAt = Date.now() + 15 * 60 * 1000; // 15 min
-    console.log("[NSE Data] Session refreshed ✓");
-    return true;
-  } catch (e) {
-    console.error("[NSE Data] Session refresh failed:", e.message);
-    return false;
-  } finally {
-    nseSession.refreshing = false;
-  }
-}
-
-async function nseFetch(path, retries = 2) {
-  for (let attempt = 0; attempt <= retries; attempt++) {
-    if (Date.now() > nseSession.expiresAt || !nseSession.cookies) {
-      const ok = await refreshNseSession();
-      if (!ok && attempt === retries) return null;
-    }
-    try {
-      const res = await axios.get(NSE_BASE + path, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-          "Accept": "application/json, text/plain, */*",
-          "Accept-Language": "en-US,en;q=0.9",
-          "Referer": NSE_BASE + "/",
-          "Cookie": nseSession.cookies,
-        },
-        timeout: 15000,
-      });
-      return res.data;
-    } catch (e) {
-      if (e.response?.status === 401 || e.response?.status === 403) {
-        nseSession.expiresAt = 0; // Force refresh
-        continue;
-      }
-      if (attempt === retries) {
-        console.log(`[NSE Data] Fetch failed for ${path}: ${e.message}`);
-        return null;
-      }
-      await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
-    }
-  }
-  return null;
-}
+// Re-export from the new robust data_fetcher module
+export {
+  getFOBanList
+} from "./data_fetcher.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cache layer
@@ -87,9 +23,6 @@ function isCached(key) {
   const c = cache[key];
   return c.data && (c.data instanceof Map ? c.data.size > 0 : true) && Date.now() - c.ts < c.ttl;
 }
-
-// Pre-warm NSE session
-refreshNseSession().catch(() => {});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // F&O BAN LIST
@@ -331,7 +264,10 @@ export async function fetchIndiaVixDirect() {
       }
     }
   } catch (e) {
-    console.log(`[NSE Data] External VIX API failed: ${e.message}`);
+    // External API may be unavailable - fallback will be used
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[NSE Data] External VIX API failed: ${e.message}`);
+    }
   }
 
   // Last resort: return null to trigger VIX estimation

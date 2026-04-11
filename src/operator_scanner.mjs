@@ -7,8 +7,8 @@
 import { scanIntradayFO } from "./intraday_scanner.mjs";
 import { scanOvernightFO } from "./overnight_scanner.mjs";
 import { scanEquityCalls } from "./equity_scanner.mjs";
-import { fetchIndiaVix, getVixState, formatVixStatus } from "./vix_manager.mjs";
-import { fetchAllNseData, getFOBANList } from "./nse_data.mjs";
+import { fetchIndiaVix, getVixState, getVixMode, formatVixStatus } from "./vix_manager.mjs";
+import { fetchAllMarketData, getFIIDIIFlow, getGiftNifty, getEarningsCalendar } from "./data_fetcher.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 
 // Scanner state
@@ -29,55 +29,66 @@ let operatorState = {
 export async function runOperatorScan(scannerData, marketContext = {}) {
   operatorState.scanning = true;
   operatorState.errors = [];
-  
+
   try {
     console.log("[OperatorScanner] Starting full operator scan...");
 
-    // Fetch NSE data in parallel (F&O bans, delivery, earnings, VIX)
-    const nseData = await fetchAllNseData();
+    // Fetch all market data in parallel (VIX, F&O bans, delivery, earnings, FII/DII, Gift Nifty)
+    const marketData = await fetchAllMarketData();
 
     // Fetch VIX first (governs everything)
     let vixState;
-    if (nseData.vix) {
-      // Use NSE direct VIX if available
-      const { getVixMode } = await import("./vix_manager.mjs");
-      const vixValue = nseData.vix.value;
+    if (marketData.vix) {
+      const vixValue = marketData.vix.value;
       const mode = getVixMode(vixValue);
       vixState = {
         value: vixValue,
         mode: mode.name,
         lastUpdated: new Date().toISOString(),
         implication: mode.implication,
-        source: nseData.vix.source
+        source: marketData.vix.source || "multi-source"
       };
     } else {
+      // Fallback to vix_manager estimation
       vixState = await fetchIndiaVix();
     }
     const vixValue = vixState.value;
 
     console.log(`[OperatorScanner] VIX: ${vixValue.toFixed(2)} — ${vixState.mode} (source: ${vixState.source || "fallback"})`);
 
+    // Build enriched market context
+    const enrichedContext = {
+      ...marketContext,
+      foBanList: marketData.foBanList || new Set(),
+      deliveryMap: marketData.deliveryMap || new Map(),
+      earnings: marketData.earnings || [],
+      fiiFlow: marketData.fiiDii?.fii || 0,
+      diiFlow: marketData.fiiDii?.dii || 0,
+      giftNifty: marketData.giftNifty || 0,
+      vixState
+    };
+
     operatorState.vixState = vixState;
-    operatorState.nseData = nseData;
-    operatorState.marketContext = marketContext;
+    operatorState.marketData = marketData;
+    operatorState.marketContext = enrichedContext;
     operatorState.lastScan = new Date().toISOString();
 
-    // Enrich scanner data with NSE data
-    const enrichedData = enrichScannerData(scannerData, nseData);
+    // Enrich scanner data with market data
+    const enrichedData = enrichScannerData(scannerData, marketData);
 
     // Task 1: Intraday F&O
     console.log("[OperatorScanner] Task 1: Scanning intraday F&O...");
-    operatorState.task1 = scanIntradayFO(enrichedData, vixValue, marketContext);
+    operatorState.task1 = scanIntradayFO(enrichedData, vixValue, enrichedContext);
     console.log(`[OperatorScanner] Task 1 complete: ${operatorState.task1.calls.length} calls`);
 
     // Task 2: Overnight F&O
     console.log("[OperatorScanner] Task 2: Scanning overnight F&O...");
-    operatorState.task2 = scanOvernightFO(enrichedData, vixValue, marketContext);
+    operatorState.task2 = scanOvernightFO(enrichedData, vixValue, enrichedContext);
     console.log(`[OperatorScanner] Task 2 complete: ${operatorState.task2.calls.length} calls`);
-    
+
     // Task 3: Equity
     console.log("[OperatorScanner] Task 3: Scanning equity calls...");
-    const equityResults = await scanEquityCalls(scannerData, vixValue, marketContext);
+    const equityResults = await scanEquityCalls(scannerData, vixValue, enrichedContext);
     // Normalize: scanEquityCalls returns a plain array, wrap it
     operatorState.task3 = {
       calls: Array.isArray(equityResults) ? equityResults : [],
@@ -87,14 +98,14 @@ export async function runOperatorScan(scannerData, marketContext = {}) {
       }
     };
     console.log(`[OperatorScanner] Task 3 complete: ${operatorState.task3.calls.length} calls`);
-    
+
     // Identify star picks and alpha picks
     identifyStarAndAlphaPicks();
-    
+
     console.log("[OperatorScanner] Full scan complete ✓");
-    
+
     return getOperatorState();
-    
+
   } catch (error) {
     console.error("[OperatorScanner] Scan error:", error.message);
     operatorState.errors.push(error.message);
@@ -169,6 +180,7 @@ export function getOperatorState() {
 export function buildMarketSummary() {
   const vixState = operatorState.vixState;
   const context = operatorState.marketContext || {};
+  const marketData = operatorState.marketData || {};
   const t1 = operatorState.task1;
   const t2 = operatorState.task2;
   const t3 = operatorState.task3;
@@ -193,6 +205,11 @@ export function buildMarketSummary() {
   const t1ScoreBelow40 = t1.summary?.scoreBelow40 || 0;
   const t2ScoreBelow70 = t2.summary?.scoreBelow70 || 0;
 
+  // Get FII/DII flow from enriched context
+  const fiiFlow = context.fiiFlow || marketData.fiiDii?.fii || 0;
+  const diiFlow = context.diiFlow || marketData.fiiDii?.dii || 0;
+  const giftNifty = context.giftNifty || marketData.giftNifty || 0;
+
   return {
     vix: vixState?.value || null,
     vix_mode: vixState?.mode || "UNKNOWN",
@@ -200,11 +217,11 @@ export function buildMarketSummary() {
     nifty_bias: context.niftyBias || "NEUTRAL",
     nifty_vwap: context.niftyBelowVWAP ? "Below" : "Above",
     operator_activity: context.operatorActivity || "Analyzing",
-    fii_today: context.fiiFlow > 0 ? "Buying" : "Selling",
-    fii_amount: `₹${Math.abs(context.fiiFlow || 0).toFixed(0)} Cr net`,
-    dii_today: context.diiFlow > 0 ? "Buying" : "Selling",
-    dii_amount: `₹${Math.abs(context.diiFlow || 0).toFixed(0)} Cr net`,
-    gift_nifty: context.giftNifty || 0,
+    fii_today: fiiFlow > 0 ? "Buying" : "Selling",
+    fii_amount: `₹${Math.abs(fiiFlow).toFixed(0)} Cr net`,
+    dii_today: diiFlow > 0 ? "Buying" : "Selling",
+    dii_amount: `₹${Math.abs(diiFlow).toFixed(0)} Cr net`,
+    gift_nifty: giftNifty,
     sector_rotating_into: context.sectorRotation?.into || "N/A",
     sector_rotating_out: context.sectorRotation?.outOf || "N/A",
     key_level: context.keyLevel || "Watch Nifty VWAP",
@@ -286,10 +303,10 @@ Today's aggression level: ${summary.aggression_level} (VIX ${summary.vix !== nul
 }
 
 /**
- * Enrich scanner data with NSE data (F&O bans, delivery %, earnings)
+ * Enrich scanner data with market data (F&O bans, delivery %, earnings)
  */
-function enrichScannerData(scannerData, nseData) {
-  const { foBanList, deliveryMap, earnings } = nseData;
+function enrichScannerData(scannerData, marketData) {
+  const { foBanList, deliveryMap, earnings } = marketData;
 
   // Build earnings lookup for next 2 days
   const earningsSoonSet = new Set();
@@ -304,12 +321,17 @@ function enrichScannerData(scannerData, nseData) {
     }
   }
 
-  return scannerData.map(stock => ({
-    ...stock,
-    isFOBanned: foBanList.has(stock.symbol.toUpperCase()),
-    deliveryPercent: deliveryMap.get(stock.symbol.toUpperCase()) || null,
-    earningsSoon: earningsSoonSet.has(stock.symbol.toUpperCase()),
-  }));
+  return scannerData.map(stock => {
+    const symbolUpper = stock.symbol?.toUpperCase() || '';
+    return {
+      ...stock,
+      isFOBanned: foBanList?.has(symbolUpper) || false,
+      deliveryPercent: deliveryMap?.get(symbolUpper) || null,
+      earningsSoon: earningsSoonSet.has(symbolUpper),
+      fiiFlow: marketData.fiiDii?.fii || null,
+      diiFlow: marketData.fiiDii?.dii || null,
+    };
+  });
 }
 
 /**
