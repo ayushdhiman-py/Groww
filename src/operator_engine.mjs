@@ -27,25 +27,25 @@ export function detectSilentAccumulation(stockData) {
   let conviction = 0;
 
   // Tight price range
-  if (stockData.priceRange10d != null && stockData.priceRange10d < 5) {
+  if (stockData.priceRange10d != null && Number.isFinite(stockData.priceRange10d) && stockData.priceRange10d < 5) {
     signals.push(`Tight range: ${stockData.priceRange10d.toFixed(2)}% over 10 days`);
     conviction += 25;
   }
 
   // Low volume
-  if (stockData.volumeRatio != null && stockData.volumeRatio < 0.8) {
+  if (stockData.volumeRatio != null && Number.isFinite(stockData.volumeRatio) && stockData.volumeRatio < 0.8) {
     signals.push(`Low volume: ${stockData.volumeRatio.toFixed(2)}x avg`);
     conviction += 20;
   }
 
   // Delivery % rising (if available)
-  if (stockData.deliveryPercent != null && stockData.deliveryPercent > 50) {
+  if (stockData.deliveryPercent != null && Number.isFinite(stockData.deliveryPercent) && stockData.deliveryPercent > 50) {
     signals.push(`Delivery %: ${stockData.deliveryPercent.toFixed(1)}% (accumulation signal)`);
     conviction += 25;
   }
 
   // OI in calls building (for F&O stocks)
-  if (stockData.oiChangePercent != null && stockData.oiChangePercent > 10) {
+  if (stockData.oiChangePercent != null && Number.isFinite(stockData.oiChangePercent) && stockData.oiChangePercent > 10) {
     signals.push(`OI building: +${stockData.oiChangePercent.toFixed(1)}%`);
     conviction += 30;
   }
@@ -79,19 +79,19 @@ export function detectStopHuntTrap(stockData) {
   }
   
   // Volume spike on dip
-  if (stockData.dipVolume && stockData.dipVolume > stockData.avgVolume * 2) {
+  if (stockData.dipVolume && stockData.avgVolume && Number.isFinite(stockData.dipVolume / stockData.avgVolume) && stockData.dipVolume > stockData.avgVolume * 2) {
     signals.push(`Volume spike on dip: ${(stockData.dipVolume / stockData.avgVolume).toFixed(1)}x avg`);
     conviction += 20;
   }
-  
+
   // OI in puts dropped after dip
   if (stockData.oiDropAfterDip) {
     signals.push(`OI dropped after dip (operator bought panic)`);
     conviction += 25;
   }
-  
+
   // Price recovered
-  if (stockData.recoveryPercent && stockData.recoveryPercent > 1) {
+  if (stockData.recoveryPercent != null && Number.isFinite(stockData.recoveryPercent) && stockData.recoveryPercent > 1) {
     signals.push(`Recovered ${stockData.recoveryPercent.toFixed(2)}% from low`);
     conviction += 15;
   }
@@ -120,7 +120,7 @@ export function detectMarkupRally(stockData) {
   let conviction = 0;
   
   // Volume explosion
-  if (stockData.volumeRatio != null && stockData.volumeRatio >= 2) {
+  if (stockData.volumeRatio != null && Number.isFinite(stockData.volumeRatio) && stockData.volumeRatio >= 2) {
     signals.push(`Volume explosion: ${stockData.volumeRatio.toFixed(1)}x avg`);
     conviction += 25;
   }
@@ -132,13 +132,13 @@ export function detectMarkupRally(stockData) {
   }
 
   // OI in calls surging
-  if (stockData.oiChangePercent != null && stockData.oiChangePercent > 15) {
+  if (stockData.oiChangePercent != null && Number.isFinite(stockData.oiChangePercent) && stockData.oiChangePercent > 15) {
     signals.push(`OI surging: +${stockData.oiChangePercent.toFixed(1)}%`);
     conviction += 25;
   }
 
   // Delivery % high on breakout
-  if (stockData.deliveryPercent != null && stockData.deliveryPercent > 55) {
+  if (stockData.deliveryPercent != null && Number.isFinite(stockData.deliveryPercent) && stockData.deliveryPercent > 55) {
     signals.push(`High delivery on breakout: ${stockData.deliveryPercent.toFixed(1)}%`);
     conviction += 20;
   }
@@ -184,7 +184,7 @@ export function detectShortSqueeze(stockData) {
   }
   
   // PCR < 0.6
-  if (stockData.pcr != null && stockData.pcr < 0.6) {
+  if (stockData.pcr != null && Number.isFinite(stockData.pcr) && stockData.pcr < 0.6) {
     signals.push(`PCR extreme: ${stockData.pcr.toFixed(2)}`);
     conviction += 25;
   }
@@ -218,25 +218,25 @@ export function detectDistribution(stockData) {
   let conviction = 0;
   
   // Near 52W high
-  if (stockData.position52W != null && stockData.position52W > 85) {
+  if (stockData.position52W != null && Number.isFinite(stockData.position52W) && stockData.position52W > 85) {
     signals.push(`Near 52W high: ${stockData.position52W.toFixed(1)}% of range`);
     conviction += 20;
   }
 
   // High volume but price not moving
-  if (stockData.volumeRatio != null && stockData.volumeRatio > 1.5 && stockData.priceStagnant) {
+  if (stockData.volumeRatio != null && Number.isFinite(stockData.volumeRatio) && stockData.volumeRatio > 1.5 && stockData.priceStagnant) {
     signals.push(`High volume ${stockData.volumeRatio.toFixed(1)}x but price stagnant`);
     conviction += 30;
   }
 
   // Delivery % falling
-  if (stockData.deliveryPercent != null && stockData.deliveryPercent < 35) {
+  if (stockData.deliveryPercent != null && Number.isFinite(stockData.deliveryPercent) && stockData.deliveryPercent < 35) {
     signals.push(`Falling delivery %: ${stockData.deliveryPercent.toFixed(1)}%`);
     conviction += 25;
   }
 
   // FII selling
-  if (stockData.fiiFlow != null && stockData.fiiFlow < 0) {
+  if (stockData.fiiFlow != null && Number.isFinite(stockData.fiiFlow) && stockData.fiiFlow < 0) {
     signals.push(`FII selling: ₹${Math.abs(stockData.fiiFlow).toFixed(0)} Cr net`);
     conviction += 25;
   }
@@ -270,13 +270,13 @@ export function detectFORallyCatch(stockData) {
   let conviction = 0;
   
   // OI building rapidly
-  if (stockData.oiChangePercent != null && stockData.oiChangePercent > 20) {
+  if (stockData.oiChangePercent != null && Number.isFinite(stockData.oiChangePercent) && stockData.oiChangePercent > 20) {
     signals.push(`OI building rapidly: +${stockData.oiChangePercent.toFixed(1)}%`);
     conviction += 30;
   }
 
   // IV rising but still < 35%
-  if (stockData.iv != null && stockData.iv > 15 && stockData.iv < 35) {
+  if (stockData.iv != null && Number.isFinite(stockData.iv) && stockData.iv > 15 && stockData.iv < 35) {
     signals.push(`IV rising: ${stockData.iv.toFixed(1)}% (sweet spot)`);
     conviction += 25;
   }
@@ -440,13 +440,13 @@ function scoreOperatorSignals(footprints, stockData) {
   }
   
   // OI moving in trade direction
-  if (stockData.oiTradeDirection && stockData.oiTradeDirection > 10) {
+  if (stockData.oiTradeDirection != null && Number.isFinite(stockData.oiTradeDirection) && stockData.oiTradeDirection > 10) {
     score += 10;
     details.push(`OI moving in trade direction: +${stockData.oiTradeDirection.toFixed(1)}% (+10)`);
   }
-  
+
   // Delivery % confirms smart money
-  if (stockData.deliveryPercent != null && stockData.deliveryPercent > 55) {
+  if (stockData.deliveryPercent != null && Number.isFinite(stockData.deliveryPercent) && stockData.deliveryPercent > 55) {
     score += 8;
     details.push(`Delivery % confirms smart money: ${stockData.deliveryPercent.toFixed(1)}% (+8)`);
   }
@@ -480,7 +480,7 @@ function scoreTechnicalSignals(stockData) {
   }
   
   // Volume spike confirmed
-  if (stockData.volumeRatio != null && stockData.volumeRatio > 1.5) {
+  if (stockData.volumeRatio != null && Number.isFinite(stockData.volumeRatio) && stockData.volumeRatio > 1.5) {
     score += 8;
     details.push(`Volume spike: ${stockData.volumeRatio.toFixed(1)}x (+8)`);
   }
@@ -492,7 +492,7 @@ function scoreTechnicalSignals(stockData) {
   }
 
   // RSI in ideal zone
-  if (stockData.rsi != null) {
+  if (stockData.rsi != null && Number.isFinite(stockData.rsi)) {
     if ((stockData.tradeType === "CE" && stockData.rsi >= 55 && stockData.rsi <= 72) ||
         (stockData.tradeType === "PE" && stockData.rsi >= 28 && stockData.rsi <= 45)) {
       score += 5;
@@ -517,7 +517,7 @@ function scoreRiskTiming(stockData, vixValue) {
   }
   
   // VIX in safe zone
-  if (vixValue != null && vixValue < 20) {
+  if (vixValue != null && Number.isFinite(vixValue) && vixValue < 20) {
     score += 8;
     details.push(`VIX in safe zone: ${vixValue.toFixed(2)} (+8)`);
   }

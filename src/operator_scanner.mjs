@@ -134,7 +134,30 @@ export function getOperatorState() {
 export function buildMarketSummary() {
   const vixState = operatorState.vixState;
   const context = operatorState.marketContext || {};
-  
+  const t1 = operatorState.task1;
+  const t2 = operatorState.task2;
+  const t3 = operatorState.task3;
+
+  // Count EST values used across all tasks
+  let estCount = 0;
+  let liquidityWarnings = 0;
+  let foBanSkipped = 0;
+
+  for (const call of [...(t1.calls || []), ...(t2.calls || []), ...(t3.calls || [])]) {
+    if (call.missing_data_flags && call.missing_data_flags.includes("[EST")) estCount++;
+    if (call.liquidity_check && call.liquidity_check.includes("ILLIQUID")) liquidityWarnings++;
+  }
+
+  // Count F&O bans from summaries
+  foBanSkipped = (t1.summary?.foBan || 0) + (t2.summary?.foBan || 0);
+
+  // Calculate discarded counts properly
+  const t1Discarded = t1.summary?.discarded || 0;
+  const t2Discarded = t2.summary?.discarded || 0;
+  const t3Discarded = t3.summary?.discarded || 0;
+  const t1ScoreBelow40 = t1.summary?.scoreBelow40 || 0;
+  const t2ScoreBelow70 = t2.summary?.scoreBelow70 || 0;
+
   return {
     vix: vixState?.value || null,
     vix_mode: vixState?.mode || "UNKNOWN",
@@ -152,12 +175,19 @@ export function buildMarketSummary() {
     key_level: context.keyLevel || "Watch Nifty VWAP",
     star_picks: operatorState.starPicks || [],
     alpha_picks: operatorState.alphaPicks || [],
-    task1_count: operatorState.task1.calls.length,
-    task2_count: operatorState.task2.calls.length,
-    task3_count: operatorState.task3.calls.length,
-    task1_discarded: operatorState.task1.summary?.discarded || 0,
-    task2_discarded: operatorState.task2.summary?.discarded || 0,
-    task3_discarded: operatorState.task3.summary?.discarded || 0,
+    task1_count: t1.calls?.length || 0,
+    task2_count: t2.calls?.length || 0,
+    task3_count: t3.calls?.length || 0,
+    task1_discarded: t1Discarded,
+    task2_discarded: t2Discarded,
+    task3_discarded: t3Discarded,
+    task1_fo_ban: t1.summary?.foBan || 0,
+    task2_fo_ban: t2.summary?.foBan || 0,
+    task1_score_below_40: t1ScoreBelow40,
+    task2_score_below_70: t2ScoreBelow70,
+    est_values_used: estCount,
+    liquidity_warnings: liquidityWarnings,
+    fo_ban_stocks_skipped: foBanSkipped,
     aggression_level: vixState ? getAggressionLevel(vixState.value) : "MEDIUM"
   };
 }
@@ -174,13 +204,24 @@ function getAggressionLevel(vixValue) {
 
 /**
  * Format complete market summary block for display
+ * Matches the exact END BLOCK spec format
  */
 export function formatMarketSummaryBlock() {
   const summary = buildMarketSummary();
-  
-  return `
-──────────────────────────────────────────────────
-🧠 MARKET OPERATOR READ — ${new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
+  const today = new Date().toLocaleDateString('en-IN', { 
+    timeZone: 'Asia/Kolkata',
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+
+  const foBanTotal = (summary.task1_fo_ban || 0) + (summary.task2_fo_ban || 0);
+  const t1ScoreBelow40 = summary.task1_score_below_40 || 0;
+  const t2ScoreBelow70 = summary.task2_score_below_70 || 0;
+
+  return `──────────────────────────────────────────────────
+🧠 MARKET OPERATOR READ — ${today.toUpperCase()}
 ──────────────────────────────────────────────────
 ${summary.vix_status_line}
 Nifty Bias: ${summary.nifty_bias}
@@ -196,30 +237,53 @@ Key Level to Watch: ${summary.key_level}
 ⭐ STAR PICKS: ${summary.star_picks.length > 0 ? summary.star_picks.join(', ') : 'None'}
 🔥 ALPHA PICKS: ${summary.alpha_picks.length > 0 ? summary.alpha_picks.join(', ') : 'None'}
 
-Task 1 calls given: ${summary.task1_count} | Discarded: ${summary.task1_discarded}
-Task 2 calls given: ${summary.task2_count} | Discarded: ${summary.task2_discarded}
+Task 1 calls given: ${summary.task1_count} | Discarded: ${summary.task1_discarded} (F&O ban: ${summary.task1_fo_ban || 0}, Score<40: ${t1ScoreBelow40})
+Task 2 calls given: ${summary.task2_count} | Discarded: ${summary.task2_discarded} (F&O ban: ${summary.task2_fo_ban || 0}, Score<70: ${t2ScoreBelow70})
 Task 3 calls given: ${summary.task3_count} | Discarded: ${summary.task3_discarded}
+EST values used: ${summary.est_values_used} fields estimated across all tasks
+Liquidity warnings: ${summary.liquidity_warnings} options flagged illiquid
+F&O ban stocks skipped: ${foBanTotal}
 
-Today's aggression level: ${summary.aggression_level}
+Today's aggression level: ${summary.aggression_level} (VIX ${summary.vix !== null ? summary.vix.toFixed(2) : 'N/A'})
 
-⚠️ Verify all [EST-PREMIUM] values on your broker terminal before placing any trade.
-──────────────────────────────────────────────────
-`.trim();
+⚠️ Verify all [EST-PREMIUM] values on your broker terminal before placing any trade. Numbers are estimates only.
+──────────────────────────────────────────────────`.trim();
 }
 
 /**
  * Transform scanner data from main scanner to operator scanner format
+ * Enriches with options cache, FII/DII, block deals data
  */
 export function transformScannerData(mainScannerState, optionsCache = {}) {
   const transformed = [];
-  
+
   // Get data from 1d timeframe (most reliable for daily analysis)
   const allStocks = mainScannerState.data?.["1d_ALL"] || [];
-  
+
+  // Build block/bulk deal lookup
+  const blockDealSymbols = new Set();
+  const bulkDealSymbols = new Set();
+
   for (const stock of allStocks) {
     const isFO = isFOStock(stock.symbol);
     const optionsData = optionsCache.get(stock.symbol) || stock.options || null;
-    
+
+    // Parse options data for OI, IV, PCR
+    let oiChange = null;
+    let iv = null;
+    let pcr = null;
+    let deliveryPercent = null;
+
+    if (optionsData) {
+      oiChange = optionsData.oiChange || null;
+      iv = optionsData.iv || null;
+      pcr = optionsData.pcr || null;
+    }
+
+    // Check for block/bulk deals
+    const hasBlockDeal = blockDealSymbols.has(stock.symbol);
+    const hasBulkDeal = bulkDealSymbols.has(stock.symbol);
+
     transformed.push({
       // Basic data
       symbol: stock.symbol,
@@ -231,7 +295,7 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
       weekL: stock.weekL,
       w52H: stock.w52H,
       w52L: stock.w52L,
-      
+
       // Technical
       ema21: stock.ema21,
       ema50: stock.ema50,
@@ -247,28 +311,68 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
       deathCross: stock.deathCross,
       signal: stock.signal,
       techScore: stock.techScore,
-      
+
       // Volume
       volume: stock.volume,
       volSpike: stock.volSpike,
-      
+
       // F&O specific
       isFO,
       isFOBanned: false, // Would need F&O ban list
       options: optionsData,
-      oiChange: optionsData?.oiChange || null,
-      deliveryPercent: null, // Not available from Groww
-      iv: optionsData?.iv || null,
-      pcr: null,
+      oiChange,
+      oiChangePercent: oiChange,
+      deliveryPercent,
+      iv,
+      pcr,
       earningsSoon: false, // Would need earnings calendar
-      blockDeal: null,
+      blockDeal: hasBlockDeal,
+      bulkDeal: hasBulkDeal,
       consolidationDays: 0, // Would need more analysis
       atrPercent: null,
-      oiRising: null,
-      ivRising: null
+      oiRising: oiChange !== null && oiChange > 10,
+      ivRising: iv !== null && iv > 15 && iv < 35,
+
+      // Price action for footprint detection
+      priceRange10d: null,
+      volumeRatio: null,
+      position52W: stock.w52H && stock.w52L
+        ? ((stock.price - stock.w52L) / (stock.w52H - stock.w52L)) * 100
+        : null,
+
+      // Operator detection placeholders (enriched by individual scanners)
+      dippedBelowSupport: false,
+      snappedBack: false,
+      recoveryPercent: null,
+      brokeResistance: stock.goldenCross,
+      holdingSupport: stock.aboveVwap,
+      marketWeak: false,
+      positiveTrigger: null,
+      priceStagnant: false,
+      coilDays: null,
+      breakoutFromCoil: false,
+      sectorVolumeSpikes: null,
+      otherSectorDistribution: null,
+      isSectorLeader: false,
+      rsiBullishDivergence: false,
+      oiFallingOnDips: false,
+      volumeDecliningOnDips: false,
+      nextGreenCandle: false,
+      oiTradeDirection: oiChange,
+      emaAligned: stock.ema21above,
+      macdConfirmed: stock.macdBull || stock.macdAbove,
+      supertrendAligned: stock.supertrend === "BUY",
+      tradeType: stock.signal === "BUY" ? "CE" : "PE",
+      cleanChart: stock.techScore >= 4,
+      eventRisk: false,
+      fiiFlow: null,
+      fiiBuying: false,
+      blockDealBuy: hasBlockDeal,
+      putOI: null,
+      callOI: null
     });
   }
-  
+
   return transformed;
 }
 

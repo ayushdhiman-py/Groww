@@ -87,11 +87,30 @@ export function getVixMode(vixValue) {
 }
 
 /**
- * Format VIX status line
+ * Format VIX status line — MUST be first line of every response
  */
 export function formatVixStatus(vixValue) {
   const mode = getVixMode(vixValue);
   return `VIX: ${vixValue.toFixed(2)} — ${mode.name} — ${mode.implication}`;
+}
+
+/**
+ * Get VIX status as a structured object for API responses
+ */
+export function getVixStatusLine(vixValue) {
+  const mode = getVixMode(vixValue);
+  return {
+    value: vixValue,
+    mode: mode.name,
+    implication: mode.implication,
+    statusLine: `VIX: ${vixValue.toFixed(2)} — ${mode.name} — ${mode.implication}`,
+    positionSizeMultiplier: mode.positionSizeMultiplier,
+    maxOvernightCalls: mode.maxOvernightCalls,
+    allowOTM: mode.allowOTM,
+    allowNakedOptions: mode.allowNakedOptions,
+    aggressionLevel: mode.aggressionLevel,
+    riskFlag: getVixRiskFlag(vixValue)
+  };
 }
 
 /**

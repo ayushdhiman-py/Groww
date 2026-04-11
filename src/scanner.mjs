@@ -162,17 +162,20 @@ function buildSignal(candles, tf, symbol, ltp = null) {
     return {
         symbol, sector: getSector(symbol), tf, signal,
         goldenCross, deathCross,
-        price: +livePrice.toFixed(2), open: +last.open.toFixed(2), prevClose: +prevClose.toFixed(2),
-        high: +last.high.toFixed(2), low: +last.low.toFixed(2),
+        price: Number.isFinite(livePrice) ? +livePrice.toFixed(2) : livePrice,
+        open: Number.isFinite(last.open) ? +last.open.toFixed(2) : last.open,
+        prevClose: Number.isFinite(prevClose) ? +prevClose.toFixed(2) : prevClose,
+        high: Number.isFinite(last.high) ? +last.high.toFixed(2) : last.high,
+        low: Number.isFinite(last.low) ? +last.low.toFixed(2) : last.low,
         dayH, dayL, weekH, weekL, h52w, l52w,
-        chgPct: +chgPct.toFixed(2),
+        chgPct: Number.isFinite(chgPct) ? +chgPct.toFixed(2) : chgPct,
         volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
-        ema21: c21 !== null ? +c21.toFixed(2) : null,
-        ema50: c50 !== null ? +c50.toFixed(2) : null,
+        ema21: c21 !== null && Number.isFinite(c21) ? +c21.toFixed(2) : null,
+        ema50: c50 !== null && Number.isFinite(c50) ? +c50.toFixed(2) : null,
         emaGap, ema21above,
         ema21Hist, ema50Hist, priceHist,
         macdBull, macdBear, macdAbove,
-        macdVal: cM !== null ? +cM.toFixed(4) : null,
+        macdVal: cM !== null && Number.isFinite(cM) ? +cM.toFixed(4) : null,
         vwap: vwapVal, aboveVwap,
         rsi: rsiVal,
         checks, redFlags,
@@ -353,8 +356,10 @@ export async function startScan() {
                     if (!arr) continue;
                     const row = arr.find(r => r.symbol === sym);
                     if (row && row.open) {
-                        row.price = +(ltp.toFixed(2));
-                        row.chgPct = +(((ltp - row.prevClose) / row.prevClose) * 100).toFixed(2);
+                        row.price = Number.isFinite(ltp) ? +(ltp.toFixed(2)) : ltp;
+                        if (Number.isFinite(row.prevClose) && row.prevClose !== 0) {
+                            row.chgPct = +(((ltp - row.prevClose) / row.prevClose) * 100).toFixed(2);
+                        }
                         if (row.vwap !== null) row.aboveVwap = ltp > row.vwap;
                     }
                 }

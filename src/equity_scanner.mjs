@@ -341,10 +341,10 @@ function determineOperatorPhase(footprints, priceChange5d, deliveryPct, volRatio
 function checkFundamentals(fundamentalData) {
     const concerns = [];
 
-    if (fundamentalData.debtToEquity != null && fundamentalData.debtToEquity >= MAX_DEBT_TO_EQUITY) {
+    if (fundamentalData.debtToEquity != null && Number.isFinite(fundamentalData.debtToEquity) && fundamentalData.debtToEquity >= MAX_DEBT_TO_EQUITY) {
         concerns.push(`High D/E: ${fundamentalData.debtToEquity.toFixed(2)}`);
     }
-    if (fundamentalData.revenueGrowthQoQ != null && fundamentalData.revenueGrowthQoQ < 0) {
+    if (fundamentalData.revenueGrowthQoQ != null && Number.isFinite(fundamentalData.revenueGrowthQoQ) && fundamentalData.revenueGrowthQoQ < 0) {
         concerns.push(`Revenue declining QoQ`);
     }
     if (fundamentalData.promoterPledgeIncrease) {
@@ -400,13 +400,13 @@ function calcSectorStrength(sector, stockName, peerData) {
 
 function buildMissingDataFlags(data) {
     const flags = [];
-    if (data.deliveryPct === null) flags.push("delivery_pct_missing");
-    if (data.fiiFlow === null) flags.push("fii_flow_missing");
-    if (data.debtToEquity === null) flags.push("debt_equity_missing");
-    if (data.mutualFundEntry === null) flags.push("mf_entry_missing");
-    if (data.blockDeal === null) flags.push("block_deal_missing");
-    if (data.rsVsNifty === null) flags.push("rs_nifty_missing");
-    return flags;
+    if (data.deliveryPct === null || data.deliveryPct === undefined) flags.push("[EST] Delivery % unavailable");
+    if (data.fiiFlow === null || data.fiiFlow === undefined) flags.push("[EST] FII flow unavailable");
+    if (data.debtToEquity === null || data.debtToEquity === undefined) flags.push("[EST] Debt/Equity unavailable");
+    if (data.mutualFundEntry === null || data.mutualFundEntry === undefined) flags.push("[EST] MF entry unavailable");
+    if (data.blockDeal === null || data.blockDeal === undefined) flags.push("[EST] Block deal unavailable");
+    if (data.rsVsNifty === null || data.rsVsNifty === undefined) flags.push("[EST] RS vs Nifty unavailable");
+    return flags.length > 0 ? flags.join(", ") : "All data available";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -650,8 +650,8 @@ export function analyzeEquityStock(
     // Reason array — top 3 strongest signals
     const reasons = [];
     if (footprints.length > 0) reasons.push(`Operator footprint #${footprints[0].footprint}: ${footprints[0].name} (conviction: ${footprints[0].conviction}%)`);
-    if (volumePass) reasons.push(`Breakout volume ${volRatio.toFixed(1)}x avg (threshold: ${MIN_BREAKOUT_VOL_RATIO}x)`);
-    if (deliveryPass && deliveryPct !== null) reasons.push(`Delivery ${deliveryPct.toFixed(1)}% confirms smart money accumulation`);
+    if (volumePass && Number.isFinite(volRatio)) reasons.push(`Breakout volume ${volRatio.toFixed(1)}x avg (threshold: ${MIN_BREAKOUT_VOL_RATIO}x)`);
+    if (deliveryPass && deliveryPct !== null && Number.isFinite(deliveryPct)) reasons.push(`Delivery ${deliveryPct.toFixed(1)}% confirms smart money accumulation`);
     if (consolidationPass) reasons.push(`${consolidationDays}+ days tight consolidation before breakout`);
     if (weeklyEmaPass) reasons.push(`Weekly EMA 21 > EMA 50 ${goldenCrossForming ? "(golden cross forming)" : ""}`);
     if (macdPass) reasons.push(`MACD bullish ${macdBullDaily ? "daily" : ""}${macdBullWeekly ? " and weekly" : ""}`);
@@ -677,8 +677,8 @@ export function analyzeEquityStock(
         holding_period: `Max ${MAX_HOLDING_DAYS} trading days`,
         exit_rule: `Target 2 OR day ${MAX_HOLDING_DAYS}, first wins`,
         pattern: breakout.pattern !== "none" ? breakout.pattern : (consolidationPass ? "accumulation zone" : "momentum continuation"),
-        delivery_pct: deliveryPct !== null ? `${deliveryPct.toFixed(1)}%` : "N/A",
-        rs_vs_nifty: rsVsNifty !== null ? rsVsNifty.toFixed(2) : "N/A",
+        delivery_pct: deliveryPct !== null && Number.isFinite(deliveryPct) ? `${deliveryPct.toFixed(1)}%` : "N/A",
+        rs_vs_nifty: rsVsNifty !== null && Number.isFinite(rsVsNifty) ? rsVsNifty.toFixed(2) : "N/A",
         sector,
         sector_strength: null, // set after peer analysis
         fao_confirmation: foConfirm,
@@ -818,7 +818,7 @@ export async function scanEquityCalls(options = {}) {
     const vixRiskFlag = getVixRiskFlag(vixValue);
 
     // Add VIX note to results
-    const vixNote = vixMode.name !== "DANGER MODE"
+    const vixNote = vixMode.name !== "DANGER MODE" && Number.isFinite(vixValue)
         ? `VIX ${vixValue.toFixed(2)} (${vixMode.name}) — Position size multiplier: ${posSizeMultiplier}`
         : "VIX DANGER — Equity only mode active";
 
