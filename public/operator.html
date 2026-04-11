@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Operator Scanner — Groww</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet" />
@@ -314,6 +317,16 @@
       font-weight: 700;
       color: var(--accent);
       margin-left: 8px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: color 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .call-stock:hover {
+      color: #00ffcc;
     }
 
     .call-score {
@@ -451,13 +464,111 @@
     }
 
     /* ── Responsive ───────────────────────────────────────────── */
-    @media (max-width: 768px) {
-      .wrap { padding: 10px; }
-      .top { flex-direction: column; align-items: flex-start; gap: 8px; }
+    @media (max-width: 1024px) {
+      .wrap { padding: 12px; }
       .stats { gap: 6px; }
-      .sc { min-width: 70px; padding: 8px 10px; }
+      .sc { min-width: 100px; padding: 10px 12px; }
+      .scv { font-size: 18px; }
+    }
+
+    @media (max-width: 768px) {
+      .wrap { padding: 8px; }
+      
+      /* Top bar */
+      .top { flex-direction: column; align-items: stretch; gap: 10px; padding-bottom: 10px; }
+      .brand { justify-content: center; font-size: 16px; }
+      .top-actions { justify-content: center; flex-wrap: wrap; }
+      .action-btn { padding: 6px 10px; font-size: 10px; }
+      .action-btn svg { width: 12px; height: 12px; }
+      
+      /* VIX capsule */
+      .vix-capsule-wrap { margin-bottom: 10px; }
+      .vix-capsule { padding: 6px 12px; font-size: 11px; }
+      .vix-capsule .vix-val { font-size: 13px; }
+      .vix-capsule .vix-mode { font-size: 10px; }
+      .vix-capsule .vix-impl { font-size: 9px; }
+      
+      /* Stats */
+      .stats { gap: 5px; }
+      .sc { min-width: 70px; padding: 8px 10px; flex: 1 1 calc(20% - 5px); }
       .scv { font-size: 16px; }
-      .call-header { flex-direction: column; align-items: flex-start; }
+      .scl { font-size: 8px; }
+      
+      /* Tabs */
+      .tabs { padding: 4px; gap: 3px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+      .tab { padding: 6px 10px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+      .tab-icon { font-size: 14px; }
+      .tab-badge { padding: 2px 5px; font-size: 9px; }
+      
+      /* Scan button */
+      .btn-scan { padding: 10px 20px; font-size: 12px; }
+      
+      /* Call cards */
+      .call-card { padding: 12px; border-radius: 10px; }
+      .call-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+      .call-rank { padding: 3px 10px; font-size: 11px; }
+      .call-stock { font-size: 16px; margin-left: 0; }
+      .call-score { font-size: 11px; }
+      .call-trade { padding: 4px 10px; font-size: 11px; margin: 4px 0 8px; }
+      .call-details { font-size: 11px; line-height: 1.8; }
+      .call-operator { padding: 8px 10px; font-size: 11px; line-height: 1.6; }
+      .call-reasons { padding: 8px 10px; font-size: 11px; line-height: 1.6; }
+      .pick-type { padding: 2px 7px; font-size: 9px; }
+      .warning { padding: 6px 10px; font-size: 10px; }
+      
+      /* Empty state */
+      .empty-state { padding: 30px 15px; }
+      .empty-state .icon { font-size: 36px; }
+      .empty-state h3 { font-size: 16px; }
+      .empty-state p { font-size: 12px; }
+      
+      /* Summary box */
+      .summary-box { padding: 14px; font-size: 11px; }
+    }
+
+    @media (max-width: 480px) {
+      .wrap { padding: 6px; }
+      
+      /* Even smaller screens */
+      .brand { font-size: 14px; }
+      
+      /* Stats - 2 per row */
+      .sc { min-width: 60px; padding: 6px 8px; flex: 1 1 calc(33.33% - 5px); }
+      .scv { font-size: 14px; }
+      .scl { font-size: 7px; }
+      
+      /* Tabs - allow horizontal scroll */
+      .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .tab { padding: 6px 8px; font-size: 9px; }
+      .tab-icon { font-size: 12px; }
+      .tab-badge { padding: 1px 4px; font-size: 8px; }
+      
+      /* VIX capsule */
+      .vix-capsule { padding: 5px 10px; font-size: 10px; }
+      .vix-capsule .vix-val { font-size: 12px; }
+      .vix-capsule .vix-mode { font-size: 9px; }
+      .vix-capsule .vix-impl { font-size: 8px; }
+      
+      /* Action buttons */
+      .action-btn { padding: 5px 8px; font-size: 9px; gap: 3px; }
+      .action-btn svg { width: 11px; height: 11px; }
+      
+      /* Scan button */
+      .btn-scan { padding: 9px 16px; font-size: 11px; }
+      
+      /* Call cards */
+      .call-card { padding: 10px; }
+      .call-stock { font-size: 14px; }
+      .call-rank { padding: 2px 8px; font-size: 10px; }
+      .call-details { font-size: 10px; }
+      .call-operator { padding: 6px 8px; font-size: 10px; }
+      .call-reasons { padding: 6px 8px; font-size: 10px; }
+      
+      /* Empty state */
+      .empty-state { padding: 20px 10px; }
+      .empty-state .icon { font-size: 28px; }
+      .empty-state h3 { font-size: 14px; }
+      .empty-state p { font-size: 11px; }
     }
   </style>
 </head>
@@ -561,6 +672,26 @@
 
   <script>
     let scanData = { task1: null, task2: null, task3: null, vix: null, marketSummary: null };
+
+    // Helper to create clickable stock link that opens Groww app on mobile
+    function makeStockLink(stockName) {
+      const symLower = stockName.toLowerCase().replace(/\s+/g, '-');
+      const growwUrl = `https://groww.in/stocks/${symLower}`;
+      const growwAppUrl = `groww://stock/${symLower}`;
+      return `<a href="${growwUrl}" target="_blank" rel="noopener noreferrer" 
+        class="call-stock"
+        onclick="event.preventDefault(); event.stopPropagation();
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+          if (isMobile) {
+            window.location.href = '${growwAppUrl}';
+            setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 1500);
+          } else {
+            window.open('${growwUrl}', '_blank');
+          }">
+        ${stockName}
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+      </a>`;
+    }
 
     // Tab switching
     document.querySelectorAll('.tab').forEach(tab => {
@@ -682,7 +813,7 @@
           <div class="call-header">
             <div>
               <span class="call-rank">#${call.rank}</span>
-              <span class="call-stock">${call.stock}</span>
+              ${makeStockLink(call.stock)}
               ${pickType}
             </div>
             <div class="call-score">${call.score_band} — ${call.score}/100</div>
@@ -745,7 +876,7 @@
           <div class="call-header">
             <div>
               <span class="call-rank">#${call.rank}</span>
-              <span class="call-stock">${call.stock}</span>
+              ${makeStockLink(call.stock)}
               ${pickType}
             </div>
             <div class="call-score">${call.score_band} — ${call.score}/100</div>
@@ -809,7 +940,7 @@
           <div class="call-header">
             <div>
               <span class="call-rank">#${call.rank}</span>
-              <span class="call-stock">${call.stock}</span>
+              ${makeStockLink(call.stock)}
               ${pickType}
             </div>
             <div class="call-score">${call.score_band} — ${call.score}/100</div>

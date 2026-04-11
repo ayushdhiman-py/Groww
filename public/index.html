@@ -3,7 +3,10 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>Ayush's Scanner — Groww</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link
@@ -1875,18 +1878,54 @@
     .p-mid { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
     .p-lo { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 
-    @media(max-width:700px) {
-      .controls-wrap { flex-direction: column; gap: 6px; padding: 8px; }
-      .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; }
-      .controls-right { width: 100%; justify-content: space-between; }
-      .sc { min-width: 80px; }
+    @media(max-width:1024px) {
+      .wrap { padding: 12px; }
+      .stats { gap: 6px; }
+      .sc { min-width: 100px; padding: 10px 12px; }
+      .scv { font-size: 18px; }
+      .tab { padding: 7px 14px; font-size: 11px; }
+      .tw { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    }
 
-      /* Mobile responsive table */
-      .wrap { padding: 10px; }
+    @media(max-width:768px) {
+      .wrap { padding: 8px; }
+      
+      /* Top bar */
+      .top { flex-direction: column; align-items: stretch; gap: 10px; padding-bottom: 10px; }
+      .brand { justify-content: center; font-size: 16px; }
+      .market-capsule { font-size: 10px; padding: 5px 10px; }
+      .top-actions { justify-content: center; flex-wrap: wrap; }
+      .action-btn { padding: 6px 10px; font-size: 10px; }
+      .action-btn svg { width: 12px; height: 12px; }
+      
+      /* Stats */
       .stats { gap: 5px; }
-      .sc { padding: 8px 10px; }
+      .sc { min-width: 70px; padding: 8px 10px; flex: 1 1 calc(20% - 5px); }
       .scv { font-size: 16px; }
-
+      .scl { font-size: 8px; }
+      
+      /* Controls */
+      .controls-wrap { flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; }
+      .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; padding: 10px 12px; font-size: 14px; }
+      .controls-right { width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+      .custom-select-trigger { min-width: 100px; padding: 7px 10px; font-size: 12px; }
+      .controls-wrap .idx-tg, .controls-wrap .div-tg { padding: 5px 8px; height: 30px; font-size: 9px; }
+      
+      /* Tabs */
+      .tabs { padding: 4px; gap: 3px; overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+      .tab { padding: 6px 10px; font-size: 10px; white-space: nowrap; flex-shrink: 0; }
+      .tab .tab-icon { font-size: 12px; }
+      .tab .tab-badge { min-width: 16px; height: 16px; font-size: 8px; }
+      
+      /* Table */
+      .tw { border-radius: 10px; }
+      thead th { padding: 10px 8px; font-size: 8px; }
+      thead th:first-child { padding-left: 12px; }
+      thead th:last-child { padding-right: 12px; }
+      tbody td { padding: 10px 8px; font-size: 11px; }
+      tbody td:first-child { padding-left: 12px; }
+      tbody td:last-child { padding-right: 12px; }
+      
       /* Hide non-critical columns on mobile */
       thead th:nth-child(3), /* Chart */
       thead th:nth-child(6), /* MACD */
@@ -1900,10 +1939,108 @@
       td:nth-child(9) {
         display: none;
       }
+      
+      /* Symbol column */
+      th:first-child, td:first-child { min-width: 140px; }
+      .sym { font-size: 11px; }
+      .muted-xl { font-size: 8px; }
+      .dividend-info { font-size: 8px; }
+      
+      /* Price */
+      .price-bold { font-size: 12px; }
+      .vwap-muted { font-size: 9px; }
+      
+      /* Volume */
+      .vol-large { font-size: 11px; }
+      
+      /* EMA */
+      .ea, .eb { font-size: 9px; }
+      
+      /* Rating badges */
+      .rat-badge { font-size: 9px; padding: 2px 6px; }
+      .flag-group { font-size: 9px; }
+      
+      /* Check marks */
+      .ck { width: 13px; height: 13px; }
+      
+      /* F&O sub-row */
+      .sub-wrap { padding: 12px; margin: 6px; border-radius: 8px; }
+      .fn-content-wrap { flex-direction: column; gap: 12px; }
+      .fn-card { min-width: 100%; padding: 12px; }
+      .sub-t { font-size: 10px; }
+      .sub-t th { padding: 8px 4px; font-size: 8px; }
+      .sub-t td { padding: 6px 4px; }
+      
+      /* Legend */
+      .legend { padding: 8px 12px; font-size: 10px; gap: 10px; }
+      .lb { font-size: 9px; padding: 2px 5px; }
+      
+      /* Meta */
+      .meta { font-size: 10px; }
+      
+      /* Portfolio */
+      .ps-sections { grid-template-columns: 1fr; }
+      .ps-overview { flex-direction: column; gap: 10px; padding: 12px 16px; }
+      .ps-overview-stats { flex-wrap: wrap; justify-content: center; }
+      
+      /* Modal */
+      .modal-content { width: 95%; max-width: 95vw; padding: 16px; }
+      .modal-close { top: 10px; right: 10px; }
+      
+      /* Keyboard shortcuts hint */
+      .kbd { display: none; }
+    }
 
-      table { table-layout: auto; }
-      .fn-content-wrap { flex-direction: column; }
-      .fn-card { min-width: 100%; }
+    @media(max-width:480px) {
+      .wrap { padding: 6px; }
+      
+      /* Even smaller screens */
+      .brand { font-size: 14px; }
+      .lt { font-size: 18px; }
+      .lsub { font-size: 12px; }
+      .lc { padding: 24px 20px; max-width: 95%; }
+      
+      /* Stats - 2 per row */
+      .sc { min-width: 60px; padding: 6px 8px; flex: 1 1 calc(33.33% - 5px); }
+      .scv { font-size: 14px; }
+      .scl { font-size: 7px; }
+      
+      /* Tabs - allow horizontal scroll */
+      .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      .tab { padding: 6px 8px; font-size: 9px; }
+      
+      /* Table */
+      thead th { padding: 8px 6px; font-size: 7px; }
+      tbody td { padding: 8px 6px; font-size: 10px; }
+      
+      /* Hide more columns on very small screens */
+      thead th:nth-child(10), /* Rating */
+      td:nth-child(10) {
+        display: none;
+      }
+      
+      th:first-child, td:first-child { min-width: 120px; }
+      .sym { font-size: 10px; }
+      .tf-purple { font-size: 9px; }
+      .muted-xl { font-size: 7px; }
+      
+      /* Price */
+      .price-bold { font-size: 11px; }
+      
+      /* Volume */
+      .vol-large { font-size: 10px; }
+      
+      /* Controls */
+      .custom-select-trigger { min-width: 90px; padding: 6px 8px; font-size: 11px; }
+      .option { padding: 8px 10px; font-size: 11px; }
+      
+      /* Action buttons */
+      .action-btn { padding: 5px 8px; font-size: 9px; gap: 3px; }
+      .action-btn svg { width: 11px; height: 11px; }
+      
+      /* Portfolio */
+      .ps-overview-stat .ps-value { font-size: 12px; }
+      .ps-stat .ps-value { font-size: 10px; }
     }
 
     /* Keyboard shortcut hints */
@@ -1917,6 +2054,10 @@
       font-family: var(--mono);
       color: var(--muted);
       margin-left: 4px;
+    }
+
+    @media (hover: none) and (pointer: coarse) {
+      .kbd { display: none; }
     }
 
     .modal-overlay {
@@ -2081,7 +2222,7 @@
       </details>
 
       <div class="controls-wrap">
-        <input id="search" placeholder="Search symbol, sector, or signal…" oninput="render()" />
+        <input id="search" placeholder="Search symbol, sector, or signal…" oninput="debouncedSearch()" />
         <div class="controls-right">
           <div class="custom-select" id="tfDropdown">
             <div class="custom-select-trigger" onclick="toggleTfDropdown()">
@@ -2207,11 +2348,24 @@
     let currentTF = localStorage.getItem("scanner_tf") || "ALL"; // Persist timeframe, default to ALL
     const seen = new Set();
     let expandedFoSymbol = null; // Track which F&O row is expanded
+    let isRendering = false; // Prevent concurrent renders
+    let pendingRender = false; // Queue renders during active render
+    let searchDebounceTimer = null; // Debounce search input
+    const RENDER_CHUNK_SIZE = 50; // Render rows in chunks to prevent UI blocking
     let lastFoSymbols = null; // Track which stocks were in F&O list to avoid unnecessary re-renders
     let portfolioData = null;
     let portfolioRefreshInterval = null;
     let portfolioCacheTs = 0;
     const PORTFOLIO_CACHE_TTL = 300000; // 5 minutes (survives refresh)
+
+    // Debounced search to prevent excessive re-renders
+    function debouncedSearch() {
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        render();
+        searchDebounceTimer = null;
+      }, 200); // 200ms debounce delay
+    }
 
     async function checkAuth() {
       try {
@@ -2405,7 +2559,13 @@
       }
     }
 
+    let isLoadingData = false; // Prevent concurrent data fetches
+    
     async function load() {
+      // Prevent concurrent loads
+      if (isLoadingData) return;
+      isLoadingData = true;
+      
       try {
         const res = await fetch("/api/state");
         if (res.status === 401) { checkAuth(); return; }
@@ -2413,7 +2573,7 @@
         data = next;
         nextAt = Date.now() + 5000;
         updateStatsAndRender();
-        
+
         // Show scanning progress in rowCount
         const statusRes = await fetch("/api/status").then(r => r.json());
         if (statusRes.scanning) {
@@ -2422,11 +2582,16 @@
         }
       } catch (e) {
         console.error("Load error:", e);
+      } finally {
+        isLoadingData = false;
       }
     }
 
     // Lightweight live price update using /api/ltp endpoint (tiny payload ~2KB)
     async function updateLivePrices() {
+      // Skip if tab is not visible to save resources
+      if (document.hidden) return;
+      
       if (!data || !isOpen()) return;
 
       try {
@@ -2473,8 +2638,10 @@
 
         updateBadges();
 
-        // Re-render the table with new sort order
-        requestAnimationFrame(render);
+        // Re-render the table with new sort order - use requestAnimationFrame for smooth update
+        if (!isRendering) {
+          requestAnimationFrame(render);
+        }
 
       } catch (e) {
         // Silently fail - next poll will catch up
@@ -2521,35 +2688,38 @@
 
     function updateStatsAndRender() {
       if (!data) { return; }
-      const tf = currentTF;
-      let all = [], buys = [], sells = [], golden = [];
-      if (tf === "ALL") {
-        const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
-        allTfs.forEach(t => {
-          all.push(...(data.data[t + "_ALL"] || []));
-          buys.push(...(data.data[t + "_BUY"] || []));
-          sells.push(...(data.data[t + "_SELL"] || []));
-          golden.push(...(data.data[t + "_GOLDEN"] || []));
-        });
-      } else {
-        all = data.data[tf + "_ALL"] || []; buys = data.data[tf + "_BUY"] || []; sells = data.data[tf + "_SELL"] || []; golden = data.data[tf + "_GOLDEN"] || [];
-      }
       
-      // Calculate actual unique stocks scanned
-      const actualUniqueStocks = new Set(all.map(r => r.symbol)).size;
-      const universeCount = data.universe || actualUniqueStocks; // Fallback to actual if universe not set
-      
-      // Update universe stat with actual scanned count
-      const sU = document.getElementById("sU");
-      if (sU) sU.textContent = actualUniqueStocks || universeCount;
-      const spikes = all.filter(r => r.volSpike).length;
-      const sbCount = all.filter(r => r.rating === "STRONG BUY").length;
-      const wlCount = all.filter(r => r.rating === "MODERATE").length;
-      const g = id => document.getElementById(id);
-      if (g("sG")) g("sG").textContent = golden.length;
-      if (g("sB")) g("sB").textContent = buys.length;
-      if (g("sS")) g("sS").textContent = sells.length;
-      if (g("sSp")) g("sSp").textContent = spikes;
+      // Use requestAnimationFrame to batch updates and prevent layout thrashing
+      requestAnimationFrame(() => {
+        const tf = currentTF;
+        let all = [], buys = [], sells = [], golden = [];
+        if (tf === "ALL") {
+          const allTfs = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
+          allTfs.forEach(t => {
+            all.push(...(data.data[t + "_ALL"] || []));
+            buys.push(...(data.data[t + "_BUY"] || []));
+            sells.push(...(data.data[t + "_SELL"] || []));
+            golden.push(...(data.data[t + "_GOLDEN"] || []));
+          });
+        } else {
+          all = data.data[tf + "_ALL"] || []; buys = data.data[tf + "_BUY"] || []; sells = data.data[tf + "_SELL"] || []; golden = data.data[tf + "_GOLDEN"] || [];
+        }
+
+        // Calculate actual unique stocks scanned
+        const actualUniqueStocks = new Set(all.map(r => r.symbol)).size;
+        const universeCount = data.universe || actualUniqueStocks;
+
+        // Update universe stat with actual scanned count
+        const sU = document.getElementById("sU");
+        if (sU) sU.textContent = actualUniqueStocks || universeCount;
+        const spikes = all.filter(r => r.volSpike).length;
+        const sbCount = all.filter(r => r.rating === "STRONG BUY").length;
+        const wlCount = all.filter(r => r.rating === "MODERATE").length;
+        const g = id => document.getElementById(id);
+        if (g("sG")) g("sG").textContent = golden.length;
+        if (g("sB")) g("sB").textContent = buys.length;
+        if (g("sS")) g("sS").textContent = sells.length;
+        if (g("sSp")) g("sSp").textContent = spikes;
       if (g("sSB")) g("sSB").textContent = sbCount;
       if (g("sWL")) g("sWL").textContent = wlCount;
       if (g("sE")) g("sE").textContent = data.errors?.length || 0;
@@ -2566,7 +2736,8 @@
         return;
       }
 
-      requestAnimationFrame(render);
+      render();
+      });
     }
 
     let lastScanState = false;
@@ -2971,8 +3142,8 @@
         const bgClr = pnlBg(item.pnl);
         const investVal = item.avg_price * item.quantity;
 
-        // Groww link for symbol (search URL since symbol-to-slug varies)
-        const growwUrl = `https://groww.in/search?q=${item.symbol}`;
+        // Groww link for symbol - mobile: open app, desktop: open browser
+        const growwUrl = `https://groww.in/stocks/${item.symbol.toLowerCase().replace(/\s+/g, '-')}`;
         const growwAppUrl = `groww://stock/${item.symbol.toLowerCase().replace(/\s+/g, '-')}`;
 
         return `<div style="background:rgba(255,255,255,0.02); border:1px solid ${clr}30; border-radius:10px; padding:10px 14px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
@@ -2986,9 +3157,13 @@
                    onmouseover="this.style.color='var(--accent)'"
                    onmouseout="this.style.color='var(--text)'"
                    onclick="event.preventDefault(); event.stopPropagation();
-                     // Try app first, fallback to web
-                     window.location.href='${growwAppUrl}';
-                     setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 500);">
+                     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+                     if (isMobile) {
+                       window.location.href = '${growwAppUrl}';
+                       setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 1500);
+                     } else {
+                       window.open('${growwUrl}', '_blank');
+                     }">
                   ${item.symbol}
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 </a>
@@ -3116,8 +3291,17 @@
 
     function render() {
       if (!data) { return; }
-      if (activeSet === "SECTORS") { renderSectors(); return; }
-      if (activeSet === "PORTFOLIO") { renderPortfolio(); return; }
+      
+      // Prevent concurrent renders
+      if (isRendering) {
+        pendingRender = true;
+        return;
+      }
+      isRendering = true;
+      pendingRender = false;
+      
+      if (activeSet === "SECTORS") { renderSectors(); isRendering = false; return; }
+      if (activeSet === "PORTFOLIO") { renderPortfolio(); isRendering = false; return; }
 
       // Restore default table header when switching from sectors/portfolio to other tabs
       document.getElementById("tableHeader").innerHTML = `<tr>
@@ -3179,9 +3363,21 @@
       if (q) {
         const terms = q.split(',').map(t => t.trim()).filter(Boolean);
         if (terms.length > 0) {
+          // Optimized filter: pre-cache uppercase values to avoid repeated conversions
+          const termSet = new Set(terms);
           rows = rows.filter(r => {
-            const rowStr = Object.values(r).map(v => v !== null && v !== undefined ? String(v).toUpperCase() : "").join(" ");
-            return terms.some(t => rowStr.includes(t));
+            // Check each term against key fields only (faster than joining all values)
+            const symUpper = r.symbol.toUpperCase();
+            const secUpper = (r.sector || "").toUpperCase();
+            const sigUpper = (r.signal || "").toUpperCase();
+            const ratUpper = (r.rating || "").toUpperCase();
+            
+            return Array.from(termSet).some(t => 
+              symUpper.includes(t) || 
+              secUpper.includes(t) || 
+              sigUpper.includes(t) ||
+              ratUpper.includes(t)
+            );
           });
         }
       }
@@ -3189,10 +3385,11 @@
       // Apply dividend filter
       rows = rows.filter(r => r.sector !== "INDEX");
 
-      // Apply sortStack
+      // Apply sortStack with optimized comparison
       const tfOrder = { "1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7 };
       const ratingOrder = { "STRONG BUY": 5, "MODERATE": 3, "SKIP": 1, "WEAK BUY": 2, "NEUTRAL": 0 };
 
+      // Pre-calculate rating map for faster sorting
       rows.sort((a,b)=>{
         // For ALL timeframe, first group by symbol, then by tf
         if (tf === "ALL") {
@@ -3293,17 +3490,22 @@
         
         const gcBadge = r.goldenCross ? "<span class='bgc'>🟣GC</span>" : "";
 
-        // Groww link for symbol (search URL since symbol-to-slug varies)
+        // Groww link for symbol - mobile: open app, desktop: open browser
         const symLower = r.symbol.toLowerCase().replace(/\s+/g, '-');
-        const growwUrl = `https://groww.in/search?q=${r.symbol}`;
+        const growwUrl = `https://groww.in/stocks/${symLower}`;
         const growwAppUrl = `groww://stock/${symLower}`;
         const symLink = `<a href="${growwUrl}" target="_blank" rel="noopener noreferrer"
           style="color:inherit; text-decoration:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
           onmouseover="this.style.color='var(--accent)'"
           onmouseout="this.style.color='inherit'"
           onclick="event.preventDefault(); event.stopPropagation();
-            window.location.href='${growwAppUrl}';
-            setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 500);">
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+            if (isMobile) {
+              window.location.href = '${growwAppUrl}';
+              setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 1500);
+            } else {
+              window.open('${growwUrl}', '_blank');
+            }">
           ${r.symbol}<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`;
 
         const rsiTxt = r.rsi !== null ? r.rsi : "—";
@@ -3416,25 +3618,26 @@
 
       }).join("");
 
-      // Save scroll position before render
-      const tableContainer = document.querySelector(".tw");
-      const scrollPos = tableContainer ? tableContainer.scrollTop : 0;
+      // Use requestAnimationFrame for smooth DOM updates
+      requestAnimationFrame(() => {
+        // Save scroll position before render
+        const tableContainer = document.querySelector(".tw");
+        const scrollPos = tableContainer ? tableContainer.scrollTop : 0;
 
-      // Full render - optimized for performance
-      tbody.innerHTML = rowsHtml;
+        // Batch DOM updates
+        tbody.innerHTML = rowsHtml;
 
-      // Restore scroll position instantly to avoid jank
-      if (tableContainer) {
-        tableContainer.scrollTop = scrollPos;
-      }
+        // Restore scroll position instantly to avoid jank
+        if (tableContainer) {
+          tableContainer.scrollTop = scrollPos;
+        }
 
-      // Re-expand the row if it was expanded before render
-      if (activeSet === "FO" && expandedFoSymbol) {
-        setTimeout(() => {
+        // Re-expand the row if it was expanded before render
+        if (activeSet === "FO" && expandedFoSymbol) {
           const subRow = document.getElementById(`sub-${expandedFoSymbol}`);
           const wrap = document.getElementById(`wrap-${expandedFoSymbol}`);
           const expBtn = document.querySelector(`#row-${expandedFoSymbol} .exp-btn`);
-          
+
           if (subRow && wrap && expBtn) {
             // Directly set active classes without triggering toggle logic
             subRow.classList.add("active");
@@ -3442,8 +3645,15 @@
             // Reload option chain data
             loadOptionChain(expandedFoSymbol, wrap);
           }
-        }, 50);
-      }
+        }
+        
+        // Mark render as complete and check if another render is pending
+        isRendering = false;
+        if (pendingRender) {
+          pendingRender = false;
+          requestAnimationFrame(render);
+        }
+      });
     }
 
     function genRangeBar(low, high, current) {
