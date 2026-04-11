@@ -10,6 +10,7 @@ import { livePrices } from "./src/feed.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
 import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
+import { runOperatorScan, getOperatorState, buildMarketSummary, formatMarketSummaryBlock, transformScannerData } from "./src/operator_scanner.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -470,6 +471,98 @@ app.get("/api/portfolio", async (req, res) => {
         console.error("[Portfolio] Error:", e.message);
         res.status(500).json({ error: e.message });
     }
+});
+
+// ── Operator Scanner API endpoints — Intraday, Overnight, Equity ──────────────
+
+// Run full operator scan (all 3 tasks)
+app.post("/api/operator/scan", async (req, res) => {
+  if (!isAuthenticated) {
+    return res.status(401).json({ error: "Not authenticated" });
+  }
+
+  try {
+    const marketContext = req.body.marketContext || {};
+    
+    // Transform scanner data
+    const transformedData = transformScannerData(state, optionsCache);
+    
+    // Run operator scan
+    const result = await runOperatorScan(transformedData, marketContext);
+    
+    res.json({
+      ok: true,
+      timestamp: result.lastScan,
+      vix: result.vixState,
+      task1: result.task1,
+      task2: result.task2,
+      task3: result.task3,
+      starPicks: result.starPicks || [],
+      alphaPicks: result.alphaPicks || [],
+      marketSummary: buildMarketSummary()
+    });
+  } catch (e) {
+    console.error("[Operator] Scan error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get current operator state (cached)
+app.get("/api/operator/state", (_, res) => {
+  res.json({
+    ok: true,
+    state: getOperatorState(),
+    marketSummary: buildMarketSummary()
+  });
+});
+
+// Get Task 1: Intraday F&O calls
+app.get("/api/operator/intraday", (_, res) => {
+  const opState = getOperatorState();
+  res.json({
+    ok: true,
+    task: "Intraday F&O",
+    calls: opState.task1.calls,
+    summary: opState.task1.summary,
+    vix: opState.vixState
+  });
+});
+
+// Get Task 2: Overnight F&O calls
+app.get("/api/operator/overnight", (_, res) => {
+  const opState = getOperatorState();
+  res.json({
+    ok: true,
+    task: "Overnight F&O",
+    calls: opState.task2.calls,
+    summary: opState.task2.summary,
+    vix: opState.vixState
+  });
+});
+
+// Get Task 3: Equity calls
+app.get("/api/operator/equity", (_, res) => {
+  const opState = getOperatorState();
+  res.json({
+    ok: true,
+    task: "Equity Calls",
+    calls: opState.task3.calls,
+    summary: opState.task3.summary,
+    vix: opState.vixState
+  });
+});
+
+// Get market summary block (formatted text)
+app.get("/api/operator/market-summary", (_, res) => {
+  res.json({
+    ok: true,
+    summary: formatMarketSummaryBlock()
+  });
+});
+
+// ── Operator Scanner UI Route ────────────────────────────────────────────────
+app.get("/operator", (req, res) => {
+  res.sendFile(path.join(__dirname, "public", "operator.html"));
 });
 
 // ── Catch-all Route: Serve SPA frontend ─────────────────────────────────────

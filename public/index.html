@@ -641,6 +641,62 @@
       color: var(--accent);
     }
 
+    /* Dividend toggle inside controls */
+    .controls-wrap .div-tg {
+      background: transparent;
+      border: 1px solid var(--border);
+      padding: 6px 10px;
+      border-radius: 8px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .controls-wrap .div-tg input { display: none; }
+
+    .controls-wrap .div-tg-s {
+      width: 28px;
+      height: 14px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 99px;
+      position: relative;
+      transition: 0.3s;
+      flex-shrink: 0;
+    }
+
+    .controls-wrap .div-tg-s::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 10px;
+      height: 10px;
+      background: var(--muted);
+      border-radius: 50%;
+      transition: 0.3s;
+    }
+
+    .controls-wrap .div-tg input:checked + .div-tg-s {
+      background: rgba(245, 158, 11, 0.15);
+    }
+
+    .controls-wrap .div-tg input:checked + .div-tg-s::after {
+      left: 16px;
+      background: var(--yellow);
+      box-shadow: 0 0 6px var(--yellow);
+    }
+
+    .controls-wrap .div-tg input:checked ~ .div-tg-l {
+      color: var(--yellow);
+    }
+
     /* legend */
     .legend {
       background: var(--card);
@@ -707,9 +763,10 @@
       font-size: 12px;
       font-weight: 600;
       font-family: var(--sans);
-      transition: all 0.2s ease;
+      transition: all 0.15s ease-out;
       user-select: none;
       white-space: nowrap;
+      will-change: transform, background-color;
     }
     /* .tab:hover removed */
     .tab .tab-icon {
@@ -948,7 +1005,7 @@
 
     /* table */
     .tw {
-      overflow: hidden;
+      overflow: auto;
       border: 1px solid var(--border);
       border-radius: 14px;
       width: 100%;
@@ -1380,6 +1437,29 @@
       font-family: var(--mono);
       margin-left: 4px;
       vertical-align: middle;
+    }
+
+    /* Dividend Info Styling */
+    .dividend-info {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      white-space: nowrap;
+    }
+
+    .dividend-info .high-yield {
+      color: #10b981; /* Green for high yield (>2%) */
+      font-weight: 700;
+    }
+
+    .dividend-info .med-yield {
+      color: #f59e0b; /* Amber for medium yield (>1%) */
+      font-weight: 600;
+    }
+
+    .dividend-info .low-yield {
+      color: var(--muted); /* Muted for low yield */
+      font-weight: 500;
     }
 
     .sb {
@@ -2025,6 +2105,11 @@
             <span class="idx-tg-s"></span>
             <span class="idx-tg-l">Indices</span>
           </label>
+          <label class="div-tg" title="Highlight stocks with dividends">
+            <input type="checkbox" id="divTgl" onchange="toggleDividendHighlight()"/>
+            <span class="div-tg-s"></span>
+            <span class="div-tg-l">💰 Dividend</span>
+          </label>
         </div>
       </div>
 
@@ -2164,67 +2249,91 @@
       }
     }
 
-    document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+    document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      
       // Save outgoing tab's sort
       tabSort[activeSet] = [...sortStack];
+      
+      // Update active tab immediately
       document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
       t.classList.add("active");
       activeSet = t.dataset.set;
-      
+
       // Clear expanded F&O row when switching away from F&O tab
       if (activeSet !== "FO") {
         expandedFoSymbol = null;
       }
+      
       // Stop portfolio auto-refresh when switching away from portfolio tab
       if (activeSet !== "PORTFOLIO") {
         stopPortfolioRefresh();
         const summaryEl = document.getElementById("portfolioSummary");
         if (summaryEl) summaryEl.style.display = "none";
       }
+      
       // Load portfolio data if portfolio tab is selected
       if (activeSet === "PORTFOLIO") {
-        // Show loading state if no data yet
         if (!portfolioData) {
           document.getElementById("tbody").innerHTML = "";
           document.getElementById("empty").style.display = "block";
           document.getElementById("empty").textContent = "Loading portfolio...";
         } else {
-          // Render cached data immediately
           renderPortfolio();
           startPortfolioRefresh();
         }
-        // Fetch fresh data in background
         loadPortfolio(true);
         return;
       }
+      
       // Restore saved sort for incoming tab
       const sv = tabSort[activeSet] || [{ col: "techScore", asc: false }];
       sortStack = Array.isArray(sv) ? [...sv] : [sv];
-      // Clear cached F&O symbols so next render picks fresh list
-      lastFoSymbols = null;
       
-      // Render immediately with existing data (don't wait for network)
-      requestAnimationFrame(render);
-    }));
+      // Clear cached F&O symbols
+      lastFoSymbols = null;
+
+      // Render immediately - no requestAnimationFrame delay
+      render();
+    }, { passive: false }));
     ["search", "tf"].forEach(id => {
       const el = document.getElementById(id);
       if (el) { el.addEventListener("change", () => { if (id === "tf") load(); else render(); }); el.addEventListener("input", render); }
     });
     function setSort(c, e) {
+      if (e) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      
       const shift = e && e.shiftKey;
       if (!shift) {
-        if (sortStack.length === 1 && sortStack[0].col === c) sortStack[0].asc = !sortStack[0].asc;
-        else sortStack = [{ col: c, asc: false }];
+        if (sortStack.length === 1 && sortStack[0].col === c) {
+          sortStack[0].asc = !sortStack[0].asc;
+        } else {
+          sortStack = [{ col: c, asc: false }];
+        }
       } else {
         const existing = sortStack.find(s => s.col === c);
-        if (existing) existing.asc = !existing.asc;
-        else sortStack.push({ col: c, asc: false });
+        if (existing) {
+          existing.asc = !existing.asc;
+        } else {
+          sortStack.push({ col: c, asc: false });
+        }
       }
       tabSort[activeSet] = [...sortStack];
       render();
     }
     function toggleIndices() {
       showIndices = document.getElementById("idxTgl").checked;
+      render();
+    }
+
+    // Dividend highlight toggle
+    let showDividend = false;
+    function toggleDividendHighlight() {
+      showDividend = document.getElementById("divTgl").checked;
       render();
     }
 
@@ -2314,7 +2423,7 @@
 
     // Lightweight live price update using /api/ltp endpoint (tiny payload ~2KB)
     async function updateLivePrices() {
-      if (!data || !isMarketOpen()) return;
+      if (!data || !isOpen()) return;
 
       try {
         const res = await fetch("/api/ltp");
@@ -3063,18 +3172,6 @@
         rows = (data.data[tf + "_" + activeSet] || []).slice();
       }
 
-      console.log(`[render] ✅ Tab="${activeSet}", TF="${tf}", Rows=${rows.length}`);
-      if (tf !== "ALL" && activeSet !== "FO") {
-        const key = `${tf}_${activeSet}`;
-        console.log(`  → Key: "${key}", Available: ${data.data[key]?.length || 0}`);
-      } else if (activeSet === "FO") {
-        const foKey = tf === "ALL" ? "5m_ALL" : `${tf}_ALL`;
-        console.log(`  → F&O: Top 30 of ${data.data[foKey]?.length || 0} from "${foKey}"`);
-      } else if (tf === "ALL") {
-        const allCounts = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"].map(t => `${t}:${data.data[t + "_" + activeSet]?.length || 0}`).join(", ");
-        console.log(`  → ALL TF counts: ${allCounts}`);
-      }
-
       if (q) {
         const terms = q.split(',').map(t => t.trim()).filter(Boolean);
         if (terms.length > 0) {
@@ -3084,11 +3181,14 @@
           });
         }
       }
-      if (!showIndices) rows = rows.filter(r => r.sector !== "INDEX");
 
-      // Apply sortStack for ALL cases
+      // Apply dividend filter
+      rows = rows.filter(r => r.sector !== "INDEX");
+
+      // Apply sortStack
       const tfOrder = { "1m": 1, "5m": 2, "10m": 3, "15m": 4, "30m": 5, "1h": 6, "1d": 7 };
       const ratingOrder = { "STRONG BUY": 5, "MODERATE": 3, "SKIP": 1, "WEAK BUY": 2, "NEUTRAL": 0 };
+
       rows.sort((a,b)=>{
         // For ALL timeframe, first group by symbol, then by tf
         if (tf === "ALL") {
@@ -3102,7 +3202,6 @@
             const res = va.localeCompare(vb);
             if(res !== 0) return s.asc ? res : -res;
           } else if(s.col === "rating"){
-            // Rating is a string - use predefined order
             const ra = ratingOrder[va] || 0;
             const rb = ratingOrder[vb] || 0;
             if(ra !== rb) return s.asc ? ra - rb : rb - ra;
@@ -3236,6 +3335,7 @@
           <td style="text-align:left;">
             <div class='sym' style="white-space:nowrap;">${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
             <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
+            ${r.dividend ? `<div class='dividend-info' style="margin-top:2px; font-size:9px; font-family:var(--mono);">💰 <span class="${r.dividend.colorClass}">${r.dividend.displayText}</span> <span style="opacity:0.6;">(${r.dividend.yield.toFixed(2)}% yield)</span></div>` : ''}
           </td>
 
           <!-- CMP & VWAP -->
@@ -3312,40 +3412,17 @@
 
       }).join("");
 
-      // Save which row was at the top before full render
+      // Save scroll position before render
       const tableContainer = document.querySelector(".tw");
-      const mainRows = tbody.querySelectorAll(".main-row");
-      let topRowIndex = 0;
-      let topSymbol = rows[0]?.symbol;
+      const scrollPos = tableContainer ? tableContainer.scrollTop : 0;
 
-      // Find which row is currently most visible at top of viewport
-      if (tableContainer && mainRows.length > 0) {
-        const containerTop = tableContainer.getBoundingClientRect().top;
-        const containerScroll = tableContainer.scrollTop;
-
-        for (let i = 0; i < mainRows.length; i++) {
-          const rowTop = mainRows[i].offsetTop;
-          if (rowTop <= containerScroll + 50) {
-            topRowIndex = i;
-            topSymbol = mainRows[i].id?.replace("row-", "");
-          } else {
-            break;
-          }
-        }
-      }
-
-      // Full render - always needed for sorting
+      // Full render - optimized for performance
       tbody.innerHTML = rowsHtml;
 
-      // Restore scroll to the same row after render
-      requestAnimationFrame(() => {
-        if (tableContainer) {
-          const restoredRow = document.getElementById(`row-${topSymbol}`);
-          if (restoredRow) {
-            tableContainer.scrollTop = restoredRow.offsetTop;
-          }
-        }
-      });
+      // Restore scroll position instantly to avoid jank
+      if (tableContainer) {
+        tableContainer.scrollTop = scrollPos;
+      }
 
       // Re-expand the row if it was expanded before render
       if (activeSet === "FO" && expandedFoSymbol) {
@@ -3506,9 +3583,19 @@
       } catch (_) { }
     })();
 
-    tick();
-    pollStatus();
-    checkAuth();
+    // Wait for DOM to be ready
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+
+    function init() {
+      tick();
+      pollStatus();
+      checkAuth();
+      load(); // Initial data load
+    }
 
     let modalChartIns = null;
     function openModal(symbol, tf) {

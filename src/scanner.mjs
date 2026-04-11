@@ -4,6 +4,7 @@ import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 import { optionsCache } from "./options_feed.mjs";
 import { startFeed } from "./feed.mjs";
+import { fetchDividend, formatDividendInfo } from "./dividend.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -183,6 +184,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
         options: optionsCache.get(symbol) || null,
         w52H: h52w, w52L: l52w,
         priceChange: +priceChange.toFixed(2),
+        dividend: null,
     };
 }
 
@@ -304,7 +306,40 @@ export async function scanAll() {
             state = JSON.parse(JSON.stringify(next));
         }
         process.stdout.write(`\r\x1b[K✅ Scan complete | Time: ${new Date().toLocaleTimeString()} | Total Errors: ${state.errors.length}\n`);
+        
+        // Fetch dividend data in background after scan completes
+        fetchDividendsInBackground(next.data);
     } finally { scanning = false; }
+}
+
+// Fetch dividend data for all stocks in background
+async function fetchDividendsInBackground(data) {
+    try {
+        const allStocks = data["1d_ALL"] || [];
+        console.log(`\n💰 Fetching dividend data for ${allStocks.length} stocks...`);
+        
+        // Fetch dividends in batches of 10 to avoid overwhelming the API
+        const batchSize = 10;
+        for (let i = 0; i < allStocks.length; i += batchSize) {
+            const batch = allStocks.slice(i, i + batchSize);
+            const promises = batch.map(async (stock) => {
+                try {
+                    const dividendData = await fetchDividend(stock.symbol);
+                    if (dividendData) {
+                        stock.dividend = formatDividendInfo(dividendData, stock.price);
+                    }
+                } catch (e) {
+                    // Silent fail for individual stocks
+                }
+            });
+            await Promise.all(promises);
+            console.log(`  💰 Dividend progress: ${Math.min(i + batchSize, allStocks.length)}/${allStocks.length}`);
+        }
+        
+        console.log(`✅ Dividend fetch complete.`);
+    } catch (e) {
+        console.error("❌ Error fetching dividends:", e.message);
+    }
 }
 
 export async function startScan() {

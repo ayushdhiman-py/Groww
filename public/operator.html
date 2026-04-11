@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Operator Scanner — Groww</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@400;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #07090f;
+      --card: #0d1220;
+      --card2: #111927;
+      --border: #1c2a3f;
+      --text: #dce8f5;
+      --muted: #526a85;
+      --green: #22c55e;
+      --red: #ef4444;
+      --accent: #00d4aa;
+      --yellow: #f59e0b;
+      --purple: #a78bfa;
+      --mono: 'JetBrains Mono', monospace;
+      --sans: 'Sora', sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+    .wrap { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    .header { text-align: center; margin-bottom: 30px; }
+    .header h1 { font-size: 32px; color: var(--accent); margin-bottom: 8px; }
+    .header p { color: var(--muted); font-size: 14px; }
+    
+    .vix-banner {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 20px;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.8;
+    }
+    .vix-banner .vix-line { margin: 4px 0; }
+    .vix-banner .vix-value { color: var(--accent); font-weight: 700; }
+    .vix-banner .vix-mode { color: var(--yellow); font-weight: 600; }
+    
+    .tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .tab {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .tab:hover { border-color: var(--accent); }
+    .tab.active {
+      background: var(--accent);
+      color: #041a14;
+      border-color: var(--accent);
+    }
+    .tab-icon { font-size: 18px; }
+    .tab-badge {
+      background: var(--yellow);
+      color: #000;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .tab.active .tab-badge {
+      background: #041a14;
+      color: var(--accent);
+    }
+    
+    .content { display: none; }
+    .content.active { display: block; }
+    
+    .calls-grid {
+      display: grid;
+      gap: 16px;
+    }
+    .call-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      transition: all 0.2s;
+    }
+    .call-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 212, 170, 0.1);
+    }
+    .call-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .call-rank {
+      background: var(--accent);
+      color: #041a14;
+      padding: 4px 12px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 14px;
+    }
+    .call-stock {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--accent);
+    }
+    .call-score {
+      font-family: var(--mono);
+      font-size: 13px;
+      color: var(--yellow);
+    }
+    .call-trade {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 13px;
+      margin: 8px 0;
+    }
+    .call-trade.CE {
+      background: rgba(34, 197, 94, 0.15);
+      color: var(--green);
+      border: 1px solid var(--green);
+    }
+    .call-trade.PE {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--red);
+      border: 1px solid var(--red);
+    }
+    .call-trade.EQUITY {
+      background: rgba(167, 139, 250, 0.15);
+      color: var(--purple);
+      border: 1px solid var(--purple);
+    }
+    .call-details {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--muted);
+    }
+    .call-details strong {
+      color: var(--text);
+    }
+    .call-operator {
+      background: var(--card2);
+      border-left: 3px solid var(--accent);
+      padding: 10px 12px;
+      margin: 12px 0;
+      border-radius: 4px;
+      font-size: 12px;
+      line-height: 1.7;
+    }
+    .call-reasons {
+      margin-top: 12px;
+      padding: 10px;
+      background: var(--card2);
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.8;
+    }
+    .call-reasons li {
+      margin-left: 20px;
+      margin-bottom: 4px;
+    }
+    .pick-type {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      margin-left: 8px;
+    }
+    .pick-type.STAR {
+      background: var(--yellow);
+      color: #000;
+    }
+    .pick-type.ALPHA {
+      background: var(--red);
+      color: #fff;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
+    }
+    .warning {
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid var(--yellow);
+      color: var(--yellow);
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin: 8px 0;
+      font-size: 12px;
+    }
+    .btn-scan {
+      background: var(--accent);
+      color: #041a14;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      margin: 20px 0;
+      transition: all 0.2s;
+    }
+    .btn-scan:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 212, 170, 0.3);
+    }
+    .btn-scan:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--muted);
+    }
+    .empty-state .icon {
+      font-size: 64px;
+      margin-bottom: 16px;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--accent);
+      font-size: 16px;
+    }
+    .summary-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 2;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="header">
+      <h1>🧠 Operator Intelligence Scanner</h1>
+      <p>Detect operator footprints, score trades, and find alpha in the market</p>
+    </div>
+
+    <div id="vixBanner" class="vix-banner" style="display:none;">
+      <!-- VIX status populated by JS -->
+    </div>
+
+    <div style="text-align:center;">
+      <button id="btnScan" class="btn-scan" onclick="runScan()">🔍 Run Full Operator Scan</button>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="intraday">
+        <span class="tab-icon">⚡</span>
+        <span>Task 1: Intraday F&O</span>
+        <span class="tab-badge" id="badge-intraday">0</span>
+      </div>
+      <div class="tab" data-tab="overnight">
+        <span class="tab-icon">🌙</span>
+        <span>Task 2: Overnight F&O</span>
+        <span class="tab-badge" id="badge-overnight">0</span>
+      </div>
+      <div class="tab" data-tab="equity">
+        <span class="tab-icon">📈</span>
+        <span>Task 3: Equity Calls</span>
+        <span class="tab-badge" id="badge-equity">0</span>
+      </div>
+      <div class="tab" data-tab="summary">
+        <span class="tab-icon">📊</span>
+        <span>Market Summary</span>
+      </div>
+    </div>
+
+    <div id="content-intraday" class="content active">
+      <div id="intraday-loading" class="loading">Click "Run Full Operator Scan" to start</div>
+      <div id="intraday-calls" class="calls-grid"></div>
+    </div>
+
+    <div id="content-overnight" class="content">
+      <div id="overnight-loading" class="loading">Click "Run Full Operator Scan" to start</div>
+      <div id="overnight-calls" class="calls-grid"></div>
+    </div>
+
+    <div id="content-equity" class="content">
+      <div id="equity-loading" class="loading">Click "Run Full Operator Scan" to start</div>
+      <div id="equity-calls" class="calls-grid"></div>
+    </div>
+
+    <div id="content-summary" class="content">
+      <div id="summary-box" class="summary-box">Run a scan to see market summary</div>
+    </div>
+  </div>
+
+  <script>
+    let scanData = { task1: null, task2: null, task3: null, vix: null, marketSummary: null };
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`content-${tab.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    async function runScan() {
+      const btn = document.getElementById('btnScan');
+      btn.disabled = true;
+      btn.textContent = '⏳ Scanning...';
+
+      try {
+        const res = await fetch('/api/operator/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ marketContext: {} })
+        });
+
+        if (!res.ok) throw new Error('Scan failed');
+
+        const data = await res.json();
+        scanData = {
+          task1: data.task1,
+          task2: data.task2,
+          task3: data.task3,
+          vix: data.vix,
+          marketSummary: data.marketSummary
+        };
+
+        renderAll();
+      } catch (e) {
+        alert('Scan failed: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '🔍 Run Full Operator Scan';
+      }
+    }
+
+    function renderAll() {
+      renderVixBanner();
+      renderTask1();
+      renderTask2();
+      renderTask3();
+      renderSummary();
+    }
+
+    function renderVixBanner() {
+      const vix = scanData.vix;
+      if (!vix) return;
+
+      const banner = document.getElementById('vixBanner');
+      banner.style.display = 'block';
+      banner.innerHTML = `
+        <div class="vix-line"><span class="vix-value">VIX: ${vix.value.toFixed(2)}</span> — <span class="vix-mode">${vix.mode}</span></div>
+        <div class="vix-line">Implication: ${vix.implication}</div>
+        <div class="vix-line">Last Updated: ${new Date(vix.lastUpdated).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}</div>
+      `;
+    }
+
+    function renderTask1() {
+      const task1 = scanData.task1;
+      if (!task1) return;
+
+      document.getElementById('badge-intraday').textContent = task1.calls.length;
+      document.getElementById('intraday-loading').style.display = 'none';
+
+      const container = document.getElementById('intraday-calls');
+      if (task1.calls.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📭</div>
+            <h3>No Intraday F&O Calls</h3>
+            <p>${task1.summary.reason || 'No qualifying setups found'}</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = task1.calls.map(call => renderIntradayCall(call)).join('');
+    }
+
+    function renderIntradayCall(call) {
+      const pickType = call.pick_type ? `<span class="pick-type ${call.pick_type.includes('ALPHA') ? 'ALPHA' : 'STAR'}">${call.pick_type}</span>` : '';
+      const vixWarning = call.vix_warning ? `<div class="warning">⚠️ ${call.vix_warning}</div>` : '';
+      const reasons = call.reason.map(r => `<li>${r}</li>`).join('');
+
+      return `
+        <div class="call-card">
+          <div class="call-header">
+            <div>
+              <span class="call-rank">#${call.rank}</span>
+              <span class="call-stock">${call.stock}</span>
+              ${pickType}
+            </div>
+            <div class="call-score">${call.score_band} — ${call.score}/100</div>
+          </div>
+          <div class="call-trade ${call.trade.includes('CE') ? 'CE' : 'PE'}">${call.trade}</div>
+          <div class="call-details">
+            <div><strong>Strike:</strong> ${call.strike}</div>
+            <div><strong>Expiry:</strong> ${call.expiry}</div>
+            <div><strong>Entry:</strong> ${call.entry_price_range}</div>
+            <div><strong>Entry Window:</strong> ${call.entry_window}</div>
+            <div><strong>Target:</strong> ${call.target_premium}</div>
+            <div><strong>Stop Loss:</strong> ${call.stop_loss}</div>
+            <div><strong>Exit:</strong> ${call.exit_rule}</div>
+            <div><strong>IV:</strong> ${call.iv_check}</div>
+            <div><strong>Liquidity:</strong> ${call.liquidity_check}</div>
+            ${call.position_size_adjustment ? `<div><strong>Position Size:</strong> ${call.position_size_adjustment}</div>` : ''}
+          </div>
+          <div class="call-operator">
+            <strong>🧠 Operator Footprint:</strong><br>
+            ${call.operator_footprint}
+          </div>
+          ${vixWarning}
+          <div class="call-reasons">
+            <strong>📋 Reasoning:</strong>
+            <ul>${reasons}</ul>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTask2() {
+      const task2 = scanData.task2;
+      if (!task2) return;
+
+      document.getElementById('badge-overnight').textContent = task2.calls.length;
+      document.getElementById('overnight-loading').style.display = 'none';
+
+      const container = document.getElementById('overnight-calls');
+      if (task2.calls.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">🚫</div>
+            <h3>No Overnight F&O Calls</h3>
+            <p>${task2.summary.reason || 'NO OVERNIGHT F&O — VIX DANGER'}</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = task2.calls.map(call => renderOvernightCall(call)).join('');
+    }
+
+    function renderOvernightCall(call) {
+      const pickType = call.pick_type ? `<span class="pick-type ${call.pick_type.includes('ALPHA') ? 'ALPHA' : 'STAR'}">${call.pick_type}</span>` : '';
+      const vixWarning = call.vix_warning ? `<div class="warning">⚠️ ${call.vix_warning}</div>` : '';
+      const reasons = call.reason.map(r => `<li>${r}</li>`).join('');
+
+      return `
+        <div class="call-card">
+          <div class="call-header">
+            <div>
+              <span class="call-rank">#${call.rank}</span>
+              <span class="call-stock">${call.stock}</span>
+              ${pickType}
+            </div>
+            <div class="call-score">${call.score_band} — ${call.score}/100</div>
+          </div>
+          <div class="call-trade ${call.trade.includes('CE') ? 'CE' : 'PE'}">${call.trade}</div>
+          <div class="call-details">
+            <div><strong>Strike:</strong> ${call.strike}</div>
+            <div><strong>Expiry:</strong> ${call.expiry}</div>
+            <div><strong>Entry:</strong> ${call.entry_price_range} (2:30-3:10 PM)</div>
+            <div><strong>Target:</strong> ${call.target_premium}</div>
+            <div><strong>Stop Loss:</strong> ${call.stop_loss}</div>
+            <div><strong>Exit:</strong> ${call.exit_rule}</div>
+            <div><strong>Gap Risk:</strong> ${call.gap_risk}</div>
+            <div><strong>Gift Nifty:</strong> ${call.gift_nifty_status}</div>
+            <div><strong>IV:</strong> ${call.iv_check}</div>
+            <div><strong>Liquidity:</strong> ${call.liquidity_check}</div>
+          </div>
+          <div class="call-operator">
+            <strong>🧠 Operator Footprint:</strong><br>
+            ${call.operator_footprint}<br><br>
+            <strong>🎯 Overnight Catalyst:</strong><br>
+            ${call.overnight_catalyst}
+          </div>
+          ${vixWarning}
+          <div class="call-reasons">
+            <strong>📋 Reasoning:</strong>
+            <ul>${reasons}</ul>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTask3() {
+      const task3 = scanData.task3;
+      if (!task3) return;
+
+      document.getElementById('badge-equity').textContent = task3.calls.length;
+      document.getElementById('equity-loading').style.display = 'none';
+
+      const container = document.getElementById('equity-calls');
+      if (task3.calls.length === 0) {
+        container.innerHTML = `
+          <div class="empty-state">
+            <div class="icon">📭</div>
+            <h3>No Equity Calls</h3>
+            <p>No qualifying setups found</p>
+          </div>
+        `;
+        return;
+      }
+
+      container.innerHTML = task3.calls.map(call => renderEquityCall(call)).join('');
+    }
+
+    function renderEquityCall(call) {
+      const pickType = call.pick_type ? `<span class="pick-type ${call.pick_type.includes('ALPHA') ? 'ALPHA' : 'STAR'}">${call.pick_type}</span>` : '';
+      const reasons = call.reason.map(r => `<li>${r}</li>`).join('');
+
+      return `
+        <div class="call-card">
+          <div class="call-header">
+            <div>
+              <span class="call-rank">#${call.rank}</span>
+              <span class="call-stock">${call.stock}</span>
+              ${pickType}
+            </div>
+            <div class="call-score">${call.score_band} — ${call.score}/100</div>
+          </div>
+          <div class="call-trade EQUITY">BUY EQUITY</div>
+          <div class="call-details">
+            <div><strong>Entry Price:</strong> ₹${call.entry_price}</div>
+            <div><strong>Entry Type:</strong> ${call.entry_type}</div>
+            <div><strong>Target 1:</strong> ${call.target_1}</div>
+            <div><strong>Target 2:</strong> ${call.target_2}</div>
+            <div><strong>Stop Loss:</strong> ${call.stop_loss}</div>
+            <div><strong>Holding Period:</strong> ${call.holding_period}</div>
+            <div><strong>Exit Rule:</strong> ${call.exit_rule}</div>
+            <div><strong>Pattern:</strong> ${call.pattern}</div>
+            <div><strong>Delivery %:</strong> ${call.delivery_pct}</div>
+            <div><strong>RS vs Nifty:</strong> ${call.rs_vs_nifty}</div>
+            <div><strong>Sector:</strong> ${call.sector} (${call.sector_strength})</div>
+          </div>
+          <div class="call-operator">
+            <strong>🧠 Operator Phase:</strong> ${call.operator_phase}<br><br>
+            <strong>🔍 Footprint Evidence:</strong><br>
+            ${call.operator_footprint}
+          </div>
+          <div class="call-reasons">
+            <strong>📋 Reasoning:</strong>
+            <ul>${reasons}</ul>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSummary() {
+      const ms = scanData.marketSummary;
+      if (!ms) return;
+
+      const summaryText = `
+🧠 MARKET OPERATOR READ — ${new Date().toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+VIX: ${ms.vix?.toFixed(2) || 'N/A'} — ${ms.vix_mode}
+Nifty Bias: ${ms.nifty_bias}
+Nifty vs VWAP: ${ms.nifty_vwap}
+Operator Activity: ${ms.operator_activity}
+FII Today: ${ms.fii_today} — ${ms.fii_amount}
+DII Today: ${ms.dii_today} — ${ms.dii_amount}
+Gift Nifty: ${ms.gift_nifty > 0 ? '+' : ''}${ms.gift_nifty} points
+Sector Rotating INTO: ${ms.sector_rotating_into}
+Sector Rotating OUT OF: ${ms.sector_rotating_out}
+Key Level to Watch: ${ms.key_level}
+
+⭐ STAR PICKS: ${ms.star_picks.length > 0 ? ms.star_picks.join(', ') : 'None'}
+🔥 ALPHA PICKS: ${ms.alpha_picks.length > 0 ? ms.alpha_picks.join(', ') : 'None'}
+
+Task 1 calls given: ${ms.task1_count} | Discarded: ${ms.task1_discarded}
+Task 2 calls given: ${ms.task2_count} | Discarded: ${ms.task2_discarded}
+Task 3 calls given: ${ms.task3_count} | Discarded: ${ms.task3_discarded}
+
+Today's aggression level: ${ms.aggression_level}
+
+⚠️ Verify all [EST-PREMIUM] values on your broker terminal before placing any trade.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      `.trim();
+
+      document.getElementById('summary-box').textContent = summaryText;
+    }
+
+    // Auto-scan on page load
+    window.addEventListener('load', () => {
+      setTimeout(runScan, 1000);
+    });
+  </script>
+</body>
+</html>
