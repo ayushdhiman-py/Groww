@@ -119,25 +119,30 @@ export function getVixStatusLine(vixValue) {
  */
 export async function fetchIndiaVix() {
   try {
-    // Try to fetch VIX from NSE India public API
+    // Try to fetch VIX from NSE India public API with proper browser headers
     const response = await fetch('https://www1.nseindia.com/api/vix', {
       headers: {
-        'User-Agent': 'Mozilla/5.0',
-        'Accept': 'application/json'
-      }
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://www1.nseindia.com/',
+        'Cache-Control': 'no-cache',
+      },
+      signal: AbortSignal.timeout(10000)
     });
-    
+
     if (response.ok) {
       const data = await response.json();
-      const vixValue = parseFloat(data.indiaVIX);
-      
+      const vixValue = parseFloat(data.indiaVIX || data.VIX || data.value);
+
       if (!isNaN(vixValue) && vixValue > 0) {
         const mode = getVixMode(vixValue);
         vixState = {
           value: vixValue,
           mode: mode.name,
           lastUpdated: new Date().toISOString(),
-          implication: mode.implication
+          implication: mode.implication,
+          source: "NSE direct"
         };
         return vixState;
       }

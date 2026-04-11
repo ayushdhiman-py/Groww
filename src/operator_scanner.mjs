@@ -8,6 +8,7 @@ import { scanIntradayFO } from "./intraday_scanner.mjs";
 import { scanOvernightFO } from "./overnight_scanner.mjs";
 import { scanEquityCalls } from "./equity_scanner.mjs";
 import { fetchIndiaVix, getVixState, formatVixStatus } from "./vix_manager.mjs";
+import { fetchAllNseData, getFOBANList } from "./nse_data.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 
 // Scanner state
@@ -31,30 +32,60 @@ export async function runOperatorScan(scannerData, marketContext = {}) {
   
   try {
     console.log("[OperatorScanner] Starting full operator scan...");
-    
+
+    // Fetch NSE data in parallel (F&O bans, delivery, earnings, VIX)
+    const nseData = await fetchAllNseData();
+
     // Fetch VIX first (governs everything)
-    const vixState = await fetchIndiaVix();
+    let vixState;
+    if (nseData.vix) {
+      // Use NSE direct VIX if available
+      const { getVixMode } = await import("./vix_manager.mjs");
+      const vixValue = nseData.vix.value;
+      const mode = getVixMode(vixValue);
+      vixState = {
+        value: vixValue,
+        mode: mode.name,
+        lastUpdated: new Date().toISOString(),
+        implication: mode.implication,
+        source: nseData.vix.source
+      };
+    } else {
+      vixState = await fetchIndiaVix();
+    }
     const vixValue = vixState.value;
-    
-    console.log(`[OperatorScanner] VIX: ${vixValue.toFixed(2)} — ${vixState.mode}`);
-    
+
+    console.log(`[OperatorScanner] VIX: ${vixValue.toFixed(2)} — ${vixState.mode} (source: ${vixState.source || "fallback"})`);
+
     operatorState.vixState = vixState;
+    operatorState.nseData = nseData;
     operatorState.marketContext = marketContext;
     operatorState.lastScan = new Date().toISOString();
-    
+
+    // Enrich scanner data with NSE data
+    const enrichedData = enrichScannerData(scannerData, nseData);
+
     // Task 1: Intraday F&O
     console.log("[OperatorScanner] Task 1: Scanning intraday F&O...");
-    operatorState.task1 = scanIntradayFO(scannerData, vixValue, marketContext);
+    operatorState.task1 = scanIntradayFO(enrichedData, vixValue, marketContext);
     console.log(`[OperatorScanner] Task 1 complete: ${operatorState.task1.calls.length} calls`);
-    
+
     // Task 2: Overnight F&O
     console.log("[OperatorScanner] Task 2: Scanning overnight F&O...");
-    operatorState.task2 = scanOvernightFO(scannerData, vixValue, marketContext);
+    operatorState.task2 = scanOvernightFO(enrichedData, vixValue, marketContext);
     console.log(`[OperatorScanner] Task 2 complete: ${operatorState.task2.calls.length} calls`);
     
     // Task 3: Equity
     console.log("[OperatorScanner] Task 3: Scanning equity calls...");
-    operatorState.task3 = await scanEquityCalls(scannerData, vixValue, marketContext);
+    const equityResults = await scanEquityCalls(scannerData, vixValue, marketContext);
+    // Normalize: scanEquityCalls returns a plain array, wrap it
+    operatorState.task3 = {
+      calls: Array.isArray(equityResults) ? equityResults : [],
+      summary: {
+        given: Array.isArray(equityResults) ? equityResults.length : 0,
+        discarded: Array.isArray(equityResults) ? 0 : equityResults?.discarded || 0
+      }
+    };
     console.log(`[OperatorScanner] Task 3 complete: ${operatorState.task3.calls.length} calls`);
     
     // Identify star picks and alpha picks
@@ -77,41 +108,45 @@ export async function runOperatorScan(scannerData, marketContext = {}) {
  * Identify STAR PICKS (Task 1 + Task 2) and ALPHA PICKS (all 3 tasks)
  */
 function identifyStarAndAlphaPicks() {
-  const task1Stocks = new Set(operatorState.task1.calls.map(c => c.stock));
-  const task2Stocks = new Set(operatorState.task2.calls.map(c => c.stock));
-  const task3Stocks = new Set(operatorState.task3.calls.map(c => c.stock));
-  
+  const t1Calls = operatorState.task1?.calls || [];
+  const t2Calls = operatorState.task2?.calls || [];
+  const t3Calls = operatorState.task3?.calls || [];
+
+  const task1Stocks = new Set(t1Calls.map(c => c.stock));
+  const task2Stocks = new Set(t2Calls.map(c => c.stock));
+  const task3Stocks = new Set(t3Calls.map(c => c.stock));
+
   // Star picks: in Task 1 + Task 2
   const starPicks = [...task1Stocks].filter(s => task2Stocks.has(s));
-  
+
   // Alpha picks: in all 3 tasks
   const alphaPicks = starPicks.filter(s => task3Stocks.has(s));
-  
+
   // Flag them in the results
-  for (const call of operatorState.task1.calls) {
+  for (const call of t1Calls) {
     if (alphaPicks.includes(call.stock)) {
       call.pick_type = "🔥 ALPHA PICK";
     } else if (starPicks.includes(call.stock)) {
       call.pick_type = "⭐ STAR PICK";
     }
   }
-  
-  for (const call of operatorState.task2.calls) {
+
+  for (const call of t2Calls) {
     if (alphaPicks.includes(call.stock)) {
       call.pick_type = "🔥 ALPHA PICK";
     } else if (starPicks.includes(call.stock)) {
       call.pick_type = "⭐ STAR PICK";
     }
   }
-  
-  for (const call of operatorState.task3.calls) {
+
+  for (const call of t3Calls) {
     if (alphaPicks.includes(call.stock)) {
       call.pick_type = "🔥 ALPHA PICK";
     } else if (starPicks.includes(call.stock)) {
       call.pick_type = "⭐ STAR PICK";
     }
   }
-  
+
   operatorState.starPicks = starPicks;
   operatorState.alphaPicks = alphaPicks;
 }
@@ -251,6 +286,33 @@ Today's aggression level: ${summary.aggression_level} (VIX ${summary.vix !== nul
 }
 
 /**
+ * Enrich scanner data with NSE data (F&O bans, delivery %, earnings)
+ */
+function enrichScannerData(scannerData, nseData) {
+  const { foBanList, deliveryMap, earnings } = nseData;
+
+  // Build earnings lookup for next 2 days
+  const earningsSoonSet = new Set();
+  const today = new Date();
+  const cutoff = new Date(today);
+  cutoff.setDate(cutoff.getDate() + 2);
+
+  for (const e of earnings) {
+    const earnDate = new Date(e.date);
+    if (earnDate >= today && earnDate <= cutoff) {
+      earningsSoonSet.add(e.symbol);
+    }
+  }
+
+  return scannerData.map(stock => ({
+    ...stock,
+    isFOBanned: foBanList.has(stock.symbol.toUpperCase()),
+    deliveryPercent: deliveryMap.get(stock.symbol.toUpperCase()) || null,
+    earningsSoon: earningsSoonSet.has(stock.symbol.toUpperCase()),
+  }));
+}
+
+/**
  * Transform scanner data from main scanner to operator scanner format
  * Enriches with options cache, FII/DII, block deals data
  */
@@ -268,16 +330,22 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
     const isFO = isFOStock(stock.symbol);
     const optionsData = optionsCache.get(stock.symbol) || stock.options || null;
 
-    // Parse options data for OI, IV, PCR
+    // Parse options data for OI, IV, PCR from enriched cache
     let oiChange = null;
     let iv = null;
     let pcr = null;
     let deliveryPercent = null;
+    let oiRising = false;
+    let totalCallOI = null;
+    let totalPutOI = null;
 
     if (optionsData) {
       oiChange = optionsData.oiChange || null;
       iv = optionsData.iv || null;
       pcr = optionsData.pcr || null;
+      totalCallOI = optionsData.totalCallOI || null;
+      totalPutOI = optionsData.totalPutOI || null;
+      oiRising = oiChange !== null && oiChange > 10;
     }
 
     // Check for block/bulk deals
@@ -316,26 +384,28 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
       volume: stock.volume,
       volSpike: stock.volSpike,
 
-      // F&O specific
+      // F&O specific (enriched with OI delta tracking)
       isFO,
-      isFOBanned: false, // Would need F&O ban list
+      isFOBanned: false, // Will be set by enrichScannerData
       options: optionsData,
       oiChange,
       oiChangePercent: oiChange,
       deliveryPercent,
       iv,
       pcr,
-      earningsSoon: false, // Would need earnings calendar
+      earningsSoon: false, // Will be set by enrichScannerData
       blockDeal: hasBlockDeal,
       bulkDeal: hasBulkDeal,
-      consolidationDays: 0, // Would need more analysis
+      consolidationDays: 0,
       atrPercent: null,
-      oiRising: oiChange !== null && oiChange > 10,
+      oiRising,
       ivRising: iv !== null && iv > 15 && iv < 35,
+      totalCallOI,
+      totalPutOI,
 
       // Price action for footprint detection
       priceRange10d: null,
-      volumeRatio: null,
+      volumeRatio: stock.volumeRatio || null,
       position52W: stock.w52H && stock.w52L
         ? ((stock.price - stock.w52L) / (stock.w52H - stock.w52L)) * 100
         : null,
@@ -368,8 +438,8 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
       fiiFlow: null,
       fiiBuying: false,
       blockDealBuy: hasBlockDeal,
-      putOI: null,
-      callOI: null
+      putOI: totalPutOI,
+      callOI: totalCallOI
     });
   }
 
