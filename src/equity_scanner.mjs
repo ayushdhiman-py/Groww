@@ -254,7 +254,7 @@ function detectBreakout(candles, volRatio, consolidationDays) {
     if (candles.length < 2) return { isBreakout: false, pattern: "none" };
     const last = candles[candles.length - 1];
     const prev = candles[candles.length - 2];
-    const isBreakout = last.close > prev.high && volRatio !== null && volRatio >= MIN_BREAKOUT_VOL_RATIO;
+    const isBreakout = last.close > prev.high && volRatio != null && volRatio >= MIN_BREAKOUT_VOL_RATIO;
 
     let pattern = "none";
     if (isBreakout) {
@@ -341,10 +341,10 @@ function determineOperatorPhase(footprints, priceChange5d, deliveryPct, volRatio
 function checkFundamentals(fundamentalData) {
     const concerns = [];
 
-    if (fundamentalData.debtToEquity !== null && fundamentalData.debtToEquity >= MAX_DEBT_TO_EQUITY) {
+    if (fundamentalData.debtToEquity != null && fundamentalData.debtToEquity >= MAX_DEBT_TO_EQUITY) {
         concerns.push(`High D/E: ${fundamentalData.debtToEquity.toFixed(2)}`);
     }
-    if (fundamentalData.revenueGrowthQoQ !== null && fundamentalData.revenueGrowthQoQ < 0) {
+    if (fundamentalData.revenueGrowthQoQ != null && fundamentalData.revenueGrowthQoQ < 0) {
         concerns.push(`Revenue declining QoQ`);
     }
     if (fundamentalData.promoterPledgeIncrease) {
@@ -484,12 +484,12 @@ export function analyzeEquityStock(
     const footprints = detectAllFootprints(operatorData);
 
     // ── 2. Delivery % > 65% on breakout day ──
-    const deliveryPct = fundamentalData.deliveryPct !== null ? fundamentalData.deliveryPct : null;
-    const deliveryPass = deliveryPct === null || deliveryPct >= MIN_DELIVERY_PCT;
+    const deliveryPct = fundamentalData.deliveryPct ?? null;
+    const deliveryPass = deliveryPct == null || deliveryPct >= MIN_DELIVERY_PCT;
 
     // ── 3. Volume ratio on breakout ──
     const volRatio = calcVolumeRatio(dailyCandles);
-    const volumePass = volRatio !== null && volRatio >= MIN_BREAKOUT_VOL_RATIO;
+    const volumePass = volRatio != null && volRatio >= MIN_BREAKOUT_VOL_RATIO;
 
     // ── 4. Consolidation check ──
     const consolidation = calcConsolidationRange(dailyCandles, MIN_CONSOLIDATION_DAYS + 5);
@@ -656,7 +656,7 @@ export function analyzeEquityStock(
     if (weeklyEmaPass) reasons.push(`Weekly EMA 21 > EMA 50 ${goldenCrossForming ? "(golden cross forming)" : ""}`);
     if (macdPass) reasons.push(`MACD bullish ${macdBullDaily ? "daily" : ""}${macdBullWeekly ? " and weekly" : ""}`);
     if (supertrendGreen) reasons.push("Supertrend green on daily");
-    if (rsPass && rsVsNifty !== null && Number.isFinite(rsVsNifty)) reasons.push(`RS vs Nifty ${rsVsNifty.toFixed(2)} (min: ${MIN_RS_VS_NIFTY})`);
+    if (rsPass && rsVsNifty != null && Number.isFinite(rsVsNifty)) reasons.push(`RS vs Nifty ${rsVsNifty.toFixed(2)} (min: ${MIN_RS_VS_NIFTY})`);
     if (aboveDma) reasons.push("Price above all key DMAs (20, 50, 100, 200)");
     if (pos52WPass && Number.isFinite(pos52W)) reasons.push(`At ${pos52W.toFixed(1)}% of 52W range — strong momentum position`);
     if (dePass) reasons.push(`Clean balance sheet: D/E ${fundamentalData.debtToEquity != null && Number.isFinite(fundamentalData.debtToEquity) ? fundamentalData.debtToEquity.toFixed(2) : "N/A"} < ${MAX_DEBT_TO_EQUITY}`);
