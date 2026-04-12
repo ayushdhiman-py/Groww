@@ -283,47 +283,18 @@ export class SortManager {
         // Regular tabs: ALL, GOLDEN, BUY, SELL, FO
         console.log(`[Sort] Re-rendering ${activeTab} from cache, timeframe=${timeframe}`);
         
-        // For "ALL" timeframe, we need to aggregate from all cached timeframes
-        if (timeframe === 'ALL') {
-          console.log('[Sort] Timeframe=ALL, aggregating from all cached timeframes...');
-          const allTimeframes = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
-          let aggregatedData = { data: {}, universe: 0, lastUpdated: null };
-          let hasData = false;
-          
-          for (const tf of allTimeframes) {
-            const cacheKey = `${tf}_${activeTab}`;
-            const cached = window.dataManager.cache.get(cacheKey);
-            if (cached?.data?.data?.[`${tf}_${activeTab}`]) {
-              aggregatedData.data[`${tf}_${activeTab}`] = cached.data.data[`${tf}_${activeTab}`];
-              if (!aggregatedData.universe || cached.data.universe > aggregatedData.universe) {
-                aggregatedData.universe = cached.data.universe;
-              }
-              if (!aggregatedData.lastUpdated || cached.data.lastUpdated > aggregatedData.lastUpdated) {
-                aggregatedData.lastUpdated = cached.data.lastUpdated;
-              }
-              hasData = true;
-              console.log(`[Sort] Found ${tf}_${activeTab}: ${cached.data.data[`${tf}_${activeTab}`].length} rows`);
-            }
-          }
-          
-          if (hasData) {
-            console.log(`[Sort] Aggregated data ready, rendering...`);
-            window.renderStocks(aggregatedData);
-          } else {
-            console.warn(`[Sort] No cached data for timeframe=ALL, fetching...`);
-            window.tabManager?.loadScannerData();
-          }
+        // Use direct cache key regardless of timeframe
+        const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
+        console.log(`[Sort] Looking for cache key: ${dataKey}`);
+        console.log(`[Sort] Available cache keys:`, Array.from(window.dataManager.cache.keys()));
+        
+        const cached = window.dataManager.cache.get(dataKey);
+        if (cached?.data) {
+          console.log(`[Sort] Found cached data for ${dataKey}`);
+          window.renderStocks(cached.data);
         } else {
-          // Single timeframe - use direct cache key
-          const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
-          const cached = window.dataManager.cache.get(dataKey);
-          if (cached?.data) {
-            console.log(`[Sort] Found cached data for ${dataKey}`);
-            window.renderStocks(cached.data);
-          } else {
-            console.warn(`[Sort] No cached data for ${activeTab}, fetching...`);
-            window.tabManager?.loadScannerData();
-          }
+          console.warn(`[Sort] No cached data for ${dataKey}, fetching fresh...`);
+          window.tabManager?.loadScannerData();
         }
       }
     } catch (e) {
