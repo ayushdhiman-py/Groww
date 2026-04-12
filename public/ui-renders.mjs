@@ -688,36 +688,92 @@ function closeModalChart(event) {
 
 // ── HELPER: Update badges ────────────────────────────────────
 function updateBadges(data) {
-  if (!data?.data) return;
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('[Badges] ========== UPDATE BADGES ==========');
+  
+  if (!data?.data) {
+    console.warn('[Badges] No data provided');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    return;
+  }
+
+  console.log('[Badges] Data keys:', Object.keys(data.data));
   
   const timeframe = window.stateManager.get('timeframe');
-  let all = [], buys = [], sells = [], golden = [];
+  console.log(`[Badges] Current timeframe: ${timeframe}`);
   
+  let all = [], buys = [], sells = [], golden = [];
+
   if (timeframe === 'ALL') {
+    console.log('[Badges] Aggregating from all timeframes...');
     ['1m', '5m', '10m', '15m', '30m', '1h', '1d'].forEach(t => {
-      all.push(...(data.data[`${t}_ALL`] || []));
-      buys.push(...(data.data[`${t}_BUY`] || []));
-      sells.push(...(data.data[`${t}_SELL`] || []));
-      golden.push(...(data.data[`${t}_GOLDEN`] || []));
+      const allKey = `${t}_ALL`;
+      const buyKey = `${t}_BUY`;
+      const sellKey = `${t}_SELL`;
+      const goldenKey = `${t}_GOLDEN`;
+      
+      const allRows = data.data[allKey] || [];
+      const buyRows = data.data[buyKey] || [];
+      const sellRows = data.data[sellKey] || [];
+      const goldenRows = data.data[goldenKey] || [];
+      
+      console.log(`[Badges]   ${allKey}: ${allRows.length} rows`);
+      console.log(`[Badges]   ${buyKey}: ${buyRows.length} rows`);
+      console.log(`[Badges]   ${sellKey}: ${sellRows.length} rows`);
+      console.log(`[Badges]   ${goldenKey}: ${goldenRows.length} rows`);
+      
+      all.push(...allRows);
+      buys.push(...buyRows);
+      sells.push(...sellRows);
+      golden.push(...goldenRows);
     });
+    console.log(`[Badges] Aggregated totals: ALL=${all.length}, BUY=${buys.length}, SELL=${sells.length}, GOLDEN=${golden.length}`);
   } else {
-    all = data.data[`${timeframe}_ALL`] || [];
-    buys = data.data[`${timeframe}_BUY`] || [];
-    sells = data.data[`${timeframe}_SELL`] || [];
-    golden = data.data[`${timeframe}_GOLDEN`] || [];
+    const allKey = `${timeframe}_ALL`;
+    const buyKey = `${timeframe}_BUY`;
+    const sellKey = `${timeframe}_SELL`;
+    const goldenKey = `${timeframe}_GOLDEN`;
+    
+    all = data.data[allKey] || [];
+    buys = data.data[buyKey] || [];
+    sells = data.data[sellKey] || [];
+    golden = data.data[goldenKey] || [];
+    
+    console.log(`[Badges] Single timeframe data:`);
+    console.log(`[Badges]   ${allKey}: ${all.length} rows`);
+    console.log(`[Badges]   ${buyKey}: ${buys.length} rows`);
+    console.log(`[Badges]   ${sellKey}: ${sells.length} rows`);
+    console.log(`[Badges]   ${goldenKey}: ${golden.length} rows`);
   }
 
   const setBadge = (id, val) => {
     const el = document.getElementById(id);
-    if (el) el.textContent = val || '—';
+    if (el) {
+      const displayVal = val === 0 ? '0' : (val || '—');
+      el.textContent = displayVal;
+      console.log(`[Badges]   ${id}: ${displayVal}`);
+    } else {
+      console.warn(`[Badges] Element ${id} not found!`);
+    }
   };
+
+  console.log('[Badges] Setting badge values:');
   
-  setBadge('badge-GOLDEN', new Set(golden.map(r => r.symbol)).size || '—');
-  setBadge('badge-ALL', new Set(all.map(r => r.symbol)).size || '—');
-  setBadge('badge-BUY', new Set(buys.map(r => r.symbol)).size || '—');
-  setBadge('badge-SELL', new Set(sells.map(r => r.symbol)).size || '—');
+  const uniqueGolden = new Set(golden.map(r => r.symbol)).size;
+  const uniqueAll = new Set(all.map(r => r.symbol)).size;
+  const uniqueBuy = new Set(buys.map(r => r.symbol)).size;
+  const uniqueSell = new Set(sells.map(r => r.symbol)).size;
+  const uniqueSectors = new Set(all.map(r => r.sector).filter(Boolean)).size;
+  
+  setBadge('badge-GOLDEN', uniqueGolden);
+  setBadge('badge-ALL', uniqueAll);
+  setBadge('badge-BUY', uniqueBuy);
+  setBadge('badge-SELL', uniqueSell);
   setBadge('badge-FO', 30);
-  setBadge('badge-SECTORS', new Set(all.map(r => r.sector).filter(Boolean)).size || '—');
+  setBadge('badge-SECTORS', uniqueSectors);
+  
+  console.log('[Badges] ✅ Badge update complete');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
 // ── HELPER: Update last updated badge ────────────────────────
