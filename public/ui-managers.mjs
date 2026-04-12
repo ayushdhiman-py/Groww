@@ -414,13 +414,15 @@ export class SearchFilter {
 
     // Apply search filter
     if (query) {
-      const terms = query.split(',').map(t => t.trim()).filter(Boolean);
+      // Split by comma for multi-term search, then remove all spaces from each term
+      const terms = query.split(',').map(t => t.replace(/\s+/g, '').trim()).filter(Boolean);
       if (terms.length > 0) {
         filtered = filtered.filter(r => {
-          const symUpper = r.symbol?.toUpperCase() || '';
-          const secUpper = (r.sector || '').toUpperCase();
-          const sigUpper = (r.signal || '').toUpperCase();
-          const ratUpper = (r.rating || '').toUpperCase();
+          // Remove spaces from symbol for flexible matching (e.g., "tata motor" matches "TATAMOTORS")
+          const symUpper = (r.symbol?.toUpperCase() || '').replace(/\s+/g, '');
+          const secUpper = ((r.sector || '').toUpperCase()).replace(/\s+/g, '');
+          const sigUpper = ((r.signal || '').toUpperCase()).replace(/\s+/g, '');
+          const ratUpper = ((r.rating || '').toUpperCase()).replace(/\s+/g, '');
 
           return terms.some(t =>
             symUpper.includes(t) ||
