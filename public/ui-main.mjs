@@ -11,9 +11,13 @@ let stateManager, dataManager, renderEngine, tabManager, timeframeManager;
 let livePriceUpdater, portfolioManager, sortManager, searchFilter, foManager, intervalManager;
 
 async function initApp() {
-  console.log('[App] Initializing...');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('[App] ========== INITIALIZING ==========');
+  console.log('[App] Timestamp:', new Date().toISOString());
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   // Create all managers
+  console.log('[App] Creating managers...');
   stateManager = new StateManager();
   dataManager = new DataManager();
   renderEngine = new RenderEngine();
@@ -37,14 +41,43 @@ async function initApp() {
   window.searchFilter = searchFilter;
   window.foManager = foManager;
 
-  // Restore state from localStorage
+  // Restore state from localStorage FIRST
+  console.log('[App] Restoring state from localStorage...');
   stateManager.restore();
+  
+  // Log current state
+  const currentState = stateManager.get();
+  console.log('[App] Current state after restore:', {
+    timeframe: currentState.timeframe,
+    searchQuery: currentState.searchQuery,
+    showIndices: currentState.showIndices,
+    showDividend: currentState.showDividend
+  });
+  
+  // Log localStorage values
+  console.log('[App] localStorage values:', {
+    scanner_tf: localStorage.getItem('scanner_tf'),
+    scanner_searchQuery: localStorage.getItem('scanner_searchQuery'),
+    scanner_showIndices: localStorage.getItem('scanner_showIndices'),
+    scanner_showDividend: localStorage.getItem('scanner_showDividend')
+  });
 
   // Initialize UI components
+  console.log('[App] Initializing UI components...');
   timeframeManager.init();
   
   // Update timeframe dropdown to show restored timeframe
-  timeframeManager.updateDropdown(stateManager.get('timeframe'));
+  console.log(`[App] Updating timeframe dropdown to: ${currentState.timeframe}`);
+  timeframeManager.updateDropdown(currentState.timeframe);
+  
+  // Update toggle states from restored state
+  console.log(`[App] Setting indices toggle to: ${currentState.showIndices}`);
+  const idxToggle = document.getElementById('idxTgl');
+  if (idxToggle) idxToggle.checked = currentState.showIndices;
+  
+  console.log(`[App] Setting dividend toggle to: ${currentState.showDividend}`);
+  const divToggle = document.getElementById('divTgl');
+  if (divToggle) divToggle.checked = currentState.showDividend;
   
   tabManager.init();
   sortManager.init();
@@ -62,10 +95,13 @@ async function initApp() {
   // Start background tasks
   startBackgroundTasks();
 
+  console.log('[App] ✅ Initialization complete');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
   // Initial load
   await checkAuth();
   
-  console.log('[App] Initialized successfully');
+  console.log('[App] 🚀 App fully initialized');
 }
 
 // ── Authentication ──────────────────────────────────────────
@@ -91,15 +127,33 @@ async function checkAuth() {
 }
 
 async function loadInitialData() {
+  console.log('[App] Loading initial data...');
   const timeframe = stateManager.get('timeframe');
   const activeTab = stateManager.get('activeTab');
+  
+  console.log(`[App] Loading data: timeframe="${timeframe}", tab="${activeTab}"`);
   
   // Load scanner data
   const data = await dataManager.fetchState(timeframe, activeTab, true);
   if (data) {
+    console.log('[App] Data loaded successfully');
     renderStocks(data);
+    
+    // Update universe count
+    const sU = document.getElementById('sU');
+    if (sU) {
+      sU.textContent = data?.universe || '—';
+      console.log(`[App] Universe count: ${data?.universe}`);
+    } else {
+      console.warn('[App] Universe element (#sU) not found!');
+    }
+    
+    // Update badges
     updateBadges(data);
     updateLastUpdatedBadge(data);
+    console.log('[App] Badges updated');
+  } else {
+    console.error('[App] Failed to load initial data');
   }
 
   // Load cached portfolio if available
@@ -109,10 +163,6 @@ async function loadInitialData() {
     const badge = document.getElementById('badge-PORTFOLIO');
     if (badge) badge.textContent = itemCount;
   }
-
-  // Update universe count
-  const sU = document.getElementById('sU');
-  if (sU) sU.textContent = data?.universe || '—';
 }
 
 // ── Background Tasks ─────────────────────────────────────────
