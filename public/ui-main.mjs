@@ -425,3 +425,5 @@ if (document.readyState === 'loading') {
 window.doLogin = doLogin;
 window.manualLoad = manualLoad;
 window.load = manualLoad;
+window.toggleTfDropdown = () => document.getElementById('tfDropdown')?.classList.toggle('open');
+window.selectTf = (value, el) => timeframeManager?.selectTimeframe(value, el);
