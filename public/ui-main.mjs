@@ -430,18 +430,18 @@ window.selectTf = (value, el) => timeframeManager?.selectTimeframe(value, el);
 window.toggleIndices = () => {
   const el = document.getElementById('idxTgl');
   if (el) {
-    el.checked = !el.checked;
+    // Don't manually flip - onchange already did it
     stateManager.set('showIndices', el.checked);
-    console.log(`[Toggle] Indices: ${el.checked}`);
+    console.log(`[Toggle] Indices: ${el.checked ? 'ON' : 'OFF'}`);
     renderCurrentView();
   }
 };
 window.toggleDividendHighlight = () => {
   const el = document.getElementById('divTgl');
   if (el) {
-    el.checked = !el.checked;
+    // Don't manually flip - onchange already did it
     stateManager.set('showDividend', el.checked);
-    console.log(`[Toggle] Dividend: ${el.checked}`);
+    console.log(`[Toggle] Dividend: ${el.checked ? 'ON' : 'OFF'}`);
     renderCurrentView();
   }
 };
