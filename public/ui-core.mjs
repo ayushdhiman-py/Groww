@@ -329,10 +329,13 @@ export class TabManager {
 
   // Initialize tab click handlers
   init() {
+    console.log('[TabManager] Initializing tab click handlers...');
     document.querySelectorAll('.tab').forEach(tab => {
+      console.log(`[TabManager] Attached handler to tab: ${tab.dataset.set}`);
       tab.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
+        console.log(`[TabManager] Clicked tab: ${tab.dataset.set}`);
         this.switchToTab(tab.dataset.set);
       }, { passive: false });
     });
@@ -341,7 +344,12 @@ export class TabManager {
   // Switch to a different tab
   async switchToTab(newTab) {
     const oldTab = this.state.get('activeTab');
-    if (oldTab === newTab) return;
+    console.log(`[TabManager] Switching tab: ${oldTab} → ${newTab}`);
+    
+    if (oldTab === newTab) {
+      console.log(`[TabManager] Already on tab ${newTab}, skipping`);
+      return;
+    }
 
     this.previousTab = oldTab;
 
@@ -402,25 +410,34 @@ export class TabManager {
 
   // Load data for new tab
   async loadTabData(tab) {
+    console.log(`[TabManager] Loading data for tab: ${tab}`);
+    
     // Restore sort state for new tab
     const tabSorts = this.state.get('tabSorts');
     const savedSort = tabSorts[tab];
     if (savedSort) {
+      console.log(`[TabManager] Restored sort for ${tab}:`, savedSort);
       this.state.set('sortStack', [...savedSort]);
     } else {
+      console.log(`[TabManager] Using default sort for ${tab}`);
       this.state.set('sortStack', [{ col: 'techScore', asc: false }]);
     }
 
     // Load appropriate data based on tab
     if (tab === 'PORTFOLIO') {
+      console.log('[TabManager] Loading portfolio data...');
       await window.portfolioManager?.loadAndRender();
     } else if (tab === 'SECTORS') {
+      console.log('[TabManager] Loading sectors data...');
       const data = await this.data.fetchState(this.state.get('timeframe'), tab);
       if (data) {
+        console.log('[TabManager] Rendering sectors');
         window.renderSectors(data);
+      } else {
+        console.error('[TabManager] Failed to fetch sectors data');
       }
     } else {
-      // Regular tabs: ALL, GOLDEN, BUY, SELL, FO
+      console.log(`[TabManager] Loading scanner data for ${tab}...`);
       await this.loadScannerData();
     }
   }
@@ -430,9 +447,14 @@ export class TabManager {
     const timeframe = this.state.get('timeframe');
     const tab = this.state.get('activeTab');
     
+    console.log(`[TabManager] Fetching scanner data: timeframe=${timeframe}, tab=${tab}`);
     const data = await this.data.fetchState(timeframe, tab, true);
+    
     if (data) {
+      console.log(`[TabManager] Rendering stocks for ${tab}`);
       window.renderStocks(data);
+    } else {
+      console.error(`[TabManager] Failed to fetch scanner data for ${tab}`);
     }
   }
 
@@ -485,18 +507,22 @@ export class TimeframeManager {
   }
 
   selectTimeframe(value, optionEl) {
+    console.log(`[Timeframe] Selecting timeframe: ${value}`);
     // Debounce to prevent rapid switching
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
 
     this.debounceTimer = setTimeout(() => {
       const changed = this.state.set('timeframe', value);
       if (changed) {
+        console.log(`[Timeframe] Timeframe changed to ${value}, persisting and reloading`);
         this.state.persist();
         this.updateDropdown(value);
         document.getElementById('tfDropdown')?.classList.remove('open');
         
         // Reload data with new timeframe
         window.tabManager?.loadScannerData();
+      } else {
+        console.log(`[Timeframe] Timeframe already ${value}, no change`);
       }
     }, 150);
   }

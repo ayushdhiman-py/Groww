@@ -194,6 +194,8 @@ export class SortManager {
   }
 
   handleSort(column, event) {
+    console.log(`[Sort] Sorting by column: ${column}, shiftKey: ${event?.shiftKey}`);
+    
     if (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -206,20 +208,25 @@ export class SortManager {
       // Single column sort
       if (sortStack.length === 1 && sortStack[0].col === column) {
         sortStack[0].asc = !sortStack[0].asc;
+        console.log(`[Sort] Toggled sort direction for ${column}: ${sortStack[0].asc ? 'ASC' : 'DESC'}`);
       } else {
         sortStack = [{ col: column, asc: false }];
+        console.log(`[Sort] New single sort: ${column} DESC`);
       }
     } else {
       // Multi-column sort
       const existing = sortStack.find(s => s.col === column);
       if (existing) {
         existing.asc = !existing.asc;
+        console.log(`[Sort] Multi-sort toggle: ${column} ${existing.asc ? 'ASC' : 'DESC'}`);
       } else {
         sortStack.push({ col: column, asc: false });
+        console.log(`[Sort] Multi-sort added: ${column}`);
       }
     }
 
     this.state.set('sortStack', sortStack);
+    console.log(`[Sort] Sort stack:`, sortStack);
     
     // Persist sort state for current tab
     const activeTab = this.state.get('activeTab');
@@ -229,6 +236,7 @@ export class SortManager {
     this.state.persist();
 
     // Re-render
+    console.log(`[Sort] Triggering re-render`);
     window.tabManager?.loadScannerData();
   }
 
@@ -266,12 +274,16 @@ export class SearchFilter {
   }
 
   init() {
+    // Search input
     const searchInput = document.getElementById('search');
     if (searchInput) {
+      console.log('[SearchFilter] Initializing search input...');
       // Debounced search
       searchInput.addEventListener('input', (e) => {
+        console.log(`[SearchFilter] Input: "${e.target.value}"`);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.debounceTimer = setTimeout(() => {
+          console.log(`[SearchFilter] Debounced search: "${e.target.value}"`);
           this.state.set('searchQuery', e.target.value);
           window.renderCurrentView?.();
         }, 200);
@@ -279,28 +291,39 @@ export class SearchFilter {
 
       // Instant filter on change
       searchInput.addEventListener('change', () => {
+        console.log(`[SearchFilter] Change: "${searchInput.value}"`);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.state.set('searchQuery', searchInput.value);
         window.renderCurrentView?.();
       });
+    } else {
+      console.warn('[SearchFilter] Search input not found');
     }
 
     // Index toggle
     const idxToggle = document.getElementById('idxTgl');
     if (idxToggle) {
+      console.log('[SearchFilter] Initializing index toggle');
       idxToggle.addEventListener('change', (e) => {
+        console.log(`[SearchFilter] Indices toggle: ${e.target.checked}`);
         this.state.set('showIndices', e.target.checked);
         window.renderCurrentView?.();
       });
+    } else {
+      console.warn('[SearchFilter] Index toggle not found');
     }
 
     // Dividend toggle
     const divToggle = document.getElementById('divTgl');
     if (divToggle) {
+      console.log('[SearchFilter] Initializing dividend toggle');
       divToggle.addEventListener('change', (e) => {
+        console.log(`[SearchFilter] Dividend toggle: ${e.target.checked}`);
         this.state.set('showDividend', e.target.checked);
         window.renderCurrentView?.();
       });
+    } else {
+      console.warn('[SearchFilter] Dividend toggle not found');
     }
   }
 

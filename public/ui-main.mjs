@@ -427,3 +427,21 @@ window.manualLoad = manualLoad;
 window.load = manualLoad;
 window.toggleTfDropdown = () => document.getElementById('tfDropdown')?.classList.toggle('open');
 window.selectTf = (value, el) => timeframeManager?.selectTimeframe(value, el);
+window.toggleIndices = () => {
+  const el = document.getElementById('idxTgl');
+  if (el) {
+    el.checked = !el.checked;
+    stateManager.set('showIndices', el.checked);
+    console.log(`[Toggle] Indices: ${el.checked}`);
+    renderCurrentView();
+  }
+};
+window.toggleDividendHighlight = () => {
+  const el = document.getElementById('divTgl');
+  if (el) {
+    el.checked = !el.checked;
+    stateManager.set('showDividend', el.checked);
+    console.log(`[Toggle] Dividend: ${el.checked}`);
+    renderCurrentView();
+  }
+};

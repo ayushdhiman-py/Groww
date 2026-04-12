@@ -53,6 +53,8 @@ function generateRangeBar(low, high, current) {
 
 // ── MAIN RENDER: STOCKS (ALL, GOLDEN, BUY, SELL, FO) ─────────
 function renderStocks(data) {
+  console.log('[Render] renderStocks called');
+  
   const state = window.stateManager.get();
   const activeTab = state.activeTab;
   const timeframe = state.timeframe;
@@ -60,7 +62,10 @@ function renderStocks(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
+  console.log(`[Render] Rendering stocks: tab=${activeTab}, timeframe=${timeframe}`);
+
   if (!data?.data) {
+    console.warn('[Render] No data available for stocks');
     if (empty) {
       empty.style.display = 'block';
       empty.textContent = 'No data available';
@@ -103,9 +108,11 @@ function renderStocks(data) {
 
   // Apply filters
   rows = window.searchFilter?.filterRows(rows) || rows;
+  console.log(`[Render] After filtering: ${rows.length} rows`);
 
   // Apply sorting
   if (sortStack?.length > 0) {
+    console.log(`[Render] Applying sort: ${JSON.stringify(sortStack)}`);
     const tfOrder = { '1m': 1, '5m': 2, '10m': 3, '15m': 4, '30m': 5, '1h': 6, '1d': 7 };
     const ratingOrder = { 'STRONG BUY': 5, 'MODERATE': 3, 'SKIP': 1, 'WEAK BUY': 2, 'NEUTRAL': 0 };
 
@@ -290,12 +297,15 @@ function renderStocks(data) {
   };
 
   // Execute chunked render
+  console.log(`[Render] Starting chunked render: ${rows.length} rows`);
   window.renderEngine?.renderChunks(rows, renderRow, tbody, () => {
+    console.log('[Render] Chunked render complete');
     // Restore scroll position
     if (tableContainer) tableContainer.scrollTop = scrollPos;
     
     // Reload expanded F&O row if exists
     if (activeTab === 'FO' && window.foManager?.expandedSymbol) {
+      console.log(`[Render] Reloading F&O option chain for ${window.foManager.expandedSymbol}`);
       const wrap = document.getElementById(`wrap-${window.foManager.expandedSymbol}`);
       if (wrap) window.foManager.loadOptionChain(window.foManager.expandedSymbol, wrap);
     }
