@@ -257,6 +257,12 @@ export class SortManager {
     const activeTab = this.state.get('activeTab');
     const timeframe = this.state.get('timeframe');
     
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('[Sort] ========== RE-RENDER CURRENT TAB ==========');
+    console.log(`[Sort] activeTab="${activeTab}", timeframe="${timeframe}"`);
+    console.log(`[Sort] All cache keys:`, Array.from(window.dataManager.cache.keys()));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
     try {
       if (activeTab === 'PORTFOLIO') {
         console.log('[Sort] Re-rendering portfolio from cache');
@@ -267,16 +273,17 @@ export class SortManager {
         const dataKey = window.dataManager.cacheKey('1d', 'ALL');
         const cached = window.dataManager.cache.get(dataKey);
         if (cached?.data) {
-          console.log('[Sort] Found cached 1d_ALL data for sectors');
+          console.log(`[Sort] ✅ Found cached 1d_ALL data for sectors`);
           window.renderSectors(cached.data);
         } else {
-          console.warn('[Sort] No cached 1d_ALL data for sectors, trying ALL...');
+          console.warn(`[Sort] ❌ No cached 1d_ALL data for sectors`);
           // Fallback: try any available daily data
           const allCached = window.dataManager.cache.get(window.dataManager.cacheKey(timeframe === 'ALL' ? '1d' : timeframe, 'ALL'));
           if (allCached?.data) {
+            console.log('[Sort] Using fallback data for sectors');
             window.renderSectors(allCached.data);
           } else {
-            console.error('[Sort] No cached data available for sectors');
+            console.error('[Sort] ❌ No cached data available for sectors');
           }
         }
       } else {
@@ -285,15 +292,22 @@ export class SortManager {
         
         // Use direct cache key regardless of timeframe
         const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
-        console.log(`[Sort] Looking for cache key: ${dataKey}`);
-        console.log(`[Sort] Available cache keys:`, Array.from(window.dataManager.cache.keys()));
+        console.log(`[Sort] 🔍 Looking for cache key: "${dataKey}"`);
         
         const cached = window.dataManager.cache.get(dataKey);
         if (cached?.data) {
-          console.log(`[Sort] Found cached data for ${dataKey}`);
+          console.log(`[Sort] ✅ Found cached data for "${dataKey}"`);
+          console.log(`[Sort] Data keys in cache:`, Object.keys(cached.data.data || {}));
+          if (cached.data.data) {
+            for (const [key, value] of Object.entries(cached.data.data)) {
+              console.log(`[Sort]   ${key}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
+            }
+          }
           window.renderStocks(cached.data);
         } else {
-          console.warn(`[Sort] No cached data for ${dataKey}, fetching fresh...`);
+          console.warn(`[Sort] ❌ No cached data for "${dataKey}"`);
+          console.log(`[Sort] Available keys:`, Array.from(window.dataManager.cache.keys()));
+          console.log(`[Sort] Fetching fresh data...`);
           window.tabManager?.loadScannerData();
         }
       }

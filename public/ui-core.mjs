@@ -80,13 +80,22 @@ export class DataManager {
   // Fetch scanner state
   async fetchState(timeframe, tab, force = false) {
     const key = this.cacheKey(timeframe, tab);
-    
+
+    console.log(`[DataManager] fetchState called: timeframe="${timeframe}", tab="${tab}" => cacheKey="${key}"`);
+
     // Return cached data if fresh
     if (!force) {
       const cached = this.cache.get(key);
       if (cached && (Date.now() - cached.timestamp < this.CACHE_TTL) && cached.data) {
+        console.log(`[DataManager] ✅ Cache HIT for "${key}" (age: ${Math.round((Date.now() - cached.timestamp)/1000)}s)`);
         return cached.data;
+      } else if (cached) {
+        console.log(`[DataManager] ⏰ Cache STALE for "${key}" (age: ${Math.round((Date.now() - cached.timestamp)/1000)}s)`);
+      } else {
+        console.log(`[DataManager] ❌ Cache MISS for "${key}"`);
       }
+    } else {
+      console.log(`[DataManager] 🔄 Force refresh requested for "${key}"`);
     }
 
     // Prevent concurrent requests
@@ -97,13 +106,22 @@ export class DataManager {
 
     const fetchPromise = (async () => {
       try {
+        console.log(`[DataManager] 🌐 Fetching from API: /api/state`);
         const res = await fetch('/api/state');
         if (res.status === 401) {
           window.location.reload();
           return null;
         }
         const data = await res.json();
+        console.log(`[DataManager] 💾 Caching data with key="${key}"`);
+        console.log(`[DataManager] Data structure:`, Object.keys(data.data || {}));
+        if (data.data) {
+          for (const [dataKey, value] of Object.entries(data.data)) {
+            console.log(`[DataManager]   ${dataKey}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
+          }
+        }
         this.cache.set(key, { data, timestamp: Date.now(), promise: null });
+        console.log(`[DataManager] ✅ Cache updated for "${key}"`);
         return data;
       } catch (e) {
         console.error('[Data] Fetch state error:', e);
@@ -448,14 +466,34 @@ export class TabManager {
     const timeframe = this.state.get('timeframe');
     const tab = this.state.get('activeTab');
     
-    console.log(`[TabManager] Fetching scanner data: timeframe=${timeframe}, tab=${tab}`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('[TabManager] ========== LOAD SCANNER DATA ==========');
+    console.log(`[TabManager] timeframe="${timeframe}", tab="${tab}"`);
+    console.log(`[TabManager] Computing cache key: cacheKey("${timeframe}", "${tab}")`);
+    console.log('[TabManager] Current cache keys:', Array.from(this.data.cache.keys()));
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
     const data = await this.data.fetchState(timeframe, tab, true);
     
     if (data) {
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.log('[TabManager] ========== DATA FETCHED ==========');
+      console.log(`[TabManager] Cache key used: ${this.data.cacheKey(timeframe, tab)}`);
+      console.log(`[TabManager] Data structure keys:`, Object.keys(data.data || {}));
+      console.log(`[TabManager] Universe count:`, data.universe);
+      
+      // Log row counts per timeframe/tab combination
+      if (data.data) {
+        for (const [key, value] of Object.entries(data.data)) {
+          console.log(`[TabManager]   ${key}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
+        }
+      }
+      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      
       console.log(`[TabManager] Rendering stocks for ${tab}`);
       window.renderStocks(data);
     } else {
-      console.error(`[TabManager] Failed to fetch scanner data for ${tab}`);
+      console.error(`[TabManager] ❌ Failed to fetch scanner data for tab=${tab}, timeframe=${timeframe}`);
     }
   }
 

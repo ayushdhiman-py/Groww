@@ -53,7 +53,8 @@ function generateRangeBar(low, high, current) {
 
 // ── MAIN RENDER: STOCKS (ALL, GOLDEN, BUY, SELL, FO) ─────────
 function renderStocks(data) {
-  console.log('[Render] renderStocks called');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('[Render] ========== RENDER STOCKS CALLED ==========');
   
   const state = window.stateManager.get();
   const activeTab = state.activeTab;
@@ -62,21 +63,30 @@ function renderStocks(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
+  console.log(`[Render] activeTab="${activeTab}", timeframe="${timeframe}"`);
+  console.log(`[Render] sortStack:`, JSON.stringify(sortStack));
+
   // GUARD: Don't render stocks when on Portfolio or Sectors tabs
   if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS') {
-    console.log(`[Render] renderStocks blocked - current tab is ${activeTab}`);
+    console.log(`[Render] ⛔ BLOCKED - current tab is ${activeTab}, not rendering stocks`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     return;
   }
 
-  console.log(`[Render] Rendering stocks: tab=${activeTab}, timeframe=${timeframe}`);
-
   if (!data?.data) {
-    console.warn('[Render] No data available for stocks');
+    console.warn('[Render] ❌ No data.data available');
+    console.log('[Render] Data object:', data);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     if (empty) {
       empty.style.display = 'block';
       empty.textContent = 'No data available';
     }
     return;
+  }
+
+  console.log(`[Render] Data keys:`, Object.keys(data.data));
+  for (const [key, value] of Object.entries(data.data)) {
+    console.log(`[Render]   ${key}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
   }
 
   // Show default table header
@@ -98,23 +108,39 @@ function renderStocks(data) {
 
   // Collect rows based on active tab and timeframe
   let rows = [];
+  console.log(`[Render] Collecting rows: activeTab="${activeTab}", timeframe="${timeframe}"`);
+  
   if (activeTab === 'FO') {
     const key = timeframe === 'ALL' ? '5m_ALL' : `${timeframe}_ALL`;
+    console.log(`[Render] FO tab: using key="${key}"`);
     const rawRows = data.data[key] || [];
+    console.log(`[Render] FO rawRows: ${rawRows.length} rows`);
     const sorted = rawRows.slice().sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange));
     rows = sorted.slice(0, 30);
+    console.log(`[Render] FO final rows: ${rows.length} rows (top 30 by volume)`);
   } else if (timeframe === 'ALL') {
+    console.log(`[Render] Timeframe=ALL: aggregating from all timeframes`);
     const allTfs = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
+    let totalBeforeFilter = 0;
     allTfs.forEach(t => {
-      rows.push(...(data.data[`${t}_${activeTab}`] || []));
+      const key = `${t}_${activeTab}`;
+      const tfRows = data.data[key] || [];
+      totalBeforeFilter += tfRows.length;
+      console.log(`[Render]   ${key}: ${tfRows.length} rows`);
+      rows.push(...tfRows);
     });
+    console.log(`[Render] Total rows before filter: ${totalBeforeFilter}, after concat: ${rows.length}`);
   } else {
-    rows = (data.data[`${timeframe}_${activeTab}`] || []).slice();
+    const key = `${timeframe}_${activeTab}`;
+    console.log(`[Render] Single timeframe: using key="${key}"`);
+    rows = (data.data[key] || []).slice();
+    console.log(`[Render] Rows from ${key}: ${rows.length}`);
   }
 
   // Apply filters
+  console.log(`[Render] Before filter: ${rows.length} rows`);
   rows = window.searchFilter?.filterRows(rows) || rows;
-  console.log(`[Render] After filtering: ${rows.length} rows`);
+  console.log(`[Render] After filter: ${rows.length} rows`);
 
   // Apply sorting
   if (sortStack?.length > 0) {
@@ -129,7 +155,11 @@ function renderStocks(data) {
       }
       return window.sortManager?.compare(a, b, sortStack) || 0;
     });
+    console.log(`[Render] After sort: ${rows.length} rows`);
   }
+
+  console.log(`[Render] Final row count: ${rows.length}`);
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   // Update row count
   const uniqueStocks = new Set(rows.map(r => r.symbol)).size;
