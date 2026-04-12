@@ -42,6 +42,10 @@ async function initApp() {
 
   // Initialize UI components
   timeframeManager.init();
+  
+  // Update timeframe dropdown to show restored timeframe
+  timeframeManager.updateDropdown(stateManager.get('timeframe'));
+  
   tabManager.init();
   sortManager.init();
   searchFilter.init();

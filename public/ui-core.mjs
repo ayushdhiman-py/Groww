@@ -7,12 +7,12 @@ export class StateManager {
   constructor() {
     this.state = {
       activeTab: 'ALL',
-      timeframe: localStorage.getItem('scanner_tf') || 'ALL',
+      timeframe: localStorage.getItem('scanner_tf') || '15m', // Changed default to 15m
       sortStack: [{ col: 'techScore', asc: false }],
       tabSorts: {}, // Per-tab sort state: { ALL: [...], GOLDEN: [...], ... }
       searchQuery: '',
-      showIndices: true,
-      showDividend: false,
+      showIndices: localStorage.getItem('scanner_showIndices') !== 'false', // Default true
+      showDividend: localStorage.getItem('scanner_showDividend') === 'true', // Default false
       isAuthenticated: false,
       isScanning: false,
       marketOpen: false,
@@ -50,6 +50,9 @@ export class StateManager {
     try {
       localStorage.setItem('scanner_tf', this.state.timeframe);
       localStorage.setItem('scanner_tabSorts', JSON.stringify(this.state.tabSorts));
+      localStorage.setItem('scanner_showIndices', this.state.showIndices);
+      localStorage.setItem('scanner_showDividend', this.state.showDividend);
+      localStorage.setItem('scanner_searchQuery', this.state.searchQuery);
     } catch (e) { /* Ignore storage errors */ }
   }
 
@@ -57,6 +60,24 @@ export class StateManager {
     try {
       const savedSorts = localStorage.getItem('scanner_tabSorts');
       if (savedSorts) this.state.tabSorts = JSON.parse(savedSorts);
+      
+      // Restore search query
+      const savedSearch = localStorage.getItem('scanner_searchQuery');
+      if (savedSearch) {
+        this.state.searchQuery = savedSearch;
+        // Also update the search input
+        setTimeout(() => {
+          const searchInput = document.getElementById('search');
+          if (searchInput) searchInput.value = savedSearch;
+        }, 0);
+      }
+      
+      console.log('[State] Restored state:', {
+        timeframe: this.state.timeframe,
+        showIndices: this.state.showIndices,
+        showDividend: this.state.showDividend,
+        searchQuery: this.state.searchQuery
+      });
     } catch (e) { /* Ignore storage errors */ }
   }
 }
@@ -492,6 +513,19 @@ export class TabManager {
       
       console.log(`[TabManager] Rendering stocks for ${tab}`);
       window.renderStocks(data);
+      
+      // Update universe count
+      const sU = document.getElementById('sU');
+      if (sU) {
+        sU.textContent = data?.universe || '—';
+        console.log(`[TabManager] Universe count: ${data?.universe}`);
+      }
+      
+      // Update badges with fresh data
+      console.log('[TabManager] Updating badges...');
+      if (typeof window.updateBadges === 'function') {
+        window.updateBadges(data);
+      }
     } else {
       console.error(`[TabManager] ❌ Failed to fetch scanner data for tab=${tab}, timeframe=${timeframe}`);
     }

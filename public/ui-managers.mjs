@@ -362,6 +362,7 @@ export class SearchFilter {
         this.debounceTimer = setTimeout(() => {
           console.log(`[SearchFilter] Debounced search: "${e.target.value}"`);
           this.state.set('searchQuery', e.target.value);
+          this.state.persist(); // Persist search query
           window.renderCurrentView?.();
         }, 200);
       });
@@ -371,6 +372,7 @@ export class SearchFilter {
         console.log(`[SearchFilter] Change: "${searchInput.value}"`);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.state.set('searchQuery', searchInput.value);
+        this.state.persist(); // Persist search query
         window.renderCurrentView?.();
       });
     } else {
@@ -384,6 +386,7 @@ export class SearchFilter {
       idxToggle.addEventListener('change', (e) => {
         console.log(`[SearchFilter] Indices toggle: ${e.target.checked}`);
         this.state.set('showIndices', e.target.checked);
+        this.state.persist(); // Persist indices toggle
         window.renderCurrentView?.();
       });
     } else {
@@ -397,6 +400,7 @@ export class SearchFilter {
       divToggle.addEventListener('change', (e) => {
         console.log(`[SearchFilter] Dividend toggle: ${e.target.checked}`);
         this.state.set('showDividend', e.target.checked);
+        this.state.persist(); // Persist dividend toggle
         window.renderCurrentView?.();
       });
     } else {
