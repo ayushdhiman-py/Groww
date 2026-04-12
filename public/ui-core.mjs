@@ -521,6 +521,12 @@ export class TabManager {
         console.log(`[TabManager] Universe count: ${data?.universe}`);
       }
       
+      // Update stat cards (Golden, Buy, Sell, Vol Spikes, etc.)
+      console.log('[TabManager] Updating stat cards...');
+      if (typeof window.updateStatCards === 'function') {
+        window.updateStatCards(data);
+      }
+      
       // Update badges with fresh data
       console.log('[TabManager] Updating badges...');
       if (typeof window.updateBadges === 'function') {

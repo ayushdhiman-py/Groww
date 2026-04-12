@@ -686,6 +686,62 @@ function closeModalChart(event) {
   }
 }
 
+// ── HELPER: Update stat cards (top row) ──────────────────────
+function updateStatCards(data) {
+  if (!data?.data) return;
+
+  console.log('[Stats] ========== UPDATE STAT CARDS ==========');
+  
+  const timeframe = window.stateManager.get('timeframe');
+  console.log(`[Stats] Timeframe: ${timeframe}`);
+  
+  // Collect all stocks based on timeframe
+  let allStocks = [];
+  if (timeframe === 'ALL') {
+    ['1m', '5m', '10m', '15m', '30m', '1h', '1d'].forEach(t => {
+      allStocks.push(...(data.data[`${t}_ALL`] || []));
+    });
+  } else {
+    allStocks = data.data[`${timeframe}_ALL`] || [];
+  }
+  
+  console.log(`[Stats] Total stocks scanned: ${allStocks.length}`);
+  
+  // Calculate stats
+  const goldenCount = allStocks.filter(r => r.goldenCross).length;
+  const buyCount = allStocks.filter(r => r.signal === 'BUY').length;
+  const sellCount = allStocks.filter(r => r.signal === 'SELL').length;
+  const volSpikeCount = allStocks.filter(r => r.volSpike).length;
+  const strongBuyCount = allStocks.filter(r => r.rating === 'STRONG BUY').length;
+  const watchlistCount = allStocks.filter(r => r.rating === 'MODERATE').length;
+  const errorCount = data.errors?.length || 0;
+  
+  console.log(`[Stats] Golden: ${goldenCount}, Buy: ${buyCount}, Sell: ${sellCount}`);
+  console.log(`[Stats] Vol Spikes: ${volSpikeCount}, Strong Buy: ${strongBuyCount}, Watchlist: ${watchlistCount}, Errors: ${errorCount}`);
+  
+  // Update DOM
+  const setStat = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) {
+      el.textContent = val;
+      console.log(`[Stats] ${id}: ${val}`);
+    } else {
+      console.warn(`[Stats] Element ${id} not found!`);
+    }
+  };
+  
+  setStat('sG', goldenCount);
+  setStat('sB', buyCount);
+  setStat('sS', sellCount);
+  setStat('sSp', volSpikeCount);
+  setStat('sSB', strongBuyCount);
+  setStat('sWL', watchlistCount);
+  setStat('sE', errorCount);
+  
+  console.log('[Stats] ✅ Stat cards updated');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+}
+
 // ── HELPER: Update badges ────────────────────────────────────
 function updateBadges(data) {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
@@ -813,5 +869,6 @@ window.renderOptionChain = renderOptionChain;
 window.openModalChart = openModalChart;
 window.closeModalChart = closeModalChart;
 window.updateBadges = updateBadges;
+window.updateStatCards = updateStatCards;
 window.updateLastUpdatedBadge = updateLastUpdatedBadge;
 window.renderCurrentView = renderCurrentView;

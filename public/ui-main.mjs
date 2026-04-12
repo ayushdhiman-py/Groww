@@ -148,6 +148,12 @@ async function loadInitialData() {
       console.warn('[App] Universe element (#sU) not found!');
     }
     
+    // Update stat cards (Golden, Buy, Sell, etc.)
+    console.log('[App] Updating stat cards...');
+    if (typeof window.updateStatCards === 'function') {
+      window.updateStatCards(data);
+    }
+    
     // Update badges
     updateBadges(data);
     updateLastUpdatedBadge(data);
