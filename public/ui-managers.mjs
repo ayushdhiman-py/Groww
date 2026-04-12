@@ -187,6 +187,7 @@ export class SortManager {
   constructor(stateManager) {
     this.state = stateManager;
     this.sortDebounceTimer = null;
+    this.SORT_DEBOUNCE_MS = 50; // Reduced from 100ms for instant feel
   }
 
   init() {
@@ -210,7 +211,7 @@ export class SortManager {
 
     this.sortDebounceTimer = setTimeout(() => {
       this.executeSort(column, event?.shiftKey);
-    }, 100);
+    }, this.SORT_DEBOUNCE_MS);
   }
 
   executeSort(column, shift) {

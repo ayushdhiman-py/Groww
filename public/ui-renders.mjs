@@ -53,8 +53,10 @@ function generateRangeBar(low, high, current) {
 
 // ── MAIN RENDER: STOCKS (ALL, GOLDEN, BUY, SELL, FO) ─────────
 function renderStocks(data) {
+  const startTime = performance.now();
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   console.log('[Render] ========== RENDER STOCKS CALLED ==========');
+  console.log(`[Render] ⏱️ Start time: ${startTime.toFixed(2)}ms`);
   
   const state = window.stateManager.get();
   const activeTab = state.activeTab;
@@ -333,12 +335,16 @@ function renderStocks(data) {
   };
 
   // Execute chunked render
-  console.log(`[Render] Starting chunked render: ${rows.length} rows`);
+  console.log(`[Render] Starting chunked render: ${rows.length} rows (CHUNK_SIZE=${window.renderEngine?.CHUNK_SIZE || 50})`);
   window.renderEngine?.renderChunks(rows, renderRow, tbody, () => {
-    console.log('[Render] Chunked render complete');
+    const endTime = performance.now();
+    const totalTime = endTime - startTime;
+    console.log(`[Render] ✅ Chunked render complete in ${totalTime.toFixed(2)}ms`);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    
     // Restore scroll position
     if (tableContainer) tableContainer.scrollTop = scrollPos;
-    
+
     // Reload expanded F&O row if exists
     if (activeTab === 'FO' && window.foManager?.expandedSymbol) {
       console.log(`[Render] Reloading F&O option chain for ${window.foManager.expandedSymbol}`);

@@ -239,7 +239,7 @@ export class RenderEngine {
     this.isRendering = false;
     this.pendingRender = false;
     this.currentTaskId = 0;
-    this.CHUNK_SIZE = 50;
+    this.CHUNK_SIZE = 200; // Increased from 50 to 200 for faster rendering
     this.renderTimers = new Map();
   }
 
