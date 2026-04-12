@@ -263,12 +263,21 @@ export class SortManager {
         window.portfolioManager?.loadAndRender();
       } else if (activeTab === 'SECTORS') {
         console.log('[Sort] Re-rendering sectors from cache');
-        const dataKey = window.dataManager.cacheKey(timeframe, 'ALL');
+        // Sectors always use 1d_ALL data (daily timeframe)
+        const dataKey = window.dataManager.cacheKey('1d', 'ALL');
         const cached = window.dataManager.cache.get(dataKey);
         if (cached?.data) {
+          console.log('[Sort] Found cached 1d_ALL data for sectors');
           window.renderSectors(cached.data);
         } else {
-          console.warn('[Sort] No cached data for sectors');
+          console.warn('[Sort] No cached 1d_ALL data for sectors, trying ALL...');
+          // Fallback: try any available daily data
+          const allCached = window.dataManager.cache.get(window.dataManager.cacheKey(timeframe === 'ALL' ? '1d' : timeframe, 'ALL'));
+          if (allCached?.data) {
+            window.renderSectors(allCached.data);
+          } else {
+            console.error('[Sort] No cached data available for sectors');
+          }
         }
       } else {
         // Regular tabs: ALL, GOLDEN, BUY, SELL, FO

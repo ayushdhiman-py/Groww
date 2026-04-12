@@ -320,17 +320,20 @@ function renderStocks(data) {
 
 // ── RENDER: SECTORS ──────────────────────────────────────────
 function renderSectors(data) {
-  if (!data?.data) return;
+  console.log('[Render] renderSectors called');
+  
+  if (!data?.data) {
+    console.warn('[Render] No data available for sectors');
+    return;
+  }
 
   const searchQuery = window.stateManager.get('searchQuery').trim().toUpperCase();
   let allRows = [];
-  const timeframe = window.stateManager.get('timeframe');
   
-  if (timeframe === 'ALL') {
-    allRows = data.data['1d_ALL'] || [];
-  } else {
-    allRows = data.data[`${timeframe}_ALL`] || [];
-  }
+  // Sectors ALWAYS use daily data (1d_ALL) regardless of selected timeframe
+  console.log('[Render] Sectors using 1d_ALL data');
+  allRows = data.data['1d_ALL'] || [];
+  console.log(`[Render] Sectors: ${allRows.length} stocks in 1d_ALL`);
 
   // Group by sector
   const sectors = {};

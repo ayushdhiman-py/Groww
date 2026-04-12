@@ -429,7 +429,8 @@ export class TabManager {
       await window.portfolioManager?.loadAndRender();
     } else if (tab === 'SECTORS') {
       console.log('[TabManager] Loading sectors data...');
-      const data = await this.data.fetchState(this.state.get('timeframe'), tab);
+      // Sectors always use daily data (1d_ALL)
+      const data = await this.data.fetchState('1d', 'ALL');
       if (data) {
         console.log('[TabManager] Rendering sectors');
         window.renderSectors(data);
