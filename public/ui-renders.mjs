@@ -62,6 +62,12 @@ function renderStocks(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
+  // GUARD: Don't render stocks when on Portfolio or Sectors tabs
+  if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS') {
+    console.log(`[Render] renderStocks blocked - current tab is ${activeTab}`);
+    return;
+  }
+
   console.log(`[Render] Rendering stocks: tab=${activeTab}, timeframe=${timeframe}`);
 
   if (!data?.data) {

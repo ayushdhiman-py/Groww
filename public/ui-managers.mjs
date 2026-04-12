@@ -186,6 +186,7 @@ export class PortfolioManager {
 export class SortManager {
   constructor(stateManager) {
     this.state = stateManager;
+    this.sortDebounceTimer = null;
   }
 
   init() {
@@ -201,7 +202,18 @@ export class SortManager {
       event.stopPropagation();
     }
 
-    const shift = event?.shiftKey;
+    // Debounce rapid sort clicks
+    if (this.sortDebounceTimer) {
+      console.log('[Sort] Debouncing rapid sort click');
+      clearTimeout(this.sortDebounceTimer);
+    }
+
+    this.sortDebounceTimer = setTimeout(() => {
+      this.executeSort(column, event?.shiftKey);
+    }, 100);
+  }
+
+  executeSort(column, shift) {
     let sortStack = [...this.state.get('sortStack')];
 
     if (!shift) {
@@ -235,9 +247,44 @@ export class SortManager {
     this.state.set('tabSorts', tabSorts);
     this.state.persist();
 
-    // Re-render
-    console.log(`[Sort] Triggering re-render`);
-    window.tabManager?.loadScannerData();
+    // Re-render from CACHED data (don't fetch!)
+    console.log(`[Sort] Triggering re-render from cache for tab: ${activeTab}`);
+    this.reRenderCurrentTab();
+  }
+
+  // Re-render current tab from cached data without fetching
+  reRenderCurrentTab() {
+    const activeTab = this.state.get('activeTab');
+    const timeframe = this.state.get('timeframe');
+    
+    try {
+      if (activeTab === 'PORTFOLIO') {
+        console.log('[Sort] Re-rendering portfolio from cache');
+        window.portfolioManager?.loadAndRender();
+      } else if (activeTab === 'SECTORS') {
+        console.log('[Sort] Re-rendering sectors from cache');
+        const dataKey = window.dataManager.cacheKey(timeframe, 'ALL');
+        const cached = window.dataManager.cache.get(dataKey);
+        if (cached?.data) {
+          window.renderSectors(cached.data);
+        } else {
+          console.warn('[Sort] No cached data for sectors');
+        }
+      } else {
+        // Regular tabs: ALL, GOLDEN, BUY, SELL, FO
+        console.log(`[Sort] Re-rendering ${activeTab} from cache`);
+        const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
+        const cached = window.dataManager.cache.get(dataKey);
+        if (cached?.data) {
+          window.renderStocks(cached.data);
+        } else {
+          console.warn(`[Sort] No cached data for ${activeTab}, fetching...`);
+          window.tabManager?.loadScannerData();
+        }
+      }
+    } catch (e) {
+      console.error('[Sort] Re-render error:', e);
+    }
   }
 
   // Sort comparison function
