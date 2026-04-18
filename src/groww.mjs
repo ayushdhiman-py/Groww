@@ -5,6 +5,10 @@ import { TOKEN_FILE, CREDS, TOKEN_URL, CANDLE_URL, TF_DAYS, BASE_URL } from "./c
 
 let session = { accessToken: null, expires: 0 };
 
+export function isLoggedIn() {
+    return !!(session.accessToken && Date.now() < session.expires);
+}
+
 export function loadSession() {
     try {
         if (fs.existsSync(TOKEN_FILE)) {
@@ -25,6 +29,9 @@ export function saveSession(accessToken) {
 }
 
 let loginPromise = null;
+let lastLoginAttempt = 0;
+const LOGIN_COOLDOWN = 60000; // 60 seconds cooldown between login attempts after a failure
+
 
 // ── Global Rate Limiter ───────────────────────────────────────────────────────
 // Groww API Limit: 10 req/sec and 300 req/min (Live Data Group)
@@ -81,12 +88,23 @@ export async function login() {
     // Singleton login lock
     if (loginPromise) return loginPromise;
 
+    // Check cooldown
+    const nowTs = Date.now();
+    if (nowTs - lastLoginAttempt < LOGIN_COOLDOWN) {
+        const wait = Math.ceil((LOGIN_COOLDOWN - (nowTs - lastLoginAttempt)) / 1000);
+        console.warn(`[Login] Cooldown active. Please wait ${wait}s to prevent rate limits...`);
+        return Promise.reject(new Error(`Login cooldown active (${wait}s remaining)`));
+    }
+
+    lastLoginAttempt = nowTs;
+
     loginPromise = (async () => {
+
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
         console.log("Logging in to Groww API...");
         console.log(`[Debug] API Key length: ${CREDS.apiKey?.length || 0}, starts with: ${CREDS.apiKey?.substring(0, 20)}...`);
-        console.log(`[Debug] API Secret length: ${CREDS.apiSecret?.length || 0} (expected: 30)`);
+        console.log(`[Debug] API Secret length: ${CREDS.apiSecret?.length || 0} (expected: 30-32)`);
         console.log(`[Debug] Token URL: ${TOKEN_URL}`);
         console.log(`[Debug] Timestamp: ${timestamp}, Checksum: ${checksum.substring(0, 16)}...`);
 
@@ -144,9 +162,10 @@ export async function login() {
                     }
 
                     if (e.response?.status === 429) {
-                        triggerBackoff(10);
-                        console.warn(`[Login] Rate limited (429). Backing off 10s...`);
-                        await sleep(10000);
+                        const backoffSec = Math.min(30 * Math.pow(2, attempts - 1), 300);
+                        triggerBackoff(backoffSec);
+                        console.warn(`[Login] Rate limited (429). Backing off ${backoffSec}s... (attempt ${attempts}/${maxAttempts})`);
+                        await sleep(backoffSec * 1000);
                         continue;
                     }
 

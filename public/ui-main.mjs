@@ -224,13 +224,7 @@ function updateMarketStatus() {
   if (capsule) capsule.className = isOpen ? 'market-capsule open' : 'market-capsule';
   if (txt) txt.textContent = isOpen ? 'Open' : 'Closed';
 
-  // Disable refresh button when market closed
-  const rfBtn = document.querySelector('.action-btn[onclick*="load"]');
-  if (rfBtn) {
-    rfBtn.disabled = !isOpen;
-    rfBtn.style.opacity = isOpen ? '' : '0.4';
-    rfBtn.style.cursor = isOpen ? '' : 'not-allowed';
-  }
+  // Refresh button always enabled
 }
 
 // ── Poll Status ──────────────────────────────────────────────
@@ -455,8 +449,6 @@ async function doLogin() {
 
 // ── Manual Load Function (for refresh button) ────────────────
 async function manualLoad() {
-  if (!stateManager.get('marketOpen')) return;
-  
   const timeframe = stateManager.get('timeframe');
   const activeTab = stateManager.get('activeTab');
   const data = await dataManager.fetchState(timeframe, activeTab, true);

@@ -334,24 +334,122 @@ function renderStocks(data) {
     </tr>`;
   };
 
-  // Execute chunked render
-  console.log(`[Render] Starting chunked render: ${rows.length} rows (CHUNK_SIZE=${window.renderEngine?.CHUNK_SIZE || 50})`);
-  window.renderEngine?.renderChunks(rows, renderRow, tbody, () => {
-    const endTime = performance.now();
-    const totalTime = endTime - startTime;
-    console.log(`[Render] ✅ Chunked render complete in ${totalTime.toFixed(2)}ms`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
-    // Restore scroll position
-    if (tableContainer) tableContainer.scrollTop = scrollPos;
+  // In-place update: patch existing rows, add new ones, remove stale ones
+  const existingRows = new Map();
+  tbody.querySelectorAll('tr.main-row').forEach(tr => existingRows.set(tr.id, tr));
 
-    // Reload expanded F&O row if exists
-    if (activeTab === 'FO' && window.foManager?.expandedSymbol) {
-      console.log(`[Render] Reloading F&O option chain for ${window.foManager.expandedSymbol}`);
-      const wrap = document.getElementById(`wrap-${window.foManager.expandedSymbol}`);
-      if (wrap) window.foManager.loadOptionChain(window.foManager.expandedSymbol, wrap);
+  const fragment = document.createDocumentFragment();
+  const subRowsToAppend = [];
+  const seenIds = new Set();
+
+  rows.forEach(r => {
+    const rowId = `row-${r.symbol}`;
+    seenIds.add(rowId);
+
+    const cc = r.chgPct >= 0 ? 'up' : 'dn';
+    const chgP = (r.priceChange >= 0 ? '+' : '') + r.priceChange.toFixed(2);
+    const chg = (r.chgPct >= 0 ? '+' : '') + r.chgPct.toFixed(2) + '%';
+    const fullChg = `${chgP} (${chg})`;
+    const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
+    const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
+
+    if (existingRows.has(rowId)) {
+      // Row exists — patch only changed cells
+      const tr = existingRows.get(rowId);
+      const cells = tr.cells;
+
+      // Cell 0: symbol/sector/change
+      const chgEl = cells[0]?.querySelector('.muted-xl span');
+      if (chgEl && chgEl.textContent !== fullChg) {
+        chgEl.className = cc;
+        chgEl.textContent = fullChg;
+      }
+
+      // Cell 1: price + vwap
+      const priceEl = cells[1]?.querySelector('.price-bold');
+      const newPrice = `₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+      if (priceEl && priceEl.textContent !== newPrice) priceEl.textContent = newPrice;
+      const vwapEl = cells[1]?.querySelector('.muted-xl');
+      if (vwapEl) {
+        const vwapArrow = r.aboveVwap ? '▲' : '▼';
+        const vwapPrice = `₹${(r.vwap || r.price).toFixed(1)}`;
+        vwapEl.innerHTML = `VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${vwapArrow}</span> ${vwapPrice}`;
+      }
+
+      // Cell 3: EMA
+      let statusTxt = '';
+      if (r.goldenCross) statusTxt = `<div class='ea muted-xl hr-dots' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
+      else if (r.deathCross) statusTxt = `<div class='eb muted-xl hr-dots' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
+      else statusTxt = r.ema21above
+        ? `<div class='ea muted-xl hr-dots' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
+        : `<div class='eb muted-xl hr-dots' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
+      const emaCell = cells[3]?.querySelector('div:first-child');
+      if (emaCell) emaCell.innerHTML = statusTxt;
+      const emaGapEl = cells[3]?.querySelector('.muted-xl');
+      if (emaGapEl) {
+        emaGapEl.className = `muted-xl ${cc}`;
+        emaGapEl.textContent = `Gap ${Math.abs(r.emaGap || 0).toFixed(2)}%`;
+      }
+
+      // Cell 4: volume
+      const volEl = cells[4]?.querySelector('div:first-child');
+      if (volEl) {
+        volEl.className = r.volSpike ? 'vol-spike-⚡' : '';
+        volEl.style.color = r.volSpike ? 'var(--yellow)' : 'var(--text)';
+        volEl.textContent = (r.volSpike ? '⚡ ' : '') + formatVolume(r.volume);
+      }
+      const volBarEl = cells[4]?.querySelector('.vol-bar-fill');
+      if (volBarEl) volBarEl.style.width = `${volBarPct}%`;
+      const volChgEl = cells[4]?.querySelector('div:last-child');
+      if (volChgEl) {
+        volChgEl.className = (r.volumeChange || 0) >= 0 ? 'up' : 'dn';
+        volChgEl.style.cssText = 'font-size:10px; font-family:var(--mono);';
+        volChgEl.textContent = `${(r.volumeChange || 0) >= 0 ? '+' : ''}${formatVolume(r.volumeChange)} ${(r.volumeChange || 0) >= 0 ? '↑' : '↓'}`;
+      }
+
+      // Cell 5: MACD
+      const macdCell = cells[5]?.querySelector('div');
+      if (macdCell) {
+        macdCell.innerHTML = r.macdAbove
+          ? `<div class='hr-dots'><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
+          : `<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
+      }
+
+      fragment.appendChild(tr);
+      const subRow = document.getElementById(`sub-${r.symbol}`);
+      if (subRow) subRowsToAppend.push(subRow);
+    } else {
+      // New row — full render
+      const tmp = document.createElement('tbody');
+      tmp.innerHTML = renderRow(r);
+      Array.from(tmp.children).forEach(child => {
+        if (child.classList.contains('main-row')) fragment.appendChild(child);
+        else subRowsToAppend.push(child);
+      });
     }
   });
+
+  // Remove stale rows
+  existingRows.forEach((tr, id) => {
+    if (!seenIds.has(id)) {
+      const subRow = document.getElementById(`sub-${id.replace('row-', '')}`);
+      subRow?.remove();
+    }
+  });
+
+  // Append all main rows then sub rows
+  subRowsToAppend.forEach(sr => fragment.appendChild(sr));
+  tbody.innerHTML = '';
+  tbody.appendChild(fragment);
+
+  // Restore scroll
+  if (tableContainer) tableContainer.scrollTop = scrollPos;
+
+  // Reload expanded F&O row if exists
+  if (activeTab === 'FO' && window.foManager?.expandedSymbol) {
+    const wrap = document.getElementById(`wrap-${window.foManager.expandedSymbol}`);
+    if (wrap) window.foManager.loadOptionChain(window.foManager.expandedSymbol, wrap);
+  }
 }
 
 // ── RENDER: SECTORS ──────────────────────────────────────────

@@ -31,7 +31,7 @@ try {
 
 // Helper: Get env var with trimming and required check
 const getEnv = (key, fallback) => {
-    const val = process.env[key];
+    let val = process.env[key];
     if (val === undefined || val === "") {
         if (fallback) {
             console.log(`[Config] ⚠️ ${key} not set, using fallback (local dev only)`);
@@ -39,27 +39,39 @@ const getEnv = (key, fallback) => {
         }
         throw new Error(`[Config] ❌ Missing required environment variable: ${key}`);
     }
-    return val.trim(); // Remove invisible newlines/whitespace
+    
+    val = val.trim();
+    // Strip quotes if present
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+    }
+    return val;
 };
 
 // Helper: Decode base64 secret if prefixed
 const getApiSecret = () => {
     const raw = getEnv("GROWW_API_SECRET", null);
     
+    let secret = raw;
     // Base64 encoded (recommended for Render to avoid special char corruption)
     if (raw.startsWith("base64:")) {
-        const decoded = Buffer.from(raw.slice(7), "base64").toString("utf-8");
-        console.log(`[Config] ✅ API Secret decoded from base64. Length: ${decoded.length}`);
-        return decoded;
+        secret = Buffer.from(raw.slice(7), "base64").toString("utf-8");
+        console.log(`[Config] ✅ API Secret decoded from base64. Length: ${secret.length}`);
+    } else {
+        console.log(`[Config] ✅ API Secret loaded from env. Length: ${secret.length} (expected: 30)`);
     }
     
-    // Raw value (may have corrupted special chars if pasted directly)
-    console.log(`[Config] ✅ API Secret loaded from env. Length: ${raw.length} (expected: 30)`);
-    return raw;
+    if (secret.length < 30 || secret.length > 32) {
+        console.warn(`[Config] ⚠️ WARNING: API Secret length is ${secret.length}, expected 30-32. Login may fail.`);
+    } else {
+        console.log(`[Config] ✅ API Secret length: ${secret.length} (valid)`);
+    }
+    
+    return secret;
 };
 
 export const CREDS = {
-    apiKey: getEnv("GROWW_API_KEY", "***REDACTED_JWT***"),
+    apiKey: getEnv("GROWW_API_KEY", null),
     apiSecret: getApiSecret(),
 };
 
