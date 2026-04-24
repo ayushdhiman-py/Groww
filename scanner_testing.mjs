@@ -3,7 +3,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createHash } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
-import { loadSession, login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, isRateLimited, getRateLimitWait } from "./src/groww.mjs";
+import { loadSession, login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions } from "./src/groww.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
 import { livePrices } from "./src/feed.mjs";
@@ -72,13 +72,9 @@ app.get("/api/status", (_, res) => res.json({
 
 app.post("/api/login", async (req, res) => {
     try {
-        if (isRateLimited()) {
-            const wait = getRateLimitWait();
-            const mins = Math.ceil(wait / 60);
-            return res.status(429).json({ ok: false, error: `Rate limited by Groww. Please wait ${mins} minute(s) before retrying.` });
-        }
         await login();
         setIsAuthenticated(true);
+        // scanAll(); // Trigger immediate scan
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
