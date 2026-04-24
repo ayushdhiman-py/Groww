@@ -5,6 +5,10 @@ import { TOKEN_FILE, CREDS, TOKEN_URL, CANDLE_URL, TF_DAYS, BASE_URL } from "./c
 
 let session = { accessToken: null, expires: 0 };
 
+export function isLoggedIn() {
+    return !!(session.accessToken && Date.now() < session.expires);
+}
+
 export function loadSession() {
     try {
         if (fs.existsSync(TOKEN_FILE)) {
