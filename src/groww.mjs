@@ -1,7 +1,10 @@
 import fs from "fs";
 import axios from "axios";
 import { createHash } from "crypto";
-import { TOKEN_FILE, CREDS, TOKEN_URL, CANDLE_URL, TF_DAYS, BASE_URL } from "./config.mjs";
+import path from "path";
+import { TOKEN_FILE, CREDS, TOKEN_URL, CANDLE_URL, TF_DAYS, BASE_URL, __dirname } from "./config.mjs";
+
+const BACKOFF_FILE = path.join(__dirname, "..", ".groww_backoff.json");
 
 let session = { accessToken: null, expires: 0 };
 
@@ -30,7 +33,31 @@ export function saveSession(accessToken) {
 
 let loginPromise = null;
 let lastLoginAttempt = 0;
-const LOGIN_COOLDOWN = 60000; // 60 seconds cooldown between login attempts after a failure
+const LOGIN_COOLDOWN = 60000;
+
+// ── Persistent backoff (survives restarts) ────────────────────────────────────
+function loadBackoff() {
+    try {
+        if (fs.existsSync(BACKOFF_FILE)) {
+            const d = JSON.parse(fs.readFileSync(BACKOFF_FILE, "utf8"));
+            if (d.until && d.until > Date.now()) {
+                rateLimitState.backoffuntil = d.until;
+                const waitSec = Math.ceil((d.until - Date.now()) / 1000);
+                console.warn(`[Login] ⏳ Persistent backoff active — ${waitSec}s remaining (from previous session)`);
+            } else {
+                fs.unlinkSync(BACKOFF_FILE); // expired, clean up
+            }
+        }
+    } catch (_) {}
+}
+
+function saveBackoff(until) {
+    try { fs.writeFileSync(BACKOFF_FILE, JSON.stringify({ until })); } catch (_) {}
+}
+
+function clearBackoff() {
+    try { if (fs.existsSync(BACKOFF_FILE)) fs.unlinkSync(BACKOFF_FILE); } catch (_) {}
+}
 
 
 // ── Global Rate Limiter ───────────────────────────────────────────────────────
@@ -77,9 +104,11 @@ export async function rateLimit(priority = 'normal') {
     }
 }
 
-export function triggerBackoff(seconds = 5) {
+export function triggerBackoff(seconds = 5, persist = false) {
     console.warn(`[RateLimit] Triggering backoff for ${seconds}s...`);
-    rateLimitState.backoffuntil = Date.now() + (seconds * 1000);
+    const until = Date.now() + (seconds * 1000);
+    rateLimitState.backoffuntil = until;
+    if (persist) saveBackoff(until);
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -99,6 +128,15 @@ export async function login() {
     lastLoginAttempt = nowTs;
 
     loginPromise = (async () => {
+
+        // Check persistent backoff before attempting login
+        loadBackoff();
+        if (Date.now() < rateLimitState.backoffuntil) {
+            const waitSec = Math.ceil((rateLimitState.backoffuntil - Date.now()) / 1000);
+            const err = new Error(`Login rate limited. Wait ${waitSec}s before retrying.`);
+            loginPromise = null;
+            throw err;
+        }
 
         const timestamp = Math.floor(Date.now() / 1000).toString();
         const checksum = createHash("sha256").update(CREDS.apiSecret + timestamp).digest("hex");
@@ -137,6 +175,7 @@ export async function login() {
                     const token = res.data?.token || res.data?.accessToken || res.data?.access_token || res.data?.data?.token;
                     if (token) {
                         saveSession(token);
+                        clearBackoff(); // successful login clears any persisted backoff
                         console.log("Groww login successful ✓");
                         return;
                     }
@@ -162,11 +201,12 @@ export async function login() {
                     }
 
                     if (e.response?.status === 429) {
-                        const backoffSec = Math.min(30 * Math.pow(2, attempts - 1), 300);
-                        triggerBackoff(backoffSec);
-                        console.warn(`[Login] Rate limited (429). Backing off ${backoffSec}s... (attempt ${attempts}/${maxAttempts})`);
-                        await sleep(backoffSec * 1000);
-                        continue;
+                        // Persist backoff so restarts don't hammer the endpoint again
+                        const backoffSec = 600; // 10 min hard cooldown on login 429
+                        triggerBackoff(backoffSec, true);
+                        console.warn(`[Login] ❌ Rate limited (429). Backing off ${backoffSec}s and saving to disk.`);
+                        console.warn(`[Login] Do NOT restart the server — wait ${backoffSec / 60} minutes then click Login in the UI.`);
+                        throw new Error(`Login rate limited by Groww. Wait ${backoffSec / 60} minutes before retrying.`);
                     }
 
                     if (e.response?.status === 401) {
@@ -213,8 +253,23 @@ export async function login() {
     return loginPromise;
 }
 
+export function isRateLimited() {
+    loadBackoff();
+    return Date.now() < rateLimitState.backoffuntil;
+}
+
+export function getRateLimitWait() {
+    return Math.max(0, Math.ceil((rateLimitState.backoffuntil - Date.now()) / 1000));
+}
+
 export async function ensureSession() {
     if (session.accessToken && Date.now() < session.expires) return;
+    // Check persistent backoff — don't auto-login if rate limited
+    loadBackoff();
+    if (Date.now() < rateLimitState.backoffuntil) {
+        const waitSec = Math.ceil((rateLimitState.backoffuntil - Date.now()) / 1000);
+        throw new Error(`Login rate limited. Wait ${waitSec}s before retrying.`);
+    }
     await login();
 }
 

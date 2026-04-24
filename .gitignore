@@ -19,6 +19,7 @@ scanner_testing.mjs.bak
 
 # Session files (security)
 .groww_session.json
+.groww_backoff.json
 
 # OS files
 .DS_Store
