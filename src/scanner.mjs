@@ -37,7 +37,7 @@ export function emptyState() {
 
 // Local rateLimit removed in favor of global one in upstox.mjs
 
-function buildSignal(candles, tf, symbol, ltp = null) {
+export function buildSignal(candles, tf, symbol, ltp = null) {
     const cls = candles.map(c => c.close).filter(Number.isFinite);
     const vol = candles.map(c => c.volume).filter(Number.isFinite);
     if (cls.length < 55 || vol.length < 15) return null;

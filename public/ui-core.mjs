@@ -80,6 +80,7 @@ export class DataManager {
   constructor() {
     this.cache = new Map(); // Key: `${timeframe}_${tab}`, Value: { data, timestamp, promise }
     this.portfolioCache = null;
+    this.screenerCache = null;
     this.isLoading = new Set(); // Track in-flight requests
     this.CACHE_TTL = 30000; // 30 seconds for scanner data
     this.PORTFOLIO_CACHE_TTL = 300000; // 5 minutes
@@ -204,6 +205,22 @@ export class DataManager {
     } catch (e) {
       console.error('[Data] Fetch indices error:', e);
       return [];
+    }
+  }
+
+  // Market-wide screener (Nifty 500) — refreshes server-side on its own slow
+  // cadence, so no client-side TTL logic needed; just cache the last fetch
+  // for renderCurrentView() to read back (same pattern as portfolioCache).
+  async fetchScreener() {
+    try {
+      const res = await fetch('/api/screener');
+      if (!res.ok) return null;
+      const data = await res.json();
+      this.screenerCache = { data, timestamp: Date.now() };
+      return data;
+    } catch (e) {
+      console.error('[Data] Fetch screener error:', e);
+      return null;
     }
   }
 
@@ -450,6 +467,10 @@ export class TabManager {
       } else {
         console.error('[TabManager] Failed to fetch intraday data');
       }
+    } else if (tab === 'SCREENERS') {
+      const data = await this.data.fetchScreener();
+      window.renderScreeners(data);
+      if (data) window.updateBadges?.(null, data);
     } else {
       await this.loadScannerData();
     }

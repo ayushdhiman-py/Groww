@@ -143,6 +143,14 @@ function startBackgroundTasks() {
   intervalManager.add('fullReload', async () => {
     const activeTab = stateManager.get('activeTab');
     if (activeTab === 'PORTFOLIO') return;
+    if (activeTab === 'SCREENERS') {
+      const screenerData = await dataManager.fetchScreener();
+      if (screenerData) {
+        window.renderScreeners(screenerData);
+        updateBadges(null, screenerData);
+      }
+      return;
+    }
     const timeframe = stateManager.get('timeframe');
     const data = await dataManager.fetchState(timeframe, activeTab, true);
     if (!data) return;
@@ -413,6 +421,10 @@ function setupKeyboardShortcuts() {
       case '8':
         e.preventDefault();
         document.querySelector('[data-set="PORTFOLIO"]')?.click();
+        break;
+      case '9':
+        e.preventDefault();
+        document.querySelector('[data-set="SCREENERS"]')?.click();
         break;
     }
   });

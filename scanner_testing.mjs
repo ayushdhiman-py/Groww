@@ -12,6 +12,7 @@ import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
 import { runOperatorScan, getOperatorState, buildMarketSummary, formatMarketSummaryBlock, transformScannerData } from "./src/operator_scanner.mjs";
 import { isDividendServiceAvailable } from "./src/dividend.mjs";
+import { screenerState, startScreenerScan } from "./src/screener.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -72,6 +73,11 @@ app.get("/api/status", (_, res) => res.json({
     dividendAvailable: isDividendServiceAvailable(),
 }));
 
+// Market-wide screeners (Nifty 500) — Top Gainers/Losers, Volume Shockers,
+// 52-Week breakouts, and pattern scans. Refreshes on its own ~15min cadence
+// (see src/screener.mjs), independent of the main 241-symbol deep scan.
+app.get("/api/screener", (_, res) => res.json(screenerState));
+
 // Starts (or no-ops if already running) background scanning + live feeds.
 // Safe to call from both server boot and /api/login, since scanAll/startFeed/
 // startOptionsFeed all guard against double-starting internally.
@@ -79,6 +85,7 @@ function activateMarketData() {
     startScan();
     startFeed(() => {});
     startOptionsFeed();
+    startScreenerScan();
 }
 
 app.post("/api/login", async (req, res) => {

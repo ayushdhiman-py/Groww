@@ -987,6 +987,29 @@
       filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.7));
     }
 
+    /* SCREENERS — sky blue */
+    .tab[data-set="SCREENERS"].active {
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.12), inset 0 1px 0 rgba(56, 189, 248, 0.15);
+    }
+
+    .tab[data-set="SCREENERS"].active::after {
+      width: 60%;
+      background: #38bdf8;
+      opacity: 1;
+    }
+
+    .tab[data-set="SCREENERS"].active .tab-badge {
+      background: rgba(56, 189, 248, 0.2);
+      color: #38bdf8;
+    }
+
+    .tab[data-set="SCREENERS"].active .tab-icon {
+      filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.7));
+    }
+
     /* SECTORS — yellow */
     .tab[data-set="SECTORS"].active {
       background: rgba(245, 158, 11, 0.1);
@@ -2343,6 +2366,11 @@
           <span class="tab-icon">⚡</span>
           <span class="tab-label">Intraday</span>
           <span class="tab-badge" id="badge-INTRADAY">—</span>
+        </div>
+        <div class="tab" data-set="SCREENERS">
+          <span class="tab-icon">🔎</span>
+          <span class="tab-label">Screeners</span>
+          <span class="tab-badge" id="badge-SCREENERS">—</span>
         </div>
         <div class="tab" data-set="FO">
           <span class="tab-icon">◈</span>

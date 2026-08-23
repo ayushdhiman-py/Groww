@@ -60,9 +60,9 @@ function renderStocks(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
-  // GUARD: Don't render stocks when on Portfolio, Sectors, or Intraday tabs —
-  // each has its own dedicated render function with a different table shape.
-  if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS' || activeTab === 'INTRADAY') {
+  // GUARD: Don't render stocks when on tabs with their own dedicated render
+  // function / different table shape.
+  if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS' || activeTab === 'INTRADAY' || activeTab === 'SCREENERS') {
     return;
   }
 
@@ -599,6 +599,74 @@ function renderIntraday(data) {
   tbody.innerHTML = html;
 }
 
+// ── RENDER: MARKET SCREENERS (Nifty 500) ─────────────────────
+// Card-based layout (Groww/Upstox-style) rather than a single sortable
+// table — each category is its own scannable list. Reuses the same
+// sparkline chart component as every other tab, since these rows carry the
+// exact same buildSignal() output.
+const SCREENER_SECTIONS = [
+  { key: 'gainers', title: 'Top Gainers', icon: '📈', color: '#22c55e', meta: r => ({ label: 'Chg', value: `${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(2)}%`, cls: r.chgPct >= 0 ? 'up' : 'dn' }) },
+  { key: 'losers', title: 'Top Losers', icon: '📉', color: '#ef4444', meta: r => ({ label: 'Chg', value: `${r.chgPct.toFixed(2)}%`, cls: 'dn' }) },
+  { key: 'volumeShockers', title: 'Volume Shockers', icon: '⚡', color: '#f59e0b', meta: r => ({ label: 'Vol', value: formatVolume(r.volume), cls: '' }) },
+  { key: 'high52w', title: '52-Week High', icon: '🚀', color: '#22c55e', meta: r => ({ label: '52W H', value: `₹${(r.w52H || 0).toFixed(1)}`, cls: 'up' }) },
+  { key: 'low52w', title: '52-Week Low', icon: '🔻', color: '#ef4444', meta: r => ({ label: '52W L', value: `₹${(r.w52L || 0).toFixed(1)}`, cls: 'dn' }) },
+  { key: 'bullishCrossover', title: 'Bullish Crossover', icon: '✦', color: '#a78bfa', meta: r => ({ label: 'EMA Gap', value: `${(r.emaGap || 0).toFixed(2)}%`, cls: 'up' }) },
+  { key: 'momentumBurst', title: 'Momentum Burst', icon: '🔥', color: '#fb923c', meta: r => ({ label: 'MACD', value: (r.macdVal ?? 0).toFixed(2), cls: 'up' }) },
+  { key: 'rsiOversold', title: 'RSI Oversold', icon: '🔄', color: '#38bdf8', meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
+];
+
+function screenerCardHtml(section, rows) {
+  const nseUrl = sym => `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(sym.toUpperCase())}`;
+  const rowsHtml = rows.length
+    ? rows.slice(0, 8).map(r => {
+        const m = section.meta(r);
+        return `<div style="display:grid; grid-template-columns:1fr 70px 55px auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
+          <a href="${nseUrl(r.symbol)}" target="_blank" rel="noopener noreferrer" style="color:var(--text); text-decoration:none; font-weight:600; font-size:11px; font-family:var(--mono);">${r.symbol}</a>
+          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+          <div style="cursor:pointer;" onclick="window.openModalChart('${r.symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>
+          <span class="${m.cls}" style="font-family:var(--mono); font-size:10px; text-align:right; white-space:nowrap;">${m.value}</span>
+        </div>`;
+      }).join('')
+    : `<div style="padding:14px 0; text-align:center; color:var(--muted); font-size:11px;">No stocks currently match.</div>`;
+
+  return `<div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:14px; min-width:280px; flex:1;">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+      <span style="font-size:14px;">${section.icon}</span>
+      <span style="font-size:12px; font-weight:700; color:${section.color};">${section.title}</span>
+      <span style="margin-left:auto; font-size:9px; color:var(--muted); font-family:var(--mono);">${rows.length}</span>
+    </div>
+    ${rowsHtml}
+  </div>`;
+}
+
+function renderScreeners(data) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  document.getElementById('tableHeader').innerHTML = '';
+
+  if (!data) {
+    if (tbody) tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No screener data available yet — the first market-wide scan can take a few minutes.'; }
+    return;
+  }
+
+  const rcEl = document.getElementById('rowCount');
+  if (rcEl) {
+    const updated = data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '—';
+    rcEl.textContent = `Screeners: Nifty ${data.universeSize || 500} · updated ${updated} · refreshes ~every 15 min`;
+  }
+
+  if (empty) empty.style.display = 'none';
+
+  const cards = SCREENER_SECTIONS.map(s => screenerCardHtml(s, data[s.key] || [])).join('');
+  tbody.innerHTML = `<div style="padding:14px; display:flex; flex-wrap:wrap; gap:14px;">
+    <div style="width:100%; font-size:10px; color:var(--muted); padding:0 2px;">
+      ⚠️ These are calculated from live market data (price, volume, technical indicators) — not predictions, and not "most searched" lists (no market API exposes that; it's proprietary to each broker's app).
+    </div>
+    ${cards}
+  </div>`;
+}
+
 // ── RENDER: SECTORS ──────────────────────────────────────────
 function renderSectors(data) {
   if (!data?.data) {
@@ -985,7 +1053,11 @@ function updateStatCards(data) {
 }
 
 // ── HELPER: Update badges ────────────────────────────────────
-function updateBadges(data) {
+function updateBadges(data, screenerData) {
+  if (screenerData) {
+    const el = document.getElementById('badge-SCREENERS');
+    if (el) el.textContent = screenerData.gainers?.length || '—';
+  }
   if (!data?.data) return;
 
   const timeframe = window.stateManager.get('timeframe');
@@ -1053,15 +1125,22 @@ function updateLastUpdatedBadge(data) {
 // ── HELPER: Render current view ──────────────────────────────
 function renderCurrentView() {
   const activeTab = window.stateManager.get('activeTab');
-  const timeframe = window.stateManager.get('timeframe');
-  const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
-  const cached = window.dataManager.cache.get(dataKey);
-
-  if (!cached?.data) return;
 
   if (activeTab === 'PORTFOLIO') {
     renderPortfolio(window.dataManager.portfolioCache?.data);
-  } else if (activeTab === 'SECTORS') {
+    return;
+  }
+  if (activeTab === 'SCREENERS') {
+    renderScreeners(window.dataManager.screenerCache?.data);
+    return;
+  }
+
+  const timeframe = window.stateManager.get('timeframe');
+  const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
+  const cached = window.dataManager.cache.get(dataKey);
+  if (!cached?.data) return;
+
+  if (activeTab === 'SECTORS') {
     renderSectors(cached.data);
   } else if (activeTab === 'INTRADAY') {
     renderIntraday(cached.data);
@@ -1074,6 +1153,7 @@ function renderCurrentView() {
 window.renderStocks = renderStocks;
 window.renderSectors = renderSectors;
 window.renderIntraday = renderIntraday;
+window.renderScreeners = renderScreeners;
 window.renderPortfolio = renderPortfolio;
 window.renderOptionChain = renderOptionChain;
 window.openModalChart = openModalChart;
