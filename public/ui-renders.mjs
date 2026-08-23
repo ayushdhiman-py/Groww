@@ -510,13 +510,14 @@ function computeIntradayCandidates(data) {
     const rr = stopPct > 0 ? targetPct / stopPct : 0;
 
     candidates.push({
-      symbol: r5.symbol, sector: r5.sector,
+      symbol: r5.symbol, sector: r5.sector, tf: r5.tf,
       entry, target, stop, targetPct, stopPct, rr,
       score5m: r5.techScore, score15m: r15.techScore,
       combinedScore: r5.techScore + r15.techScore,
       volSpike: hasVolSpike,
       volumeChange: r5.volumeChange || 0,
       dayH, dayL, chgPct: r5.chgPct,
+      priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
     });
   }
 
@@ -535,6 +536,7 @@ function renderIntraday(data) {
   document.getElementById('tableHeader').innerHTML = `<tr>
     <th style="text-align:left;">Stock / Sector</th>
     <th>Entry</th>
+    <th>Chart</th>
     <th>Target</th>
     <th>Stop-Loss</th>
     <th>R:R</th>
@@ -575,6 +577,7 @@ function renderIntraday(data) {
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
       </td>
       <td><span class="price-bold">₹${p.entry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></td>
+      <td><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td>
         <div style="display:flex;flex-direction:column;align-items:center;">
           <span class="up" style="font-weight:700;">₹${p.target.toFixed(2)}</span>
@@ -862,7 +865,17 @@ let modalChartInstance = null;
 
 function openModalChart(symbol, tf) {
   const state = window.stateManager.get();
-  const data = window.dataManager.cache.get(window.dataManager.cacheKey(tf, state.activeTab))?.data;
+  // /api/state always returns the same full snapshot regardless of which
+  // (timeframe, tab) it was fetched for, so any populated cache entry works
+  // — try the "obvious" key first, then fall back to whatever is cached
+  // (needed for tabs like Intraday whose cache key doesn't follow the
+  // tf+activeTab convention the primary lookup assumes).
+  let data = window.dataManager.cache.get(window.dataManager.cacheKey(tf, state.activeTab))?.data;
+  if (!data?.data) {
+    for (const entry of window.dataManager.cache.values()) {
+      if (entry?.data?.data) { data = entry.data; break; }
+    }
+  }
 
   if (!data?.data) return;
 

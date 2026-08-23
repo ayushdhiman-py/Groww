@@ -392,19 +392,19 @@ function setupKeyboardShortcuts() {
         break;
       case '3':
         e.preventDefault();
-        document.querySelector('[data-set="FO"]')?.click();
+        document.querySelector('[data-set="INTRADAY"]')?.click();
         break;
       case '4':
         e.preventDefault();
-        document.querySelector('[data-set="BUY"]')?.click();
+        document.querySelector('[data-set="FO"]')?.click();
         break;
       case '5':
         e.preventDefault();
-        document.querySelector('[data-set="SELL"]')?.click();
+        document.querySelector('[data-set="BUY"]')?.click();
         break;
       case '6':
         e.preventDefault();
-        document.querySelector('[data-set="INTRADAY"]')?.click();
+        document.querySelector('[data-set="SELL"]')?.click();
         break;
       case '7':
         e.preventDefault();
