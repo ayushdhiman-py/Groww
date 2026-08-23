@@ -116,17 +116,20 @@ function renderStocks(data) {
   const rowsBeforeFilter = rows.length;
   rows = window.searchFilter?.filterRows(rows) || rows;
 
-  // Apply sorting
+  // Apply sorting. NOTE: this must always honor the user's clicked column —
+  // an earlier version hardcoded a symbol+timeframe grouping whenever
+  // timeframe==='ALL', which silently discarded every sort click on that
+  // view (rows always regrouped by symbol regardless of which header was
+  // clicked). Ties fall back to symbol then timeframe order purely for
+  // stable, readable grouping, never overriding the actual requested sort.
   if (sortStack?.length > 0) {
     const tfOrder = { '1m': 1, '5m': 2, '10m': 3, '15m': 4, '30m': 5, '1h': 6, '1d': 7 };
-    const ratingOrder = { 'STRONG BUY': 5, 'MODERATE': 3, 'SKIP': 1, 'WEAK BUY': 2, 'NEUTRAL': 0 };
 
     rows.sort((a, b) => {
-      if (timeframe === 'ALL') {
-        if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
-        return (tfOrder[a.tf] || 0) - (tfOrder[b.tf] || 0);
-      }
-      return window.sortManager?.compare(a, b, sortStack) || 0;
+      const primary = window.sortManager?.compare(a, b, sortStack) || 0;
+      if (primary !== 0 || timeframe !== 'ALL') return primary;
+      if (a.symbol !== b.symbol) return a.symbol.localeCompare(b.symbol);
+      return (tfOrder[a.tf] || 0) - (tfOrder[b.tf] || 0);
     });
   }
 
