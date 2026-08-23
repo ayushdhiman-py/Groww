@@ -15,20 +15,20 @@ function formatVolume(v) {
 
 function generateSparkline(priceHist, ema21Hist, ema50Hist) {
   if (!priceHist || !ema21Hist || !ema50Hist || priceHist.length < 2) return '';
-  
+
   const w = 150, h = 45;
   const all = [...priceHist, ...ema21Hist, ...ema50Hist];
   const min = Math.min(...all), max = Math.max(...all), range = max - min || 1;
-  
+
   const getX = i => (i / (priceHist.length - 1)) * w;
   const getY = v => h - ((v - min) / range) * h;
-  
+
   const mkPath = (arr, cls) => {
     let d = `M ${getX(0)} ${getY(arr[0])}`;
     for (let i = 1; i < arr.length; i++) d += ` L ${getX(i)} ${getY(arr[i])}`;
     return `<path class='${cls}' d='${d}' />`;
   };
-  
+
   return `<svg class='sparkline' viewBox='0 0 ${w} ${h}'>`
     + mkPath(priceHist, 'spark-p')
     + mkPath(ema50Hist, 'spark-50')
@@ -40,10 +40,10 @@ function generateRangeBar(low, high, current) {
   if (!low || !high || !current || low >= high) {
     return `<span class="rng-val">${low ? low.toFixed(1) : '—'} / ${high ? high.toFixed(1) : '—'}</span>`;
   }
-  
+
   let pct = ((current - low) / (high - low)) * 100;
   pct = Math.max(0, Math.min(100, pct));
-  
+
   return `<div class="rng-wrap">
     <span class="rng-val" style="text-align:right;">${low.toFixed(1)}</span>
     <div class="rng-bar"><div class="rng-marker" style="left:${pct.toFixed(1)}%"></div></div>
@@ -53,11 +53,6 @@ function generateRangeBar(low, high, current) {
 
 // ── MAIN RENDER: STOCKS (ALL, GOLDEN, BUY, SELL, FO) ─────────
 function renderStocks(data) {
-  const startTime = performance.now();
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('[Render] ========== RENDER STOCKS CALLED ==========');
-  console.log(`[Render] ⏱️ Start time: ${startTime.toFixed(2)}ms`);
-  
   const state = window.stateManager.get();
   const activeTab = state.activeTab;
   const timeframe = state.timeframe;
@@ -65,30 +60,19 @@ function renderStocks(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
-  console.log(`[Render] activeTab="${activeTab}", timeframe="${timeframe}"`);
-  console.log(`[Render] sortStack:`, JSON.stringify(sortStack));
-
   // GUARD: Don't render stocks when on Portfolio or Sectors tabs
   if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS') {
-    console.log(`[Render] ⛔ BLOCKED - current tab is ${activeTab}, not rendering stocks`);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     return;
   }
 
   if (!data?.data) {
     console.warn('[Render] ❌ No data.data available');
-    console.log('[Render] Data object:', data);
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     if (empty) {
+      empty.classList.remove('loading');
       empty.style.display = 'block';
       empty.textContent = 'No data available';
     }
     return;
-  }
-
-  console.log(`[Render] Data keys:`, Object.keys(data.data));
-  for (const [key, value] of Object.entries(data.data)) {
-    console.log(`[Render]   ${key}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
   }
 
   // Show default table header
@@ -110,43 +94,30 @@ function renderStocks(data) {
 
   // Collect rows based on active tab and timeframe
   let rows = [];
-  console.log(`[Render] Collecting rows: activeTab="${activeTab}", timeframe="${timeframe}"`);
-  
+
   if (activeTab === 'FO') {
     const key = timeframe === 'ALL' ? '5m_ALL' : `${timeframe}_ALL`;
-    console.log(`[Render] FO tab: using key="${key}"`);
     const rawRows = data.data[key] || [];
-    console.log(`[Render] FO rawRows: ${rawRows.length} rows`);
     const sorted = rawRows.slice().sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange));
     rows = sorted.slice(0, 30);
-    console.log(`[Render] FO final rows: ${rows.length} rows (top 30 by volume)`);
   } else if (timeframe === 'ALL') {
-    console.log(`[Render] Timeframe=ALL: aggregating from all timeframes`);
     const allTfs = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
-    let totalBeforeFilter = 0;
     allTfs.forEach(t => {
       const key = `${t}_${activeTab}`;
       const tfRows = data.data[key] || [];
-      totalBeforeFilter += tfRows.length;
-      console.log(`[Render]   ${key}: ${tfRows.length} rows`);
       rows.push(...tfRows);
     });
-    console.log(`[Render] Total rows before filter: ${totalBeforeFilter}, after concat: ${rows.length}`);
   } else {
     const key = `${timeframe}_${activeTab}`;
-    console.log(`[Render] Single timeframe: using key="${key}"`);
     rows = (data.data[key] || []).slice();
-    console.log(`[Render] Rows from ${key}: ${rows.length}`);
   }
 
   // Apply filters
-  console.log(`[Render] Before filter: ${rows.length} rows`);
+  const rowsBeforeFilter = rows.length;
   rows = window.searchFilter?.filterRows(rows) || rows;
-  console.log(`[Render] After filter: ${rows.length} rows`);
 
   // Apply sorting
   if (sortStack?.length > 0) {
-    console.log(`[Render] Applying sort: ${JSON.stringify(sortStack)}`);
     const tfOrder = { '1m': 1, '5m': 2, '10m': 3, '15m': 4, '30m': 5, '1h': 6, '1d': 7 };
     const ratingOrder = { 'STRONG BUY': 5, 'MODERATE': 3, 'SKIP': 1, 'WEAK BUY': 2, 'NEUTRAL': 0 };
 
@@ -157,11 +128,7 @@ function renderStocks(data) {
       }
       return window.sortManager?.compare(a, b, sortStack) || 0;
     });
-    console.log(`[Render] After sort: ${rows.length} rows`);
   }
-
-  console.log(`[Render] Final row count: ${rows.length}`);
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
   // Update row count
   const uniqueStocks = new Set(rows.map(r => r.symbol)).size;
@@ -188,7 +155,7 @@ function renderStocks(data) {
     if (!colMatch) return;
     const col = colMatch[1];
     const idx = sortStack?.findIndex(s => s.col === col);
-    
+
     th.querySelectorAll('.sort-meta').forEach(m => m.remove());
     if (idx !== -1) {
       const s = sortStack[idx];
@@ -199,24 +166,48 @@ function renderStocks(data) {
     }
   });
 
-  // Handle empty state
+  // Handle empty state. If the scan actually produced rows but a client-side
+  // filter (search box, indices toggle, dividend toggle) stripped all of
+  // them, say so specifically — otherwise this looks identical to "the
+  // scanner is broken" when it's really just a stuck filter from a previous
+  // session (these persist in localStorage).
   if (!rows.length) {
     if (tbody) tbody.innerHTML = '';
     if (empty) {
+      empty.classList.remove('loading');
       empty.style.display = 'block';
-      empty.textContent = 'No results for current filter.';
+      if (rowsBeforeFilter > 0) {
+        const st = window.stateManager?.get() || {};
+        const reasons = [];
+        if (st.searchQuery?.trim()) reasons.push(`search "${st.searchQuery.trim()}"`);
+        if (st.showDividend) reasons.push('the Dividend filter (no dividend data is currently available)');
+        if (!st.showIndices && activeTab !== 'FO') reasons.push('the Indices toggle being off');
+        empty.textContent = reasons.length
+          ? `${rowsBeforeFilter} stock(s) found, but hidden by: ${reasons.join(', ')}.`
+          : `${rowsBeforeFilter} stock(s) found, but all were filtered out.`;
+      } else {
+        empty.textContent = 'No results for current filter.';
+      }
     }
     return;
   }
 
-  if (empty) empty.style.display = 'none';
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
   // Save scroll position
   const tableContainer = document.querySelector('.tw');
   const scrollPos = tableContainer ? tableContainer.scrollTop : 0;
 
+  // Row/sub-row DOM id. FO always shows one row per symbol (single timeframe
+  // slice), so symbol alone is unique there. Every other tab can show the
+  // SAME symbol once per timeframe when timeframe==='ALL', so the id must
+  // include tf too — otherwise rows for the same symbol collide on one DOM
+  // node and later timeframes silently overwrite/clobber earlier ones.
+  const rowKeyFor = (r) => activeTab === 'FO' ? r.symbol : `${r.symbol}::${r.tf}`;
+
   // Render row function
   const renderRow = (r) => {
+    const rowKey = rowKeyFor(r);
     const cc = r.chgPct >= 0 ? 'up' : 'dn';
     const chgP = (r.priceChange >= 0 ? '+' : '') + r.priceChange.toFixed(2);
     const chg = (r.chgPct >= 0 ? '+' : '') + r.chgPct.toFixed(2) + '%';
@@ -229,15 +220,15 @@ function renderStocks(data) {
     } else if (r.deathCross) {
       statusTxt = `<div class='eb muted-xl hr-dots' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
     } else {
-      statusTxt = r.ema21above 
+      statusTxt = r.ema21above
         ? `<div class='ea muted-xl hr-dots' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
         : `<div class='eb muted-xl hr-dots' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
     }
 
     // Chart sparkline
-    const chartTxt = `<div style='cursor:pointer; opacity:0.85;' onclick="window.openModalChart('${r.symbol}', '${r.tf}')">` 
+    const chartTxt = `<div style='cursor:pointer; opacity:0.85;' onclick="window.openModalChart('${r.symbol}', '${r.tf}')">`
       + generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist) + `</div>`;
-    
+
     const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
     const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
     const macdTxt = r.macdAbove
@@ -245,22 +236,12 @@ function renderStocks(data) {
       : `<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
 
     const gcBadge = r.goldenCross ? `<span class='bgc'>🟣GC</span>` : '';
-    const symLower = r.symbol.toLowerCase().replace(/\s+/g, '-');
-    const growwUrl = `https://groww.in/stocks/${symLower}`;
-    const growwAppUrl = `groww://stock/${symLower}`;
-    
-    const symLink = `<a href="${growwUrl}" target="_blank" rel="noopener noreferrer"
+    const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(r.symbol.toUpperCase())}`;
+
+    const symLink = `<a href="${nseUrl}" target="_blank" rel="noopener noreferrer"
       style="color:inherit; text-decoration:none; cursor:pointer; display:inline-flex; align-items:center; gap:4px;"
       onmouseover="this.style.color='var(--accent)'"
-      onmouseout="this.style.color='inherit'"
-      onclick="event.preventDefault(); event.stopPropagation();
-        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
-        if (isMobile) {
-          window.location.href = '${growwAppUrl}';
-          setTimeout(() => { window.open('${growwUrl}', '_blank'); }, 1500);
-        } else {
-          window.open('${growwUrl}', '_blank');
-        }">
+      onmouseout="this.style.color='inherit'">
       ${r.symbol}<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`;
 
     // Technical check boxes
@@ -273,15 +254,15 @@ function renderStocks(data) {
     ].map((isOn, idx) => `<span class='ck ${isOn ? 'on' : 'off'}'></span>`).join('');
 
     const ratCls = r.rating === 'STRONG BUY' ? 'rat-sb' : r.rating === 'MODERATE' ? 'rat-wl' : 'rat-sk';
-    
+
     // F&O expand toggle
     const isExpanded = activeTab === 'FO' && window.foManager?.expandedSymbol === r.symbol;
-    const expandToggle = activeTab === 'FO' 
-      ? `<span class="exp-btn ${isExpanded ? 'active' : ''}" onclick="window.foManager.toggleRow('${r.symbol}', this, event)">▼</span> ` 
+    const expandToggle = activeTab === 'FO'
+      ? `<span class="exp-btn ${isExpanded ? 'active' : ''}" onclick="window.foManager.toggleRow('${r.symbol}', this, event)">▼</span> `
       : '';
     const subRowClass = isExpanded ? 'sub-row active' : 'sub-row';
 
-    return `<tr class='main-row ${(r.goldenCross ? 'gc-row' : '')}' id="row-${r.symbol}">
+    return `<tr class='main-row ${(r.goldenCross ? 'gc-row' : '')}' id="row-${rowKey}">
       <td style="text-align:left;">
         <div class='sym' style="white-space:nowrap;">${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
         <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
@@ -329,118 +310,151 @@ function renderStocks(data) {
         </div>
       </td>
     </tr>
-    <tr class="${subRowClass}" id="sub-${r.symbol}">
+    <tr class="${subRowClass}" id="sub-${rowKey}">
       <td colspan="10"><div class="sub-wrap" id="wrap-${r.symbol}">${isExpanded ? '<div style="color:var(--muted);text-align:center;padding:20px">⏳ Reloading Option Chain...</div>' : 'Loading...'}</div></td>
     </tr>`;
   };
 
-  // In-place update: patch existing rows, add new ones, remove stale ones
-  const existingRows = new Map();
-  tbody.querySelectorAll('tr.main-row').forEach(tr => existingRows.set(tr.id, tr));
+  // In-place update: patch existing rows, add new ones, remove stale ones.
+  // Wrapped so any unexpected DOM/data shape here can never leave the table
+  // silently stuck — a full rebuild always wins over a half-applied patch.
+  try {
+    patchTable();
+  } catch (e) {
+    console.error('[Render] In-place patch failed, falling back to full rebuild:', e);
+    tbody.innerHTML = rows.map(renderRow).join('');
+  }
 
-  const fragment = document.createDocumentFragment();
-  const subRowsToAppend = [];
-  const seenIds = new Set();
+  function patchTable() {
+    const existingRows = new Map();
+    tbody.querySelectorAll('tr.main-row').forEach(tr => existingRows.set(tr.id, tr));
 
-  rows.forEach(r => {
-    const rowId = `row-${r.symbol}`;
-    seenIds.add(rowId);
+    const fragment = document.createDocumentFragment();
+    const subRowsToAppend = [];
+    const seenIds = new Set();
 
-    const cc = r.chgPct >= 0 ? 'up' : 'dn';
-    const chgP = (r.priceChange >= 0 ? '+' : '') + r.priceChange.toFixed(2);
-    const chg = (r.chgPct >= 0 ? '+' : '') + r.chgPct.toFixed(2) + '%';
-    const fullChg = `${chgP} (${chg})`;
-    const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
-    const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
+    rows.forEach(r => {
+      const rowId = `row-${rowKeyFor(r)}`;
+      seenIds.add(rowId);
 
-    if (existingRows.has(rowId)) {
-      // Row exists — patch only changed cells
-      const tr = existingRows.get(rowId);
-      const cells = tr.cells;
+      const cc = r.chgPct >= 0 ? 'up' : 'dn';
+      const chgP = (r.priceChange >= 0 ? '+' : '') + r.priceChange.toFixed(2);
+      const chg = (r.chgPct >= 0 ? '+' : '') + r.chgPct.toFixed(2) + '%';
+      const fullChg = `${chgP} (${chg})`;
+      const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
+      const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
 
-      // Cell 0: symbol/sector/change
-      const chgEl = cells[0]?.querySelector('.muted-xl span');
-      if (chgEl && chgEl.textContent !== fullChg) {
-        chgEl.className = cc;
-        chgEl.textContent = fullChg;
+      if (existingRows.has(rowId)) {
+        // Row exists — patch only changed cells
+        const tr = existingRows.get(rowId);
+        const cells = tr.cells;
+
+        // Cell 0: symbol/sector/change
+        const chgEl = cells[0]?.querySelector('.muted-xl span');
+        if (chgEl && chgEl.textContent !== fullChg) {
+          chgEl.className = cc;
+          chgEl.textContent = fullChg;
+        }
+
+        // Cell 1: price + vwap
+        const priceEl = cells[1]?.querySelector('.price-bold');
+        const newPrice = `₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+        if (priceEl && priceEl.textContent !== newPrice) {
+          priceEl.textContent = newPrice;
+          const prevNum = parseFloat(tr.dataset.price);
+          if (priceEl && Number.isFinite(prevNum) && prevNum !== r.price) {
+            priceEl.classList.remove('price-flash-up', 'price-flash-down');
+            void priceEl.offsetWidth; // restart animation even if the same direction fires again quickly
+            priceEl.classList.add(r.price > prevNum ? 'price-flash-up' : 'price-flash-down');
+          }
+        }
+        tr.dataset.price = r.price;
+        const vwapEl = cells[1]?.querySelector('.muted-xl');
+        if (vwapEl) {
+          const vwapArrow = r.aboveVwap ? '▲' : '▼';
+          const vwapPrice = `₹${(r.vwap || r.price).toFixed(1)}`;
+          vwapEl.innerHTML = `VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${vwapArrow}</span> ${vwapPrice}`;
+        }
+
+        // Cell 3: EMA
+        // NOTE: `:first-child`/`:last-child` are relative to EACH element's
+        // OWN parent, not to the cell being queried — since this cell has a
+        // single flex wrapper <div> holding two sibling <div>s, the wrapper
+        // itself is simultaneously the first AND last child (it's the only
+        // child of the <td>), so `querySelector('div:first-child')` matched
+        // the WRAPPER, not the intended inner div. Both "updates" then landed
+        // on the same element, with the later write silently clobbering the
+        // earlier one (e.g. "Gap x%" overwriting "EMA 21 > 50" entirely).
+        // Navigate by child index instead, which is unambiguous.
+        let statusTxt = '';
+        if (r.goldenCross) statusTxt = `<div class='ea muted-xl hr-dots' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
+        else if (r.deathCross) statusTxt = `<div class='eb muted-xl hr-dots' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
+        else statusTxt = r.ema21above
+          ? `<div class='ea muted-xl hr-dots' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
+          : `<div class='eb muted-xl hr-dots' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
+        const emaWrap = cells[3]?.firstElementChild;
+        if (emaWrap && emaWrap.children.length >= 2) {
+          emaWrap.children[0].innerHTML = statusTxt;
+          const emaGapEl = emaWrap.children[1];
+          emaGapEl.className = `muted-xl ${cc}`;
+          emaGapEl.textContent = `Gap ${Math.abs(r.emaGap || 0).toFixed(2)}%`;
+        }
+
+        // Cell 4: volume — same ambiguous-selector issue as Cell 3 above;
+        // navigate by child index (number / bar / change, in that order).
+        const volWrap = cells[4]?.firstElementChild;
+        if (volWrap && volWrap.children.length >= 3) {
+          const volEl = volWrap.children[0];
+          volEl.className = r.volSpike ? 'vol-spike-⚡' : '';
+          volEl.style.color = r.volSpike ? 'var(--yellow)' : 'var(--text)';
+          volEl.textContent = (r.volSpike ? '⚡ ' : '') + formatVolume(r.volume);
+
+          const volBarEl = volWrap.children[1]?.querySelector('.vol-bar-fill');
+          if (volBarEl) volBarEl.style.width = `${volBarPct}%`;
+
+          const volChgEl = volWrap.children[2];
+          volChgEl.className = (r.volumeChange || 0) >= 0 ? 'up' : 'dn';
+          volChgEl.style.cssText = 'font-size:10px; font-family:var(--mono);';
+          volChgEl.textContent = `${(r.volumeChange || 0) >= 0 ? '+' : ''}${formatVolume(r.volumeChange)} ${(r.volumeChange || 0) >= 0 ? '↑' : '↓'}`;
+        }
+
+        // Cell 5: MACD
+        const macdCell = cells[5]?.querySelector('div');
+        if (macdCell) {
+          macdCell.innerHTML = r.macdAbove
+            ? `<div class='hr-dots'><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
+            : `<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
+        }
+
+        fragment.appendChild(tr);
+        const subRow = document.getElementById(`sub-${rowKeyFor(r)}`);
+        if (subRow) subRowsToAppend.push(subRow);
+      } else {
+        // New row — full render
+        const tmp = document.createElement('tbody');
+        tmp.innerHTML = renderRow(r);
+        Array.from(tmp.children).forEach(child => {
+          if (child.classList.contains('main-row')) {
+            child.dataset.price = r.price;
+            fragment.appendChild(child);
+          } else subRowsToAppend.push(child);
+        });
       }
+    });
 
-      // Cell 1: price + vwap
-      const priceEl = cells[1]?.querySelector('.price-bold');
-      const newPrice = `₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
-      if (priceEl && priceEl.textContent !== newPrice) priceEl.textContent = newPrice;
-      const vwapEl = cells[1]?.querySelector('.muted-xl');
-      if (vwapEl) {
-        const vwapArrow = r.aboveVwap ? '▲' : '▼';
-        const vwapPrice = `₹${(r.vwap || r.price).toFixed(1)}`;
-        vwapEl.innerHTML = `VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${vwapArrow}</span> ${vwapPrice}`;
+    // Remove stale rows
+    existingRows.forEach((tr, id) => {
+      if (!seenIds.has(id)) {
+        const subRow = document.getElementById(`sub-${id.replace('row-', '')}`);
+        subRow?.remove();
       }
+    });
 
-      // Cell 3: EMA
-      let statusTxt = '';
-      if (r.goldenCross) statusTxt = `<div class='ea muted-xl hr-dots' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
-      else if (r.deathCross) statusTxt = `<div class='eb muted-xl hr-dots' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
-      else statusTxt = r.ema21above
-        ? `<div class='ea muted-xl hr-dots' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
-        : `<div class='eb muted-xl hr-dots' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
-      const emaCell = cells[3]?.querySelector('div:first-child');
-      if (emaCell) emaCell.innerHTML = statusTxt;
-      const emaGapEl = cells[3]?.querySelector('.muted-xl');
-      if (emaGapEl) {
-        emaGapEl.className = `muted-xl ${cc}`;
-        emaGapEl.textContent = `Gap ${Math.abs(r.emaGap || 0).toFixed(2)}%`;
-      }
-
-      // Cell 4: volume
-      const volEl = cells[4]?.querySelector('div:first-child');
-      if (volEl) {
-        volEl.className = r.volSpike ? 'vol-spike-⚡' : '';
-        volEl.style.color = r.volSpike ? 'var(--yellow)' : 'var(--text)';
-        volEl.textContent = (r.volSpike ? '⚡ ' : '') + formatVolume(r.volume);
-      }
-      const volBarEl = cells[4]?.querySelector('.vol-bar-fill');
-      if (volBarEl) volBarEl.style.width = `${volBarPct}%`;
-      const volChgEl = cells[4]?.querySelector('div:last-child');
-      if (volChgEl) {
-        volChgEl.className = (r.volumeChange || 0) >= 0 ? 'up' : 'dn';
-        volChgEl.style.cssText = 'font-size:10px; font-family:var(--mono);';
-        volChgEl.textContent = `${(r.volumeChange || 0) >= 0 ? '+' : ''}${formatVolume(r.volumeChange)} ${(r.volumeChange || 0) >= 0 ? '↑' : '↓'}`;
-      }
-
-      // Cell 5: MACD
-      const macdCell = cells[5]?.querySelector('div');
-      if (macdCell) {
-        macdCell.innerHTML = r.macdAbove
-          ? `<div class='hr-dots'><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
-          : `<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
-      }
-
-      fragment.appendChild(tr);
-      const subRow = document.getElementById(`sub-${r.symbol}`);
-      if (subRow) subRowsToAppend.push(subRow);
-    } else {
-      // New row — full render
-      const tmp = document.createElement('tbody');
-      tmp.innerHTML = renderRow(r);
-      Array.from(tmp.children).forEach(child => {
-        if (child.classList.contains('main-row')) fragment.appendChild(child);
-        else subRowsToAppend.push(child);
-      });
-    }
-  });
-
-  // Remove stale rows
-  existingRows.forEach((tr, id) => {
-    if (!seenIds.has(id)) {
-      const subRow = document.getElementById(`sub-${id.replace('row-', '')}`);
-      subRow?.remove();
-    }
-  });
-
-  // Append all main rows then sub rows
-  subRowsToAppend.forEach(sr => fragment.appendChild(sr));
-  tbody.innerHTML = '';
-  tbody.appendChild(fragment);
+    // Append all main rows then sub rows
+    subRowsToAppend.forEach(sr => fragment.appendChild(sr));
+    tbody.innerHTML = '';
+    tbody.appendChild(fragment);
+  } // end patchTable()
 
   // Restore scroll
   if (tableContainer) tableContainer.scrollTop = scrollPos;
@@ -454,8 +468,6 @@ function renderStocks(data) {
 
 // ── RENDER: SECTORS ──────────────────────────────────────────
 function renderSectors(data) {
-  console.log('[Render] renderSectors called');
-  
   if (!data?.data) {
     console.warn('[Render] No data available for sectors');
     return;
@@ -463,11 +475,9 @@ function renderSectors(data) {
 
   const searchQuery = window.stateManager.get('searchQuery').trim().toUpperCase();
   let allRows = [];
-  
+
   // Sectors ALWAYS use daily data (1d_ALL) regardless of selected timeframe
-  console.log('[Render] Sectors using 1d_ALL data');
   allRows = data.data['1d_ALL'] || [];
-  console.log(`[Render] Sectors: ${allRows.length} stocks in 1d_ALL`);
 
   // Group by sector
   const sectors = {};
@@ -497,7 +507,7 @@ function renderSectors(data) {
   // Sort
   const sortObj = window.stateManager.get('sortStack')[0] || { col: 'name', asc: true };
   const sortBy = sortObj.col === 'sector' ? 'name' : sortObj.col;
-  
+
   list.sort((a, b) => {
     let res = 0;
     if (sortBy === 'name') res = a.name.localeCompare(b.name);
@@ -531,23 +541,24 @@ function renderSectors(data) {
   // Build HTML
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
-  
+
   if (!list.length) {
     if (tbody) tbody.innerHTML = '';
     if (empty) {
+      empty.classList.remove('loading');
       empty.style.display = 'block';
       empty.textContent = 'No sectors found.';
     }
     return;
   }
 
-  if (empty) empty.style.display = 'none';
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
   const html = list.map(s => {
     const avgColor = s.avgChg >= 0 ? 'up' : 'dn';
     const gainerColor = s.topGainer.chgPct >= 0 ? 'up' : 'dn';
     const loserColor = s.topLoser.chgPct >= 0 ? 'up' : 'dn';
-    
+
     return `<tr>
       <td style="font-weight:700; color:var(--text);">${s.name}</td>
       <td style="font-family:var(--mono); font-weight:700;" class="${avgColor}">${s.avgChg >= 0 ? '+' : ''}${s.avgChg.toFixed(2)}%</td>
@@ -582,7 +593,7 @@ function renderPortfolio(data) {
     const equityInvested = holdings?.reduce((s, h) => s + (h.average_price * h.quantity), 0) || 0;
     const equityCurrent = holdings?.reduce((s, h) => s + (h.current_value || 0), 0) || 0;
     const totalPnl = equityPnl;
-    
+
     summaryEl.innerHTML = `
       <div style="background:linear-gradient(135deg, rgba(13,18,32,0.95), rgba(17,25,39,0.8)); border:1px solid var(--border); border-radius:14px; padding:16px 20px; margin-bottom:10px; width:100%;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
@@ -607,17 +618,21 @@ function renderPortfolio(data) {
   if (!holdings?.length && !positions?.length) {
     tbody.innerHTML = '';
     if (empty) {
+      empty.classList.remove('loading');
       empty.style.display = 'block';
-      empty.textContent = 'No holdings or positions found.';
+      const restricted = data.restricted?.holdings || data.restricted?.positions;
+      empty.textContent = restricted
+        ? `⚠️ Upstox blocked this request: ${restricted}`
+        : 'No holdings or positions found.';
     }
     return;
   }
 
-  if (empty) empty.style.display = 'none';
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
   // Build portfolio cards (simplified)
   let html = '<div style="padding:10px;">';
-  
+
   if (holdings?.length) {
     html += `<div style="margin-bottom:14px;">
       <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px; padding:8px 12px; background:linear-gradient(90deg, rgba(6,182,212,0.15), transparent); border-radius:8px;">
@@ -625,12 +640,12 @@ function renderPortfolio(data) {
         <span style="font-size:12px; font-weight:700; color:var(--text); letter-spacing:0.5px;">EQUITY HOLDINGS</span>
         <span style="font-size:9px; color:var(--muted); margin-left:auto;">${holdings.length} items</span>
       </div>`;
-    
+
     holdings.forEach(h => {
       const pnl = h.pnl || 0;
       const pnlPct = h.pnl_percent || 0;
       const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
-      
+
       html += `<div style="background:rgba(255,255,255,0.02); border:1px solid ${pnlColor}30; border-radius:10px; padding:10px 14px; margin-bottom:6px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
         <div>
           <div style="font-weight:700; font-family:var(--mono); font-size:12px; color:var(--text);">${h.trading_symbol}</div>
@@ -646,13 +661,13 @@ function renderPortfolio(data) {
         </div>
       </div>`;
     });
-    
+
     html += '</div>';
   }
-  
+
   html += '</div>';
   tbody.innerHTML = html;
-  
+
   const itemCount = (holdings?.length || 0) + (positions?.length || 0);
   document.getElementById('rowCount').textContent = `Portfolio: ${itemCount} items`;
 }
@@ -661,7 +676,7 @@ function renderPortfolio(data) {
 function renderOptionChain(symbol, chain, wrap) {
   const calls = chain?.topCalls || chain?.callOptions || chain?.calls || [];
   const puts = chain?.topPuts || chain?.putOptions || chain?.puts || [];
-  
+
   if (calls.length === 0 || puts.length === 0) {
     wrap.innerHTML = `<div style="padding:20px; text-align:center; color:var(--muted)">No Option Chain data available.</div>`;
     return;
@@ -673,7 +688,7 @@ function renderOptionChain(symbol, chain, wrap) {
       <span style="font-size:13px; font-weight:700; color:var(--text); text-transform:uppercase;">✦ OPTION CHAIN — ${symbol}</span>
       <span class="fn-badge" style="color:var(--accent);">${chain.source?.toUpperCase() || 'N/A'}</span>
     </div>
-    
+
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
       <div>
         <div style="font-size:11px; font-weight:700; color:var(--green); margin-bottom:6px;">TOP 5 CALLS</div>
@@ -690,7 +705,7 @@ function renderOptionChain(symbol, chain, wrap) {
           </tbody>
         </table>
       </div>
-      
+
       <div>
         <div style="font-size:11px; font-weight:700; color:var(--red); margin-bottom:6px;">TOP 5 PUTS</div>
         <table style="width:100%; font-size:10px;">
@@ -708,7 +723,7 @@ function renderOptionChain(symbol, chain, wrap) {
       </div>
     </div>
   </div>`;
-  
+
   wrap.innerHTML = html;
 }
 
@@ -718,20 +733,20 @@ let modalChartInstance = null;
 function openModalChart(symbol, tf) {
   const state = window.stateManager.get();
   const data = window.dataManager.cache.get(window.dataManager.cacheKey(tf, state.activeTab))?.data;
-  
+
   if (!data?.data) return;
 
   const allKeys = ['1m_ALL', '5m_ALL', '10m_ALL', '15m_ALL', '30m_ALL', '1h_ALL', '1d_ALL',
                    '1m_GOLDEN', '5m_GOLDEN', '10m_GOLDEN', '15m_GOLDEN', '30m_GOLDEN', '1h_GOLDEN', '1d_GOLDEN',
                    '1m_BUY', '5m_BUY', '10m_BUY', '15m_BUY', '30m_BUY', '1h_BUY', '1d_BUY',
                    '1m_SELL', '5m_SELL', '10m_SELL', '15m_SELL', '30m_SELL', '1h_SELL', '1d_SELL'];
-  
+
   let row = null;
   for (const key of allKeys) {
     row = data.data[key]?.find(x => x.symbol === symbol);
     if (row) break;
   }
-  
+
   if (!row) return;
 
   const modal = document.getElementById('chartModal');
@@ -788,11 +803,8 @@ function closeModalChart(event) {
 function updateStatCards(data) {
   if (!data?.data) return;
 
-  console.log('[Stats] ========== UPDATE STAT CARDS ==========');
-  
   const timeframe = window.stateManager.get('timeframe');
-  console.log(`[Stats] Timeframe: ${timeframe}`);
-  
+
   // Collect all stocks based on timeframe
   let allStocks = [];
   if (timeframe === 'ALL') {
@@ -802,9 +814,7 @@ function updateStatCards(data) {
   } else {
     allStocks = data.data[`${timeframe}_ALL`] || [];
   }
-  
-  console.log(`[Stats] Total stocks scanned: ${allStocks.length}`);
-  
+
   // Calculate stats
   const goldenCount = allStocks.filter(r => r.goldenCross).length;
   const buyCount = allStocks.filter(r => r.signal === 'BUY').length;
@@ -813,21 +823,15 @@ function updateStatCards(data) {
   const strongBuyCount = allStocks.filter(r => r.rating === 'STRONG BUY').length;
   const watchlistCount = allStocks.filter(r => r.rating === 'MODERATE').length;
   const errorCount = data.errors?.length || 0;
-  
-  console.log(`[Stats] Golden: ${goldenCount}, Buy: ${buyCount}, Sell: ${sellCount}`);
-  console.log(`[Stats] Vol Spikes: ${volSpikeCount}, Strong Buy: ${strongBuyCount}, Watchlist: ${watchlistCount}, Errors: ${errorCount}`);
-  
+
   // Update DOM
   const setStat = (id, val) => {
     const el = document.getElementById(id);
     if (el) {
       el.textContent = val;
-      console.log(`[Stats] ${id}: ${val}`);
-    } else {
-      console.warn(`[Stats] Element ${id} not found!`);
     }
   };
-  
+
   setStat('sG', goldenCount);
   setStat('sB', buyCount);
   setStat('sS', sellCount);
@@ -835,69 +839,38 @@ function updateStatCards(data) {
   setStat('sSB', strongBuyCount);
   setStat('sWL', watchlistCount);
   setStat('sE', errorCount);
-  
-  console.log('[Stats] ✅ Stat cards updated');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
 // ── HELPER: Update badges ────────────────────────────────────
 function updateBadges(data) {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('[Badges] ========== UPDATE BADGES ==========');
-  
-  if (!data?.data) {
-    console.warn('[Badges] No data provided');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    return;
-  }
+  if (!data?.data) return;
 
-  console.log('[Badges] Data keys:', Object.keys(data.data));
-  
   const timeframe = window.stateManager.get('timeframe');
-  console.log(`[Badges] Current timeframe: ${timeframe}`);
-  
+
   let all = [], buys = [], sells = [], golden = [];
 
   if (timeframe === 'ALL') {
-    console.log('[Badges] Aggregating from all timeframes...');
     ['1m', '5m', '10m', '15m', '30m', '1h', '1d'].forEach(t => {
       const allKey = `${t}_ALL`;
       const buyKey = `${t}_BUY`;
       const sellKey = `${t}_SELL`;
       const goldenKey = `${t}_GOLDEN`;
-      
-      const allRows = data.data[allKey] || [];
-      const buyRows = data.data[buyKey] || [];
-      const sellRows = data.data[sellKey] || [];
-      const goldenRows = data.data[goldenKey] || [];
-      
-      console.log(`[Badges]   ${allKey}: ${allRows.length} rows`);
-      console.log(`[Badges]   ${buyKey}: ${buyRows.length} rows`);
-      console.log(`[Badges]   ${sellKey}: ${sellRows.length} rows`);
-      console.log(`[Badges]   ${goldenKey}: ${goldenRows.length} rows`);
-      
-      all.push(...allRows);
-      buys.push(...buyRows);
-      sells.push(...sellRows);
-      golden.push(...goldenRows);
+
+      all.push(...(data.data[allKey] || []));
+      buys.push(...(data.data[buyKey] || []));
+      sells.push(...(data.data[sellKey] || []));
+      golden.push(...(data.data[goldenKey] || []));
     });
-    console.log(`[Badges] Aggregated totals: ALL=${all.length}, BUY=${buys.length}, SELL=${sells.length}, GOLDEN=${golden.length}`);
   } else {
     const allKey = `${timeframe}_ALL`;
     const buyKey = `${timeframe}_BUY`;
     const sellKey = `${timeframe}_SELL`;
     const goldenKey = `${timeframe}_GOLDEN`;
-    
+
     all = data.data[allKey] || [];
     buys = data.data[buyKey] || [];
     sells = data.data[sellKey] || [];
     golden = data.data[goldenKey] || [];
-    
-    console.log(`[Badges] Single timeframe data:`);
-    console.log(`[Badges]   ${allKey}: ${all.length} rows`);
-    console.log(`[Badges]   ${buyKey}: ${buys.length} rows`);
-    console.log(`[Badges]   ${sellKey}: ${sells.length} rows`);
-    console.log(`[Badges]   ${goldenKey}: ${golden.length} rows`);
   }
 
   const setBadge = (id, val) => {
@@ -905,29 +878,21 @@ function updateBadges(data) {
     if (el) {
       const displayVal = val === 0 ? '0' : (val || '—');
       el.textContent = displayVal;
-      console.log(`[Badges]   ${id}: ${displayVal}`);
-    } else {
-      console.warn(`[Badges] Element ${id} not found!`);
     }
   };
 
-  console.log('[Badges] Setting badge values:');
-  
   const uniqueGolden = new Set(golden.map(r => r.symbol)).size;
   const uniqueAll = new Set(all.map(r => r.symbol)).size;
   const uniqueBuy = new Set(buys.map(r => r.symbol)).size;
   const uniqueSell = new Set(sells.map(r => r.symbol)).size;
   const uniqueSectors = new Set(all.map(r => r.sector).filter(Boolean)).size;
-  
+
   setBadge('badge-GOLDEN', uniqueGolden);
   setBadge('badge-ALL', uniqueAll);
   setBadge('badge-BUY', uniqueBuy);
   setBadge('badge-SELL', uniqueSell);
   setBadge('badge-FO', 30);
   setBadge('badge-SECTORS', uniqueSectors);
-  
-  console.log('[Badges] ✅ Badge update complete');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 }
 
 // ── HELPER: Update last updated badge ────────────────────────
@@ -947,9 +912,9 @@ function renderCurrentView() {
   const timeframe = window.stateManager.get('timeframe');
   const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
   const cached = window.dataManager.cache.get(dataKey);
-  
+
   if (!cached?.data) return;
-  
+
   if (activeTab === 'PORTFOLIO') {
     renderPortfolio(window.dataManager.portfolioCache?.data);
   } else if (activeTab === 'SECTORS') {

@@ -1,9 +1,10 @@
-import { fetchCandles, fetchBulkLtp, rateLimit } from "./groww.mjs";
+import { fetchCandles, fetchBulkLtp, rateLimit } from "./upstox.mjs";
 import { ema, macd, rsi, vwap, historicalVolatility } from "./indicators.mjs";
 import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 import { optionsCache } from "./options_feed.mjs";
-import { startFeed } from "./feed.mjs";
+import { getLtp } from "./feed.mjs";
+
 import { fetchDividend, formatDividendInfo } from "./dividend.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -34,7 +35,7 @@ export function emptyState() {
     return { lastUpdated: null, data, errors: [], universe: UNIVERSE.length };
 }
 
-// Local rateLimit removed in favor of global one in groww.mjs
+// Local rateLimit removed in favor of global one in upstox.mjs
 
 function buildSignal(candles, tf, symbol, ltp = null) {
     const cls = candles.map(c => c.close).filter(Number.isFinite);
@@ -73,22 +74,22 @@ function buildSignal(candles, tf, symbol, ltp = null) {
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
     const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
-    
+
     // Day High/Low
     let dayH = -Infinity, dayL = Infinity;
     // Weekly High/Low (last 7 days)
     let weekH = -Infinity, weekL = Infinity;
     // 52-Week High/Low (only calculated correctly on 1d TF)
     let h52w = -Infinity, l52w = Infinity;
-    
+
     let prevClose = null;
     const weekThresh = lastTs - (7 * 86400000);
     const yearThresh = lastTs - (365 * 86400000);
-    
+
     for (let i = n - 1; i >= 0; i--) {
         const c = candles[i];
         const ts = normalizeTs(c.ts);
-        
+
         // 52-Week logic (only if 1d timeframe)
         if (tf === "1d" && ts >= yearThresh) {
             h52w = Math.max(h52w, c.high);
@@ -100,7 +101,7 @@ function buildSignal(candles, tf, symbol, ltp = null) {
             weekH = Math.max(weekH, c.high);
             weekL = Math.min(weekL, c.low);
         }
-        
+
         const cTzStr = new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
         if (cTzStr === tzStr) {
             dayH = Math.max(dayH, c.high);
@@ -109,17 +110,17 @@ function buildSignal(candles, tf, symbol, ltp = null) {
             prevClose = c.close; // Capture exact close of the prior trading day
         }
     }
-    
+
     // Fallbacks and incorporating livePrice
     if (dayH === -Infinity) { dayH = Math.max(last.high, livePrice); dayL = Math.min(last.low, livePrice); }
     else { dayH = Math.max(dayH, livePrice); dayL = Math.min(dayL, livePrice); }
-    
+
     if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
     if (h52w === -Infinity && tf === "1d") { h52w = dayH; l52w = dayL; }
-    
+
     if (prevClose === null && n > 1) prevClose = candles[n - 2].close;
     if (prevClose === null) prevClose = last.open;
-    
+
     const priceChange = livePrice - prevClose;
     const chgPct = (priceChange / prevClose) * 100;
 
@@ -202,22 +203,22 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
         process.stdout.write(`\r\x1b[K⏭️ Skipping ${symbol} (${consecutiveErrors} consecutive errors)\n`);
         return;
     }
-    
+
     // Process 1d first to cache the 52-week high/low
     const tfs = Object.keys(TF_MAP).sort((a, b) => a === "1d" ? -1 : (b === "1d" ? 1 : 0));
     let okCount = 0;
     let symbolHadError = false;
-    
+
     for (const tf of tfs) {
         try {
             // Scanner has lower priority, so we wait longer if needed
             await rateLimit();
             process.stdout.write(`\r\x1b[K⏳ ${progressInfo} ${symbol}: [${okCount}/${tfs.length}] Scanning ${tf}...`);
             const candles = await fetchCandles(symbol, tf);
-            
+
             // Reset error count on successful fetch
             symbolErrorCount.set(symbol, 0);
-            
+
             const row = buildSignal(candles, tf, symbol, ltp);
             if (!row) continue;
 
@@ -247,7 +248,7 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
             if (typeof errMsg === 'object') errMsg = JSON.stringify(errMsg);
             errors.push(`${symbol}/${tf}: ${errMsg}`);
             symbolHadError = true;
-            
+
             // Check if it's a GA001 error (invalid symbol)
             if (errMsg.includes("GA001") || errMsg.includes("trading symbol")) {
                 // Mark as invalid immediately
@@ -255,12 +256,12 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
                 process.stdout.write(`\n\x1b[33m⚠️ Invalid symbol: ${symbol} - will skip in future scans\x1b[0m\n`);
                 break; // Stop processing this symbol entirely
             }
-            
+
             // Force a new line for actual errors so they don't get overwritten
             process.stdout.write(`\n\x1b[31m❌ Error: ${symbol}/${tf} → ${errMsg}\x1b[0m\n`);
         }
     }
-    
+
     // Update error count for this symbol
     if (symbolHadError) {
         const currentErrors = symbolErrorCount.get(symbol) || 0;
@@ -274,14 +275,6 @@ export async function scanAll() {
     scanProgress = { done: 0, total: UNIVERSE.length };
     console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
     const next = emptyState();
-    
-    let ltpMap = {};
-    try {
-        ltpMap = await fetchBulkLtp(UNIVERSE);
-        console.log(`Fetched LTP for ${Object.keys(ltpMap).length} symbols.`);
-    } catch(e) {
-        console.error("Failed to fetch bulk LTP. Falling back to candle close.", e.message);
-    }
 
     try {
         const sortFn = (a, b) => {
@@ -290,15 +283,32 @@ export async function scanAll() {
             return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
         };
 
-        for (const sym of UNIVERSE) {
+        // Cloning + sorting the full accumulated state is O(size-so-far) work.
+        // Doing it after every single symbol made the whole scan O(n^2) and,
+        // since JSON.stringify/parse run synchronously, blocked Node's event
+        // loop for longer stretches as the scan progressed — starving HTTP
+        // responses and WebSocket handling, which is what made prices/rows
+        // appear to "freeze". Throttle the sync to roughly once every 2s
+        // (still frequent enough for the UI to see progress), plus always
+        // once more on the final symbol.
+        const SYNC_INTERVAL_MS = 2000;
+        let lastSyncTs = 0;
+
+        for (let scanIdx = 0; scanIdx < UNIVERSE.length; scanIdx++) {
+            const sym = UNIVERSE[scanIdx];
             const pInfo = `[${scanProgress.done + 1}/${UNIVERSE.length}]`;
             try {
-                await scanSymbol(sym, next.data, next.errors, pInfo, ltpMap[sym]);
+                await scanSymbol(sym, next.data, next.errors, pInfo, getLtp(sym));
             } catch (e) {
                 console.error(`\n❌ Critical error scanning ${sym}:`, e.message);
             }
             scanProgress.done++;
-            
+
+            const now = Date.now();
+            const isLast = scanIdx === UNIVERSE.length - 1;
+            if (!isLast && now - lastSyncTs < SYNC_INTERVAL_MS) continue;
+            lastSyncTs = now;
+
             // Periodically sync progress to global state (so UI updates)
             for (const tf of Object.keys(TF_MAP)) {
                 next.data[`${tf}_BUY`].sort(sortFn);
@@ -309,7 +319,7 @@ export async function scanAll() {
             state = JSON.parse(JSON.stringify(next));
         }
         process.stdout.write(`\r\x1b[K✅ Scan complete | Time: ${new Date().toLocaleTimeString()} | Total Errors: ${state.errors.length}\n`);
-        
+
         // Fetch dividend data in background after scan completes
         fetchDividendsInBackground(next.data);
     } finally { scanning = false; }
@@ -320,7 +330,7 @@ async function fetchDividendsInBackground(data) {
     try {
         const allStocks = data["1d_ALL"] || [];
         console.log(`\n💰 Fetching dividend data for ${allStocks.length} stocks...`);
-        
+
         // Fetch dividends in batches of 10 to avoid overwhelming the API
         const batchSize = 10;
         for (let i = 0; i < allStocks.length; i += batchSize) {
@@ -338,7 +348,7 @@ async function fetchDividendsInBackground(data) {
             await Promise.all(promises);
             console.log(`  💰 Dividend progress: ${Math.min(i + batchSize, allStocks.length)}/${allStocks.length}`);
         }
-        
+
         console.log(`✅ Dividend fetch complete.`);
     } catch (e) {
         console.error("❌ Error fetching dividends:", e.message);
@@ -346,27 +356,6 @@ async function fetchDividendsInBackground(data) {
 }
 
 export async function startScan() {
-    startFeed((updatedPrices) => {
-        if (!state || !state.data) return;
-        for (const [sym, ltp] of updatedPrices.entries()) {
-            for (const tf of Object.keys(TF_MAP)) {
-                const keys = [`${tf}_ALL`, `${tf}_BUY`, `${tf}_SELL`, `${tf}_GOLDEN`];
-                for (const k of keys) {
-                    const arr = state.data[k];
-                    if (!arr) continue;
-                    const row = arr.find(r => r.symbol === sym);
-                    if (row && row.open) {
-                        row.price = Number.isFinite(ltp) ? +(ltp.toFixed(2)) : ltp;
-                        if (Number.isFinite(row.prevClose) && row.prevClose !== 0) {
-                            row.chgPct = +(((ltp - row.prevClose) / row.prevClose) * 100).toFixed(2);
-                        }
-                        if (row.vwap !== null) row.aboveVwap = ltp > row.vwap;
-                    }
-                }
-            }
-        }
-    });
-
     while (true) {
         try {
             if (isMarketOpen() || state.lastUpdated === null) {
@@ -375,6 +364,7 @@ export async function startScan() {
         } catch (e) {
             console.error("Critical error in startScan background loop:", e.message);
         }
-        await sleep(30000); // 30s - doubled freshness, still within rate limits
+
+        await sleep(30000);
     }
 }

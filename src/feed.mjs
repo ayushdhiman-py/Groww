@@ -1,139 +1,144 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// feed.mjs — Bulk REST LTP Poller
+// feed.mjs — Live LTP Feed via Upstox Market Data Feed V3 (WebSocket)
 // ─────────────────────────────────────────────────────────────────────────────
-// Official Groww Rate Limits (confirmed from docs):
-//   Live Data (LTP, OHLC, Quote):  10 req/sec  |  300 req/min
-//
-// Architecture:
-//   • 242 stocks ÷ 50 per batch = 5 sequential await LTP calls per poll
-//   • 120ms sleep BETWEEN each batch → max burst = 5 / 0.6s ≈ 8.3 req/sec  ✅ under 10
-//   • Options feed runs in parallel: 1 req per 1500ms ≈ 0.7 req/sec
-//   • Combined peak:  8.3 + 0.7 = ~9 req/sec  ✅  (under 10 req/sec hard cap)
-//   • Combined avg:   200 req/min (LTP) + 40 req/min (Options) = 240 req/min  ✅ (80% of 300)
+// Replaces the old Groww REST-polling loop. Verified live against Upstox:
+//   - message shape:  {"feeds":{"<instrument_key>":{"ltpc":{"ltp":..,"ltt":..,"cp":..}}},"currentTs":".."}
+//   - market-status:  {"type":"market_info","marketInfo":{"segmentStatus":{...}}}
+//   - reconnection is handled by upstox-js-sdk's Streamer base class; we add an
+//     outer restart as a last-resort safety net if it exhausts its own retries.
 // ─────────────────────────────────────────────────────────────────────────────
-
-import { fetchBulkLtp } from "./groww.mjs";
+import UpstoxClient from "upstox-js-sdk";
+import { CREDS } from "./config.mjs";
+import { loadInstrumentMaster, isInstrumentMasterLoaded, resolveInstrumentKeys, symbolForInstrumentKey } from "./instruments.mjs";
 import { UNIVERSE } from "./universe.mjs";
-
-const BATCH_SIZE        = 50;    // Groww max symbols per LTP call (doc confirmed)
-const POLL_INTERVAL_MS  = 3000;  // 3s between full poll rounds -> 100 req/min avg
-const BATCH_DELAY_MS    = 150;   // Inter-batch delay
 
 export const livePrices = new Map(); // symbol → last known LTP
 
-let _timer    = null;
-let _onBatch  = null;
-let _running  = false;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function isMarketOpen() {
-    const ist = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const h = ist.getHours(), m = ist.getMinutes(), d = ist.getDay();
-    return d > 0 && d < 6
-        && (h > 9  || (h === 9  && m >= 15))
-        && (h < 15 || (h === 15 && m <= 30));
-}
-
-function toBatches(arr, size) {
-    const out = [];
-    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-    return out;
-}
-
-// ── Poll logic ────────────────────────────────────────────────────────────────
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-async function pollOnce() {
-    if (!isMarketOpen()) return;
-
-    const updated = new Map();
-    const batches  = toBatches(UNIVERSE, BATCH_SIZE);
-    let   ok       = 0;
-    let   retryQueue = [];
-
-    for (let i = 0; i < batches.length; i++) {
-        // ── Per-second guard: sleep between each batch ────────────────────
-        // Groww hard cap = 10 req/sec. With 120ms gap between 5 sequential
-        // awaited calls the burst window is ~0.6s → max 8.3 req/sec. Safe.
-        if (i > 0) await sleep(BATCH_DELAY_MS);
-
-        try {
-            const prices = await fetchBulkLtp(batches[i]);
-            for (const [sym, ltp] of Object.entries(prices)) {
-                livePrices.set(sym, ltp);
-                updated.set(sym, ltp);
-            }
-            ok++;
-        } catch (e) {
-            const status = e.response?.status ?? "–";
-            const msg    = (e.response?.data?.message || e.message || "").substring(0, 80);
-            console.error(`[Feed] LTP batch error (${i + 1}/${batches.length}) HTTP ${status}: ${msg}`);
-            // Queue failed batch for retry
-            retryQueue.push({ batch: batches[i], attempt: 1 });
-        }
-    }
-
-    // Retry failed batches with exponential backoff
-    for (const retry of retryQueue) {
-        const delay = Math.min(1000 * Math.pow(2, retry.attempt), 15000);
-        await sleep(delay);
-        try {
-            console.log(`[Feed] Retrying batch (attempt ${retry.attempt + 1})...`);
-            const prices = await fetchBulkLtp(retry.batch);
-            for (const [sym, ltp] of Object.entries(prices)) {
-                livePrices.set(sym, ltp);
-                updated.set(sym, ltp);
-            }
-            ok++;
-        } catch (e) {
-            console.error(`[Feed] Retry failed: ${e.message}`);
-        }
-    }
-
-    if (updated.size > 0) {
-        if (_onBatch) _onBatch(updated);
-        process.stdout.write(
-            `\r[Feed] ⚡ ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} | ` +
-            `${updated.size} prices updated (${ok}/${batches.length} calls)  `
-        );
-    }
-}
-
-// ── Public API ────────────────────────────────────────────────────────────────
+let streamer = null;
+let _onBatch = null;
+let _running = false;
+let _restartTimer = null;
+const subscribedKeys = new Set();
 
 /**
- * Start the bulk LTP polling feed.
- * @param {function(Map<string, number>): void} onBatch
- *   Called after each full poll with a Map of { symbol → ltp } for all stocks
- *   whose price was received this round. Called only during market hours.
+ * Parse one raw WebSocket message (already protobuf-decoded to JSON by the
+ * SDK) into a Map<symbol, ltp>. Pure function — safe to unit test without a
+ * live connection. Returns an empty Map for market-status messages,
+ * unresolvable instrument keys, or malformed payloads.
  */
-export function startFeed(onBatch) {
-    if (_running) return;
-    _running  = true;
-    _onBatch  = onBatch;
+export function parseFeedMessage(raw) {
+    const updated = new Map();
+    let payload;
+    try {
+        const text = Buffer.isBuffer(raw) ? raw.toString("utf-8") : String(raw);
+        payload = JSON.parse(text);
+    } catch (e) {
+        console.error("[Feed] Malformed message, skipping:", e.message);
+        return updated;
+    }
 
-    const batches = Math.ceil(UNIVERSE.length / BATCH_SIZE);
-    const ratePerMin = (batches / (POLL_INTERVAL_MS / 1000)) * 60;
-    console.log(
-        `[Feed] Starting Bulk LTP feed: ${UNIVERSE.length} stocks → ` +
-        `${batches} call(s)/poll every ${POLL_INTERVAL_MS / 1000}s = ` +
-        `${ratePerMin.toFixed(0)} req/min (${((ratePerMin / 300) * 100).toFixed(1)}% of 300/min budget)`
-    );
+    if (!payload || typeof payload !== "object" || !payload.feeds) return updated;
 
-    // Immediate first poll, then every POLL_INTERVAL_MS
-    pollOnce().catch(e => console.error("[Feed] Initial poll error:", e.message));
-    _timer = setInterval(
-        () => pollOnce().catch(e => console.error("[Feed] Poll error:", e.message)),
-        POLL_INTERVAL_MS
+    for (const [instrumentKey, feed] of Object.entries(payload.feeds)) {
+        const ltp = feed?.ltpc?.ltp;
+        if (!Number.isFinite(ltp)) continue;
+        const symbol = symbolForInstrumentKey(instrumentKey);
+        if (!symbol) continue;
+        updated.set(symbol, ltp);
+    }
+    return updated;
+}
+
+function handleMessage(raw) {
+    const updated = parseFeedMessage(raw);
+    if (updated.size === 0) return;
+    for (const [symbol, ltp] of updated) livePrices.set(symbol, ltp);
+    if (_onBatch) _onBatch(updated);
+    process.stdout.write(
+        `\r[Feed] ⚡ ${new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" })} | ` +
+        `${updated.size} price(s) updated (WS)  `
     );
 }
 
-/** Stop the feed */
+/**
+ * Start the live WebSocket LTP feed for the whole UNIVERSE.
+ * @param {function(Map<string, number>): void} onBatch
+ *   Called with a Map of { symbol → ltp } whenever new ticks arrive.
+ */
+export async function startFeed(onBatch) {
+    if (_running) return;
+    if (!CREDS.accessToken) {
+        console.warn("[Feed] UPSTOX_ACCESS_TOKEN not configured — live feed disabled.");
+        return;
+    }
+    _onBatch = onBatch;
+
+    if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
+    const { instrumentKeyBySymbol, unresolved } = resolveInstrumentKeys(UNIVERSE);
+    if (unresolved.length > 0) {
+        console.warn(`[Feed] ${unresolved.length} symbol(s) skipped (no Upstox instrument_key): ${unresolved.join(", ")}`);
+    }
+    for (const key of instrumentKeyBySymbol.values()) subscribedKeys.add(key);
+
+    if (subscribedKeys.size === 0) {
+        console.error("[Feed] No instruments resolved — live feed cannot start.");
+        return;
+    }
+
+    UpstoxClient.ApiClient.instance.authentications["OAUTH2"].accessToken = CREDS.accessToken;
+
+    streamer = new UpstoxClient.MarketDataStreamerV3([...subscribedKeys], "ltpc");
+    streamer.autoReconnect(true, 5, 1000); // retry every 5s, generous attempt budget
+
+    streamer.on("open", () => console.log(`[Feed] ✅ WebSocket connected — streaming ${subscribedKeys.size} instruments (ltpc)`));
+    streamer.on("message", handleMessage);
+    streamer.on("error", (e) => console.error("[Feed] WebSocket error:", e?.message || e));
+    streamer.on("close", () => console.warn("[Feed] WebSocket closed."));
+    streamer.on("reconnecting", (msg) => console.warn(`[Feed] ${msg}`));
+    streamer.on("autoReconnectStopped", (msg) => {
+        console.error(`[Feed] Auto-reconnect exhausted (${msg}). Restarting feed in 30s...`);
+        _running = false;
+        _restartTimer = setTimeout(() => { if (!_running) startFeed(_onBatch); }, 30000);
+    });
+
+    _running = true;
+    streamer.connect();
+}
+
+/** Stop the feed and close the WebSocket connection. */
 export function stopFeed() {
-    if (_timer) { clearInterval(_timer); _timer = null; }
+    if (_restartTimer) { clearTimeout(_restartTimer); _restartTimer = null; }
+    if (streamer) {
+        try { streamer.autoReconnect(false); } catch (_) { /* noop */ }
+        try { streamer.disconnect(); } catch (_) { /* noop */ }
+    }
+    streamer = null;
     _running = false;
     _onBatch = null;
-    console.log("\n[Feed] Stopped.");
+    subscribedKeys.clear();
+    console.log("[Feed] Stopped.");
+}
+
+/**
+ * Subscribe additional symbols without duplicating existing subscriptions.
+ */
+export function subscribeSymbols(symbols) {
+    if (!streamer) return;
+    const { instrumentKeyBySymbol } = resolveInstrumentKeys(symbols);
+    const newKeys = [...instrumentKeyBySymbol.values()].filter(k => !subscribedKeys.has(k));
+    if (newKeys.length === 0) return;
+    streamer.subscribe(newKeys, "ltpc");
+    newKeys.forEach(k => subscribedKeys.add(k));
+}
+
+/** Unsubscribe symbols currently streamed. */
+export function unsubscribeSymbols(symbols) {
+    if (!streamer) return;
+    const { instrumentKeyBySymbol } = resolveInstrumentKeys(symbols);
+    const keys = [...instrumentKeyBySymbol.values()].filter(k => subscribedKeys.has(k));
+    if (keys.length === 0) return;
+    streamer.unsubscribe(keys);
+    keys.forEach(k => subscribedKeys.delete(k));
 }
 
 /** Get last known LTP for a symbol, or null if not yet received */

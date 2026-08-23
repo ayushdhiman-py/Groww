@@ -40,8 +40,7 @@ Write-Host ""
 Write-Host "3️⃣  Add Environment Variables in Render:" -ForegroundColor Green
 Write-Host "   → Click 'Advanced' section"
 Write-Host "   → Add these:"
-Write-Host "     GROWW_API_KEY=<from src/config.mjs line 6>"
-Write-Host "     GROWW_API_SECRET=<from src/config.mjs line 7>"
+Write-Host "     UPSTOX_ACCESS_TOKEN=<your Upstox Analytics Token>"
 Write-Host "     NODE_ENV=production"
 Write-Host ""
 

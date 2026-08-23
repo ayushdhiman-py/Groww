@@ -1,17 +1,20 @@
 {
   "name": "ayush-personal-scanner",
   "version": "2.0.0",
-  "description": "EMA 20/50 Golden Cross + Multi-Signal Scanner — SmartAPI (Angel One)",
+  "description": "EMA 20/50 Golden Cross + Multi-Signal Scanner — Upstox API",
   "type": "module",
   "main": "src/scanner.mjs",
   "scripts": {
     "start": "node scanner_testing.mjs",
-    "dev": "node --watch scanner_testing.mjs"
+    "dev": "node --watch scanner_testing.mjs",
+    "test": "node --test"
   },
   "dependencies": {
     "axios": "^1.7.0",
     "dotenv": "^17.4.1",
     "express": "^4.19.0",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "otplib": "^13.4.1",
+    "upstox-js-sdk": "^2.30.0"
   }
 }

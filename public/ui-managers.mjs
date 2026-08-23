@@ -25,7 +25,7 @@ export class LivePriceUpdater {
       // Skip if tab is hidden, market closed, or on Portfolio/Sectors
       if (document.hidden) return;
       if (!this.state.get('marketOpen')) return;
-      
+
       const activeTab = this.state.get('activeTab');
       if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS') return;
 
@@ -52,7 +52,7 @@ export class LivePriceUpdater {
       const timeframe = this.state.get('timeframe');
       const dataKey = this.data.cacheKey(timeframe, activeTab);
       const cached = this.data.cache.get(dataKey);
-      
+
       if (!cached?.data?.data) return;
 
       let anyChanged = false;
@@ -69,7 +69,7 @@ export class LivePriceUpdater {
             row.price = +newPrice.toFixed(2);
             row.chgPct = +(((newPrice - row.prevClose) / row.prevClose) * 100).toFixed(2);
             if (row.vwap !== null) row.aboveVwap = newPrice > row.vwap;
-            
+
             if (oldPrice !== row.price) {
               anyChanged = true;
             }
@@ -81,7 +81,7 @@ export class LivePriceUpdater {
         // Update badges and stats
         window.updateBadges?.(cached.data);
         window.updateLastUpdatedBadge?.(cached.data);
-        
+
         // Re-render if not currently rendering
         if (!this.render.isRendering) {
           this.render.scheduleRender(() => window.renderStocks(cached.data), 0);
@@ -114,7 +114,7 @@ export class PortfolioManager {
       if (data) {
         this.renderPortfolio(data);
         this.startRefresh();
-        
+
         // Update badge
         const itemCount = (data.holdings?.length || 0) + (data.positions?.length || 0);
         const badge = document.getElementById('badge-PORTFOLIO');
@@ -122,6 +122,7 @@ export class PortfolioManager {
       } else {
         const empty = document.getElementById('empty');
         if (empty) {
+          empty.classList.remove('loading');
           empty.style.display = 'block';
           empty.textContent = 'Failed to load portfolio';
         }
@@ -142,7 +143,7 @@ export class PortfolioManager {
 
   startRefresh() {
     if (this.refreshInterval) return;
-    
+
     this.refreshInterval = setInterval(async () => {
       // Only refresh if Portfolio tab is active
       if (this.state.get('activeTab') !== 'PORTFOLIO') return;
@@ -196,8 +197,6 @@ export class SortManager {
   }
 
   handleSort(column, event) {
-    console.log(`[Sort] Sorting by column: ${column}, shiftKey: ${event?.shiftKey}`);
-    
     if (event) {
       event.preventDefault();
       event.stopPropagation();
@@ -205,7 +204,6 @@ export class SortManager {
 
     // Debounce rapid sort clicks
     if (this.sortDebounceTimer) {
-      console.log('[Sort] Debouncing rapid sort click');
       clearTimeout(this.sortDebounceTimer);
     }
 
@@ -221,26 +219,21 @@ export class SortManager {
       // Single column sort
       if (sortStack.length === 1 && sortStack[0].col === column) {
         sortStack[0].asc = !sortStack[0].asc;
-        console.log(`[Sort] Toggled sort direction for ${column}: ${sortStack[0].asc ? 'ASC' : 'DESC'}`);
       } else {
         sortStack = [{ col: column, asc: false }];
-        console.log(`[Sort] New single sort: ${column} DESC`);
       }
     } else {
       // Multi-column sort
       const existing = sortStack.find(s => s.col === column);
       if (existing) {
         existing.asc = !existing.asc;
-        console.log(`[Sort] Multi-sort toggle: ${column} ${existing.asc ? 'ASC' : 'DESC'}`);
       } else {
         sortStack.push({ col: column, asc: false });
-        console.log(`[Sort] Multi-sort added: ${column}`);
       }
     }
 
     this.state.set('sortStack', sortStack);
-    console.log(`[Sort] Sort stack:`, sortStack);
-    
+
     // Persist sort state for current tab
     const activeTab = this.state.get('activeTab');
     const tabSorts = this.state.get('tabSorts');
@@ -249,7 +242,6 @@ export class SortManager {
     this.state.persist();
 
     // Re-render from CACHED data (don't fetch!)
-    console.log(`[Sort] Triggering re-render from cache for tab: ${activeTab}`);
     this.reRenderCurrentTab();
   }
 
@@ -257,31 +249,20 @@ export class SortManager {
   reRenderCurrentTab() {
     const activeTab = this.state.get('activeTab');
     const timeframe = this.state.get('timeframe');
-    
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('[Sort] ========== RE-RENDER CURRENT TAB ==========');
-    console.log(`[Sort] activeTab="${activeTab}", timeframe="${timeframe}"`);
-    console.log(`[Sort] All cache keys:`, Array.from(window.dataManager.cache.keys()));
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
+
     try {
       if (activeTab === 'PORTFOLIO') {
-        console.log('[Sort] Re-rendering portfolio from cache');
         window.portfolioManager?.loadAndRender();
       } else if (activeTab === 'SECTORS') {
-        console.log('[Sort] Re-rendering sectors from cache');
         // Sectors always use 1d_ALL data (daily timeframe)
         const dataKey = window.dataManager.cacheKey('1d', 'ALL');
         const cached = window.dataManager.cache.get(dataKey);
         if (cached?.data) {
-          console.log(`[Sort] ✅ Found cached 1d_ALL data for sectors`);
           window.renderSectors(cached.data);
         } else {
-          console.warn(`[Sort] ❌ No cached 1d_ALL data for sectors`);
           // Fallback: try any available daily data
           const allCached = window.dataManager.cache.get(window.dataManager.cacheKey(timeframe === 'ALL' ? '1d' : timeframe, 'ALL'));
           if (allCached?.data) {
-            console.log('[Sort] Using fallback data for sectors');
             window.renderSectors(allCached.data);
           } else {
             console.error('[Sort] ❌ No cached data available for sectors');
@@ -289,26 +270,12 @@ export class SortManager {
         }
       } else {
         // Regular tabs: ALL, GOLDEN, BUY, SELL, FO
-        console.log(`[Sort] Re-rendering ${activeTab} from cache, timeframe=${timeframe}`);
-        
-        // Use direct cache key regardless of timeframe
         const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
-        console.log(`[Sort] 🔍 Looking for cache key: "${dataKey}"`);
-        
+
         const cached = window.dataManager.cache.get(dataKey);
         if (cached?.data) {
-          console.log(`[Sort] ✅ Found cached data for "${dataKey}"`);
-          console.log(`[Sort] Data keys in cache:`, Object.keys(cached.data.data || {}));
-          if (cached.data.data) {
-            for (const [key, value] of Object.entries(cached.data.data)) {
-              console.log(`[Sort]   ${key}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
-            }
-          }
           window.renderStocks(cached.data);
         } else {
-          console.warn(`[Sort] ❌ No cached data for "${dataKey}"`);
-          console.log(`[Sort] Available keys:`, Array.from(window.dataManager.cache.keys()));
-          console.log(`[Sort] Fetching fresh data...`);
           window.tabManager?.loadScannerData();
         }
       }
@@ -354,13 +321,10 @@ export class SearchFilter {
     // Search input
     const searchInput = document.getElementById('search');
     if (searchInput) {
-      console.log('[SearchFilter] Initializing search input...');
       // Debounced search
       searchInput.addEventListener('input', (e) => {
-        console.log(`[SearchFilter] Input: "${e.target.value}"`);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.debounceTimer = setTimeout(() => {
-          console.log(`[SearchFilter] Debounced search: "${e.target.value}"`);
           this.state.set('searchQuery', e.target.value);
           this.state.persist(); // Persist search query
           window.renderCurrentView?.();
@@ -369,42 +333,31 @@ export class SearchFilter {
 
       // Instant filter on change
       searchInput.addEventListener('change', () => {
-        console.log(`[SearchFilter] Change: "${searchInput.value}"`);
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.state.set('searchQuery', searchInput.value);
         this.state.persist(); // Persist search query
         window.renderCurrentView?.();
       });
-    } else {
-      console.warn('[SearchFilter] Search input not found');
     }
 
     // Index toggle
     const idxToggle = document.getElementById('idxTgl');
     if (idxToggle) {
-      console.log('[SearchFilter] Initializing index toggle');
       idxToggle.addEventListener('change', (e) => {
-        console.log(`[SearchFilter] Indices toggle: ${e.target.checked}`);
         this.state.set('showIndices', e.target.checked);
         this.state.persist(); // Persist indices toggle
         window.renderCurrentView?.();
       });
-    } else {
-      console.warn('[SearchFilter] Index toggle not found');
     }
 
     // Dividend toggle
     const divToggle = document.getElementById('divTgl');
     if (divToggle) {
-      console.log('[SearchFilter] Initializing dividend toggle');
       divToggle.addEventListener('change', (e) => {
-        console.log(`[SearchFilter] Dividend toggle: ${e.target.checked}`);
         this.state.set('showDividend', e.target.checked);
         this.state.persist(); // Persist dividend toggle
         window.renderCurrentView?.();
       });
-    } else {
-      console.warn('[SearchFilter] Dividend toggle not found');
     }
   }
 
@@ -467,7 +420,7 @@ export class FOManager {
     // Start countdown ticker
     setInterval(() => {
       if (this.state.get('activeTab') !== 'FO') return;
-      
+
       this.countdown = Math.max(0, Math.round((this.nextRefreshAt - Date.now()) / 1000));
       const rcEl = document.getElementById('rowCount');
       if (rcEl && rcEl.textContent.startsWith('F&O:')) {
@@ -485,7 +438,7 @@ export class FOManager {
       // Only refresh if F&O tab is active and market is open
       if (this.state.get('activeTab') === 'FO' && this.state.get('marketOpen')) {
         await window.tabManager?.loadScannerData();
-        
+
         // Reload expanded row if exists
         if (this.expandedSymbol) {
           const wrap = document.getElementById(`wrap-${this.expandedSymbol}`);
@@ -527,7 +480,7 @@ export class FOManager {
   async loadOptionChain(symbol, wrap) {
     try {
       wrap.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px">⏳ Loading Option Chain...</div>';
-      
+
       const chain = await this.data.fetchOptionChain(symbol);
       if (!chain) throw new Error('No data');
 
@@ -565,8 +518,13 @@ export class IntervalManager {
     const id = setInterval(() => {
       // Check condition before executing
       if (condition && !condition()) return;
+      // callback() is usually async — a sync try/catch around it cannot catch
+      // errors thrown inside the async function body (they surface as an
+      // unhandled rejection instead, invisible here). Route through
+      // Promise.resolve().catch() so failures are always logged instead of
+      // silently killing that tick's update.
       try {
-        callback();
+        Promise.resolve(callback()).catch(e => console.error(`[Interval] Error in ${name}:`, e));
       } catch (e) {
         console.error(`[Interval] Error in ${name}:`, e);
       }

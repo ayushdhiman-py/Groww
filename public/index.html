@@ -7,7 +7,7 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>Ayush's Scanner — Groww</title>
+  <title>Ayush's Scanner — Upstox</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link
     href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Sora:wght@400;600;700&display=swap"
@@ -310,6 +310,12 @@
       transition: all 0.15s ease;
     }
 
+    .action-btn:hover:not(:disabled) {
+      background: rgba(0, 212, 170, 0.18);
+      border-color: rgba(0, 212, 170, 0.4);
+      transform: translateY(-1px);
+    }
+
     .action-btn:active {
       transform: translateY(0);
     }
@@ -320,7 +326,12 @@
       color: var(--muted);
     }
 
-    /* .action-btn.secondary:hover removed */
+    .action-btn.secondary:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--muted);
+      color: var(--text);
+    }
+
     .action-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
@@ -456,7 +467,10 @@
       justify-content: space-between;
     }
 
-    /* .custom-select-trigger:hover removed */
+    .custom-select-trigger:hover {
+      border-color: rgba(0, 212, 170, 0.4);
+      background: rgba(0, 212, 170, 0.06);
+    }
 
     .custom-select.open .custom-select-trigger {
       border-color: var(--accent);
@@ -553,7 +567,14 @@
       transition: opacity 0.15s ease;
     }
 
-    /* .option:hover and .option:hover::before removed */
+    .option:hover:not(.active) {
+      border-color: rgba(0, 212, 170, 0.25);
+      transform: translateY(-1px);
+    }
+
+    .option:hover::before {
+      opacity: 1;
+    }
 
     .option:active {
       transform: translateY(0);
@@ -604,7 +625,10 @@
       transition: all 0.2s;
     }
 
-    /* .controls-wrap .idx-tg:hover removed */
+    .controls-wrap .idx-tg:hover {
+      border-color: rgba(0, 212, 170, 0.3);
+      color: var(--text);
+    }
 
     .controls-wrap .idx-tg input { display: none; }
 
@@ -660,6 +684,16 @@
       font-size: 10px;
       font-weight: 600;
       transition: all 0.2s;
+    }
+
+    .controls-wrap .div-tg:hover {
+      border-color: rgba(0, 212, 170, 0.3);
+      color: var(--text);
+    }
+
+    .controls-wrap .div-tg:has(input:disabled) {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
 
     .controls-wrap .div-tg input { display: none; }
@@ -771,7 +805,10 @@
       white-space: nowrap;
       will-change: transform, background-color;
     }
-    /* .tab:hover removed */
+    .tab:hover:not(.active) {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+    }
     .tab .tab-icon {
       font-size: 14px;
       line-height: 1;
@@ -986,7 +1023,7 @@
 
     /* indices toggle */
     .idx-tg{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;color:var(--muted);font-size:11px;font-weight:600;background:var(--card);border:1px solid var(--border);padding:6px 12px;border-radius:10px;transition:all .2s; height:34px;}
-    /* .idx-tg:hover removed */
+    .idx-tg:hover{border-color:rgba(0,212,170,.3);color:var(--text);}
     .idx-tg input{display:none;}
     .idx-tg-s{width:30px;height:16px;background:rgba(255,255,255,.05);border-radius:99px;position:relative;transition:.3s;}
     .idx-tg-s::after{content:'';position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--muted);border-radius:50%;transition:.3s;}
@@ -1051,7 +1088,10 @@
       padding-right: 20px;
     }
 
-    /* thead th:hover removed */
+    thead th:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.04);
+    }
 
     tbody td {
       padding: 14px 14px;
@@ -1080,15 +1120,17 @@
       padding-right: 20px;
     }
 
-    tbody tr {
-      /* hover removed */
+    tbody tr.main-row:hover {
+      background: rgba(255, 255, 255, 0.025);
     }
 
     tbody tr.gc-row {
       background: rgba(167, 139, 250, .03);
     }
 
-    /* tbody tr.gc-row:hover removed */
+    tbody tr.gc-row:hover {
+      background: rgba(167, 139, 250, .07);
+    }
 
     /* ── Portfolio Section Headers ──────────────────────────────────── */
     tr.section-header td {
@@ -1589,6 +1631,25 @@
       text-align: center;
       color: var(--muted);
     }
+    .empty.loading::before {
+      content: '';
+      display: block;
+      width: 26px;
+      height: 26px;
+      margin: 0 auto 12px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Brief highlight when a cell's live value changes, so ticks feel alive
+       instead of the table looking static between full reloads. */
+    @keyframes priceFlashUp { from { background-color: rgba(34,197,94,0.35); } to { background-color: transparent; } }
+    @keyframes priceFlashDown { from { background-color: rgba(239,68,68,0.35); } to { background-color: transparent; } }
+    .price-flash-up { animation: priceFlashUp 0.9s ease-out; border-radius: 6px; }
+    .price-flash-down { animation: priceFlashDown 0.9s ease-out; border-radius: 6px; }
 
     /* Tooltip CSS removed */
 
@@ -2107,33 +2168,17 @@
       transition: all 0.2s;
     }
 
-    /* .modal-close:hover removed */
+    .modal-close:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+    }
   </style>
 </head>
 
 <body>
 
-  <!-- LOGIN SCREEN -->
-  <div id="LS" style="display:none">
-    <div class="ls">
-      <div class="lc">
-        <div class="lt">⚡ Ayush's Scanner</div>
-        <div class="lsub">EMA 21/50 Golden Cross · MACD 12/26/9 · Volume Spike · RSI<br>Powered by <b
-            style="color:#22c55e">Groww Trading API</b></div>
-        <div class="step"><b>Step 1:</b> Your Groww API Key and Secret are already configured in the server.</div>
-        <div class="step"><b>Step 2:</b> Click Login to authenticate with the Groww API. Access token is auto-generated
-          using your API secret.</div>
-        <div class="step"><b>Step 3:</b> Once authenticated, the scanner starts scanning all 59 NSE stocks across 8
-          timeframes.</div>
-        <button class="lbtn" onclick="doLogin()">🔐 Login with Groww API</button>
-        <div class="note">Token auto-refreshes. Only reads historical data — no orders placed.<br>Rate limit: 10 req/sec
-          (Groww market data limit).</div>
-      </div>
-    </div>
-  </div>
-
   <!-- MAIN APP -->
-  <div id="APP" style="display:none">
+  <div id="APP">
     <div class="wrap">
 
       <div class="top">
@@ -2152,10 +2197,6 @@
           <button class="action-btn" onclick="load()" title="Refresh Data">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
             Refresh
-          </button>
-          <button class="action-btn secondary" onclick="doLogin()" title="Re-login">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
-            Login
           </button>
         </div>
       </div>
@@ -2222,7 +2263,7 @@
       </details>
 
       <div class="controls-wrap">
-        <input id="search" placeholder="Search symbol, sector, or signal…" oninput="debouncedSearch()" />
+        <input id="search" placeholder="Search symbol, sector, or signal…" />
         <div class="controls-right">
           <div class="custom-select" id="tfDropdown">
             <div class="custom-select-trigger" onclick="toggleTfDropdown()">
@@ -2309,16 +2350,16 @@
         <table>
           <thead id="tableHeader">
             <tr>
-              <th onclick="setSort('symbol', event)">Stock / Sector</th>
-              <th onclick="setSort('price', event)">CMP</th>
+              <th onclick="window.sortManager.handleSort('symbol', event)">Stock / Sector</th>
+              <th onclick="window.sortManager.handleSort('price', event)">CMP</th>
               <th>Chart</th>
-              <th onclick="setSort('emaGap', event)">EMA</th>
-              <th onclick="setSort('volume', event)">Volume</th>
-              <th onclick="setSort('macdVal', event)">MACD</th>
-              <th onclick="setSort('dayH', event)">Day Range</th>
-              <th onclick="setSort('w52H', event)">52W Range</th>
-              <th onclick="setSort('techScore', event)">Score</th>
-              <th onclick="setSort('rating', event)">Rating</th>
+              <th onclick="window.sortManager.handleSort('emaGap', event)">EMA</th>
+              <th onclick="window.sortManager.handleSort('volume', event)">Volume</th>
+              <th onclick="window.sortManager.handleSort('macdVal', event)">MACD</th>
+              <th onclick="window.sortManager.handleSort('dayH', event)">Day Range</th>
+              <th onclick="window.sortManager.handleSort('w52H', event)">52W Range</th>
+              <th onclick="window.sortManager.handleSort('techScore', event)">Score</th>
+              <th onclick="window.sortManager.handleSort('rating', event)">Rating</th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
@@ -2354,10 +2395,14 @@
 
   <!-- Backwards compatibility for inline handlers -->
   <script>
-    // These will be overridden by the modular system
-    window.doLogin = () => console.log('Login handler not ready');
+    // Will be overridden by the modular system
     window.load = () => console.log('Load handler not ready');
-    window.closeModal = window.closeModalChart || (() => {});
+    // NOTE: window.closeModalChart isn't defined yet at this point — this
+    // script runs before the deferred module scripts below execute. Delegate
+    // at call time (not here) so the click handlers below always reach the
+    // real implementation once it's loaded, instead of permanently freezing
+    // on this fallback no-op.
+    window.closeModal = (...args) => window.closeModalChart?.(...args);
   </script>
 </body>
 

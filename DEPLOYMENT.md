@@ -1,4 +1,4 @@
-# 🚀 Deployment Guide — Ayush's Groww Scanner
+# 🚀 Deployment Guide — Ayush's Scanner
 
 ## Quick Deploy to Render (5 minutes)
 
@@ -45,8 +45,7 @@ git push -u origin main
 5. **Add Environment Variables**:
    Click "Advanced" → "Add Environment Variable":
    ```
-   GROWW_API_KEY=<copy from src/config.mjs line 6>
-   GROWW_API_SECRET=<copy from src/config.mjs line 7>
+   UPSTOX_ACCESS_TOKEN=<your Upstox Analytics Token>
    NODE_ENV=production
    ```
 
@@ -118,8 +117,7 @@ To prevent spin-down on free tier:
    ```
    Add:
    ```
-   GROWW_API_KEY=your_key_here
-   GROWW_API_SECRET=your_secret_here
+   UPSTOX_ACCESS_TOKEN=your_upstox_analytics_token_here
    NODE_ENV=production
    PORT=4000
    ```
@@ -144,8 +142,7 @@ If you want to host from your Windows machine:
 
 ```bash
 # Set env variables (Windows)
-set GROWW_API_KEY=your_key
-set GROWW_API_SECRET=your_secret
+set UPSTOX_ACCESS_TOKEN=your_upstox_analytics_token
 set NODE_ENV=production
 
 # Start server
@@ -214,18 +211,18 @@ curl https://your-app.onrender.com/api/status
 Dashboard → Logs → Filter by "error"
 
 # Common issues:
-# 1. Missing env vars → Add GROWW_API_KEY and GROWW_API_SECRET
+# 1. Missing env vars → Add UPSTOX_ACCESS_TOKEN
 # 2. Port binding → Render sets PORT automatically
 # 3. Dependencies → Run npm install
 ```
 
-### "No session" error:
-- Login via the web UI after deployment
-- Session persists for 23 hours
+### "Upstox authentication failed" error:
+- Verify `UPSTOX_ACCESS_TOKEN` is set correctly (Upstox Developer Apps → Analytics tab → Generate Token)
+- The token is long-lived (~1 year) — no daily re-login needed, but it does eventually expire
 
 ### Rate limit errors:
-- Groww API has limits (10 req/sec, 300 req/min)
-- Already handled in code, but if you see errors, wait 1-2 minutes
+- Upstox API limits are handled automatically by a shared, conservative rate limiter with backoff
+- If you still see 429 errors, wait 1-2 minutes
 
 ---
 

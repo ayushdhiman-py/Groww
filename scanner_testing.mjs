@@ -3,14 +3,15 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { createHash } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
-import { loadSession, login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions } from "./src/groww.mjs";
+import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
 import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
-import { livePrices } from "./src/feed.mjs";
+import { startFeed, livePrices, getLtp } from "./src/feed.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
 import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
 import { runOperatorScan, getOperatorState, buildMarketSummary, formatMarketSummaryBlock, transformScannerData } from "./src/operator_scanner.mjs";
+import { isDividendServiceAvailable } from "./src/dividend.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -25,7 +26,7 @@ app.use(express.static(path.join(__dirname, "public")));
 
 const PORT = process.env.PORT || 4000;
 
-// ── Option Chain Cache with TTL (10s) ────────────────────────────────────────
+// ── Option Chain Cache with TTL (10s) ─────────────────────────────────────────────
 const optionChainCacheTTL = 10000; // 10 seconds
 const optionChainCache = new Map(); // symbol → { data, timestamp }
 
@@ -42,7 +43,7 @@ function setCachedOptionChain(symbol, data) {
     optionChainCache.set(symbol, { data, timestamp: Date.now() });
 }
 
-// ── Routes ────────────────────────────────────────────────────────────────────
+// ── Routes ─────────────────────────────────────────────────────────────────────
 
 // Lightweight LTP endpoint - returns only live prices (tiny payload ~2KB)
 app.get("/api/ltp", (_, res) => {
@@ -68,13 +69,23 @@ app.get("/api/status", (_, res) => res.json({
     lastUpdated: state.lastUpdated,
     errors: state.errors.length,
     universe: UNIVERSE.length,
+    dividendAvailable: isDividendServiceAvailable(),
 }));
+
+// Starts (or no-ops if already running) background scanning + live feeds.
+// Safe to call from both server boot and /api/login, since scanAll/startFeed/
+// startOptionsFeed all guard against double-starting internally.
+function activateMarketData() {
+    startScan();
+    startFeed(() => {});
+    startOptionsFeed();
+}
 
 app.post("/api/login", async (req, res) => {
     try {
         await login();
         setIsAuthenticated(true);
-        // scanAll(); // Trigger immediate scan
+        activateMarketData();
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
@@ -96,98 +107,54 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         return res.json(result);
     }
 
-    // 3. Fetch REAL option chain from Groww API
+    // 3. Fetch REAL option chain from Upstox API
     try {
         const rawChain = await fetchOptionChain(sym);
 
-        if (rawChain) {
+        if (rawChain && rawChain.strikes) {
             const fetchedAt = new Date().toISOString();
-
-            // Parse and format real data
-            const rawStrikes = rawChain.strikes || rawChain.strikeData || {};
             const calls = [];
             const puts = [];
 
-            // Handle both array and object formats for strike data
-            if (Array.isArray(rawStrikes)) {
-                // Array format: [{ strikePrice, callOption, putOption }, ...]
-                rawStrikes.forEach(s => {
-                    if (s.callOption) {
-                        calls.push({
-                            strikePrice: s.strikePrice || s.strike,
-                            ltp: s.callOption?.lastPrice || s.callOption?.ltp || 0,
-                            openInterest: s.callOption?.openInterest || s.callOption?.oi || 0,
-                            oiChange: s.callOption?.changeInOI || s.callOption?.oiChange || 0,
-                            volume: s.callOption?.totalTradedVolume || s.callOption?.volume || 0,
-                            greeks: {
-                                delta: s.callOption?.delta || 0,
-                                gamma: s.callOption?.gamma || 0,
-                                theta: s.callOption?.theta || 0,
-                                vega: s.callOption?.vega || 0,
-                                iv: (s.callOption?.impliedVolatility || s.callOption?.iv || 0) * 100,
-                            },
-                            type: "CE",
-                        });
-                    }
-                    if (s.putOption) {
-                        puts.push({
-                            strikePrice: s.strikePrice || s.strike,
-                            ltp: s.putOption?.lastPrice || s.putOption?.ltp || 0,
-                            openInterest: s.putOption?.openInterest || s.putOption?.oi || 0,
-                            oiChange: s.putOption?.changeInOI || s.putOption?.oiChange || 0,
-                            volume: s.putOption?.totalTradedVolume || s.putOption?.volume || 0,
-                            greeks: {
-                                delta: s.putOption?.delta || 0,
-                                gamma: s.putOption?.gamma || 0,
-                                theta: s.putOption?.theta || 0,
-                                vega: s.putOption?.vega || 0,
-                                iv: (s.putOption?.impliedVolatility || s.putOption?.iv || 0) * 100,
-                            },
-                            type: "PE",
-                        });
-                    }
-                });
-            } else if (typeof rawStrikes === 'object' && rawStrikes !== null) {
-                // Object format: { "1000": { CE: {...}, PE: {...} }, "1100": {...} }
-                for (const [strikePrice, optionsData] of Object.entries(rawStrikes)) {
-                    const strike = parseFloat(strikePrice);
-                    if (optionsData.CE) {
-                        calls.push({
-                            strikePrice: strike,
-                            ltp: optionsData.CE.lastPrice || optionsData.CE.ltp || 0,
-                            openInterest: optionsData.CE.openInterest || optionsData.CE.oi || 0,
-                            oiChange: optionsData.CE.changeInOI || optionsData.CE.oiChange || 0,
-                            volume: optionsData.CE.totalTradedVolume || optionsData.CE.volume || 0,
-                            greeks: {
-                                delta: optionsData.CE.delta || 0,
-                                gamma: optionsData.CE.gamma || 0,
-                                theta: optionsData.CE.theta || 0,
-                                vega: optionsData.CE.vega || 0,
-                                iv: (optionsData.CE.impliedVolatility || optionsData.CE.iv || 0) * 100,
-                            },
-                            type: "CE",
-                        });
-                    }
-                    if (optionsData.PE) {
-                        puts.push({
-                            strikePrice: strike,
-                            ltp: optionsData.PE.lastPrice || optionsData.PE.ltp || 0,
-                            openInterest: optionsData.PE.openInterest || optionsData.PE.oi || 0,
-                            oiChange: optionsData.PE.changeInOI || optionsData.PE.oiChange || 0,
-                            volume: optionsData.PE.totalTradedVolume || optionsData.PE.volume || 0,
-                            greeks: {
-                                delta: optionsData.PE.delta || 0,
-                                gamma: optionsData.PE.gamma || 0,
-                                theta: optionsData.PE.theta || 0,
-                                vega: optionsData.PE.vega || 0,
-                                iv: (optionsData.PE.impliedVolatility || optionsData.PE.iv || 0) * 100,
-                            },
-                            type: "PE",
-                        });
-                    }
+            // upstox.mjs's fetchOptionChain always normalizes to
+            // { strikes: { "<strike>": { CE, PE } } } — iv is already a
+            // percentage (Upstox convention), not a 0-1 fraction.
+            for (const [strikePrice, optionsData] of Object.entries(rawChain.strikes)) {
+                const strike = parseFloat(strikePrice);
+                if (optionsData.CE) {
+                    calls.push({
+                        strikePrice: strike,
+                        ltp: optionsData.CE.lastPrice || 0,
+                        openInterest: optionsData.CE.open_interest || 0,
+                        oiChange: optionsData.CE.changeInOI || 0,
+                        volume: optionsData.CE.volume || 0,
+                        greeks: {
+                            delta: optionsData.CE.delta || 0,
+                            gamma: optionsData.CE.gamma || 0,
+                            theta: optionsData.CE.theta || 0,
+                            vega: optionsData.CE.vega || 0,
+                            iv: optionsData.CE.impliedVolatility || 0,
+                        },
+                        type: "CE",
+                    });
                 }
-            } else {
-                console.warn(`[OptionChain] Unexpected strike data format for ${sym}:`, typeof rawStrikes);
+                if (optionsData.PE) {
+                    puts.push({
+                        strikePrice: strike,
+                        ltp: optionsData.PE.lastPrice || 0,
+                        openInterest: optionsData.PE.open_interest || 0,
+                        oiChange: optionsData.PE.changeInOI || 0,
+                        volume: optionsData.PE.volume || 0,
+                        greeks: {
+                            delta: optionsData.PE.delta || 0,
+                            gamma: optionsData.PE.gamma || 0,
+                            theta: optionsData.PE.theta || 0,
+                            vega: optionsData.PE.vega || 0,
+                            iv: optionsData.PE.impliedVolatility || 0,
+                        },
+                        type: "PE",
+                    });
+                }
             }
 
             // Sort by volume and pick top 5
@@ -196,8 +163,8 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
 
             const result = {
                 symbol: sym,
-                spot: rawChain.underlyingValue || rawChain.spot || 0,
-                expiry: rawChain.expiryDate || rawChain.expiry,
+                spot: rawChain.underlying_ltp || 0,
+                expiry: rawChain.expiryDate,
                 topCalls,
                 topPuts,
                 callOptions: calls,
@@ -212,7 +179,7 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
             return res.json(result);
         }
     } catch (err) {
-        console.error(`[OptionChain] Groww API error for ${sym}:`, err.message);
+        console.error(`[OptionChain] Upstox API error for ${sym}:`, err.message);
     }
 
     // 4. Fallback: Generate theoretical option chain from scanner data (Black-Scholes)
@@ -252,7 +219,7 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
     return res.status(404).json({ error: "no_data", message: `Option chain not available for ${sym}.` });
 });
 
-// ── Indices LTP endpoint ──────────────────────────────────────────────────────
+// ── Indices LTP endpoint ─────────────────────────────────────────────────────────
 const INDEX_SYMBOLS = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "SENSEX", "NIFTY MID SELECT"];
 const INDEX_LABELS  = ["NIFTY",   "BANKNIFTY", "FINNIFTY",          "SENSEX", "MIDCPNIFTY"];
 let   indexCache    = { ts: 0, data: [] };
@@ -262,22 +229,18 @@ app.get("/api/indices", async (_, res) => {
         if (!isAuthenticated) return res.json([]);
         if (Date.now() - indexCache.ts < 3000) return res.json(indexCache.data);
 
-        // Fetch using the central bulk LTP utility
-        // Need to pass exactly what's requested. We use INDEX_SYMBOLS and map back.
-        // Wait, fetchBulkLtp uses Groww format (e.g. BSE_SENSEX, NSE_NIFTY 50)...
-        const rawSymbols = INDEX_LABELS.map(sym => 
-            sym === "SENSEX" ? "BSE_SENSEX" : `NSE_${sym}`
-        );
-        
-        const prices = await fetchBulkLtp(rawSymbols);
-        
+        // Prefer the live WebSocket feed (already subscribed to the whole
+        // UNIVERSE, indices included); fall back to a one-off REST call for
+        // any index not yet warmed up in the feed.
+        const missing = INDEX_LABELS.filter(label => getLtp(label) == null);
+        const restPrices = missing.length > 0 ? await fetchBulkLtp(missing) : {};
+
         const result = INDEX_LABELS.map(label => {
-            const lookupLabel = label === "MIDCPNIFTY" ? "NIFTYMIDSELECT" : label === "SENSEX" ? "SENSEX" : label;
-            const ltp = prices[lookupLabel] || null;
-            
+            const ltp = getLtp(label) ?? restPrices[label] ?? null;
+
             // Try to find scanned data for accurate change info
             let priceChange = null, chgPct = null;
-            const scanned = (state.data["15m_ALL"] || []).find(r => r.symbol === label) || 
+            const scanned = (state.data["15m_ALL"] || []).find(r => r.symbol === label) ||
                           (state.data["1d_ALL"] || []).find(r => r.symbol === label);
             if (scanned) {
                 priceChange = scanned.priceChange;
@@ -324,75 +287,18 @@ app.get("/api/theoretical-chain/:symbol", (req, res) => {
     });
 });
 
-// ── Portfolio endpoint — fetch holdings + positions with LTP ──────────────
+// ── Portfolio endpoint — Upstox holdings/positions already include last_price + pnl ──
 app.get("/api/portfolio", async (req, res) => {
     if (!isAuthenticated) return res.status(401).json({ error: "Not authenticated" });
 
     try {
-        // Fetch holdings (long-term investments)
-        const holdings = await fetchHoldings();
+        const [holdings, positions] = await Promise.all([fetchHoldings(), fetchPositions()]);
 
-        // Fetch positions for all segments
-        const [cashPositions, fnoPositions, commodityPositions] = await Promise.all([
-            fetchPositions("CASH"),
-            fetchPositions("FNO"),
-            fetchPositions("COMMODITY")
-        ]);
-
-        // Get current LTP for holdings (equity/cash segment)
-        const holdingSymbols = holdings.map(h => h.trading_symbol);
-        const cashPositionSymbols = cashPositions.map(p => p.trading_symbol);
-        const isFnoSymbol = (sym) => /\d{2}(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2,4}(CE|PE)/i.test(sym);
-        const equitySymbols = [...new Set([...holdingSymbols, ...cashPositionSymbols])].filter(s => !isFnoSymbol(s));
-
-        // Get open F&O positions and fetch their LTP from FNO segment
-        const openFnoPositions = fnoPositions.filter(p => (p.quantity || 0) > 0);
-        const fnoSymbols = [...new Set(openFnoPositions.map(p => p.trading_symbol))];
-
-        // Get open commodity positions
-        const openCommodityPositions = commodityPositions.filter(p => (p.quantity || 0) > 0);
-        const commoditySymbols = [...new Set(openCommodityPositions.map(p => p.trading_symbol))];
-
-        let equityLtpMap = {};
-        let fnoLtpMap = {};
-        let commodityLtpMap = {};
-
-        if (equitySymbols.length > 0) {
-            try {
-                equityLtpMap = await fetchBulkLtp(equitySymbols, "CASH");
-            } catch (e) {
-                console.error("[Portfolio] Equity LTP fetch error:", e.message);
-            }
-        }
-
-        if (fnoSymbols.length > 0) {
-            try {
-                console.log(`[Portfolio] Fetching F&O LTP for:`, fnoSymbols);
-                fnoLtpMap = await fetchBulkLtp(fnoSymbols, "FNO");
-                console.log(`[Portfolio] F&O LTP result:`, fnoLtpMap);
-            } catch (e) {
-                console.error("[Portfolio] F&O LTP fetch error:", e.message);
-            }
-        }
-
-        if (commoditySymbols.length > 0) {
-            try {
-                console.log(`[Portfolio] Fetching Commodity LTP for:`, commoditySymbols);
-                commodityLtpMap = await fetchBulkLtp(commoditySymbols, "COMMODITY");
-                console.log(`[Portfolio] Commodity LTP result:`, commodityLtpMap);
-            } catch (e) {
-                console.error("[Portfolio] Commodity LTP fetch error:", e.message);
-            }
-        }
-
-        const ltpMap = { ...equityLtpMap, ...fnoLtpMap, ...commodityLtpMap };
-
-        // Calculate holdings with current values and P&L
         const holdingsWithPnL = holdings.map(h => {
-            const currentPrice = ltpMap[h.trading_symbol] || h.average_price;
-            const currentValue = currentPrice * h.quantity;
-            const investedValue = h.average_price * h.quantity;
-            const pnl = currentValue - investedValue;
+            const currentPrice = h.last_price ?? h.average_price ?? 0;
+            const currentValue = currentPrice * (h.quantity || 0);
+            const investedValue = (h.average_price || 0) * (h.quantity || 0);
+            const pnl = h.pnl ?? (currentValue - investedValue);
             const pnlPercent = investedValue !== 0 ? (pnl / investedValue) * 100 : 0;
 
             return {
@@ -406,47 +312,28 @@ app.get("/api/portfolio", async (req, res) => {
             };
         });
 
-        // Calculate positions with proper unrealised P&L for open positions
-        const formatPosition = (p, segment = "CASH") => {
-            const qty = p.quantity || 0;
-            const isClosed = qty === 0;
-            const entryPrice = p.net_price || 0;
-            const currentPrice = ltpMap[p.trading_symbol] || entryPrice;
+        // Upstox reports exchange per-position (NSE/BSE cash, NFO/BFO F&O, MCX commodity)
+        const segmentForExchange = (exchange) => {
+            if (exchange === "NFO" || exchange === "BFO" || exchange === "CDS") return "FNO";
+            if (exchange === "MCX") return "COMMODITY";
+            return "CASH";
+        };
 
-            let unrealisedPnl = 0;
-            if (isClosed) {
-                // Closed position: only realised P&L
-                unrealisedPnl = p.realised_pnl || 0;
-            } else {
-                // Open position: calculate unrealised P&L
-                // For long: (current - entry) * qty
-                // For short: (entry - current) * qty
-                if (qty > 0) {
-                    unrealisedPnl = (currentPrice - entryPrice) * qty;
-                } else {
-                    // Net short position
-                    unrealisedPnl = (entryPrice - currentPrice) * Math.abs(qty);
-                }
-                // Add any realised P&L from partial closes
-                unrealisedPnl += (p.realised_pnl || 0);
-            }
+        const allPositions = positions.map(p => {
+            const qty = p.quantity || 0;
+            const currentPrice = p.last_price ?? p.average_price ?? 0;
+            const pnl = p.pnl ?? ((p.realised || 0) + (p.unrealised || 0));
 
             return {
                 ...p,
                 current_price: +currentPrice.toFixed(2),
-                entry_price: +entryPrice.toFixed(2),
-                pnl: +unrealisedPnl.toFixed(2),
-                is_closed: isClosed,
+                entry_price: +(p.average_price || 0).toFixed(2),
+                pnl: +pnl.toFixed(2),
+                is_closed: qty === 0,
                 type: "position",
-                segment: segment
+                segment: segmentForExchange(p.exchange)
             };
-        };
-
-        const allPositions = [
-            ...cashPositions.map(p => formatPosition(p, "CASH")),
-            ...fnoPositions.map(p => formatPosition(p, "FNO")),
-            ...commodityPositions.map(p => formatPosition(p, "COMMODITY"))
-        ];
+        });
 
         // Calculate totals
         const totalInvested = holdingsWithPnL.reduce((sum, h) => sum + h.invested_value, 0);
@@ -465,6 +352,13 @@ app.get("/api/portfolio", async (req, res) => {
                 total_portfolio_pnl: +(totalHoldingsPnL + totalPositionsPnL).toFixed(2),
                 holdings_count: holdingsWithPnL.length,
                 positions_count: allPositions.length
+            },
+            // Non-null here means Upstox rejected the request for an account/
+            // infra reason (e.g. static IP not configured) rather than there
+            // simply being no data — the UI should show this, not "no holdings".
+            restricted: {
+                holdings: portfolioApiStatus.holdings?.message || null,
+                positions: portfolioApiStatus.positions?.message || null,
             }
         });
     } catch (e) {
@@ -473,7 +367,7 @@ app.get("/api/portfolio", async (req, res) => {
     }
 });
 
-// ── Operator Scanner API endpoints — Intraday, Overnight, Equity ──────────────
+// ── Operator Scanner API endpoints — Intraday, Overnight, Equity ─────────────────
 
 // Run full operator scan (all 3 tasks)
 app.post("/api/operator/scan", async (req, res) => {
@@ -483,13 +377,13 @@ app.post("/api/operator/scan", async (req, res) => {
 
   try {
     const marketContext = req.body.marketContext || {};
-    
+
     // Transform scanner data
     const transformedData = transformScannerData(state, optionsCache);
-    
+
     // Run operator scan
     const result = await runOperatorScan(transformedData, marketContext);
-    
+
     res.json({
       ok: true,
       timestamp: result.lastScan,
@@ -560,12 +454,12 @@ app.get("/api/operator/market-summary", (_, res) => {
   });
 });
 
-// ── Operator Scanner UI Route ────────────────────────────────────────────────
+// ── Operator Scanner UI Route ─────────────────────────────────────────────────
 app.get("/operator", (req, res) => {
   res.sendFile(path.join(__dirname, "public", "operator.html"));
 });
 
-// ── Catch-all Route: Serve SPA frontend ─────────────────────────────────────
+// ── Catch-all Route: Serve SPA frontend ──────────────────────────────────────
 app.get("*", (req, res) => {
     // Only serve index.html for non-API routes
     if (!req.path.startsWith("/api/") && !req.path.startsWith("/public/")) {
@@ -581,22 +475,21 @@ app.listen(PORT, async () => {
     if (process.env.NODE_ENV !== 'production') {
         console.clear();
     }
-    
-    console.log(`\n⚡ Ayush's Scanner (Groww API) → http://localhost:${PORT}`);
+
+    console.log(`\n⚡ Ayush's Scanner (Upstox API) → http://localhost:${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    
+
     // Mark server as ready for health checks
     process.env.SERVER_READY = 'true';
 
-    if (loadSession()) {
+    try {
+        await login(); // verifies UPSTOX_ACCESS_TOKEN against a live Upstox call
         setIsAuthenticated(true);
-        console.log("✅ Session active. Starting background scan...\n");
-        startScan();
-        startOptionsFeed();
-    } else {
-        console.log("❌ No session. Login via UI to begin.\n");
-        startScan();
-        startOptionsFeed();
+        console.log("✅ Upstox token verified. Starting background scan + live feeds...\n");
+        activateMarketData();
+    } catch (e) {
+        console.log(`❌ Upstox authentication failed: ${e.message}`);
+        console.log("⏸️ Background market feeds are disabled until a valid UPSTOX_ACCESS_TOKEN is configured. Use the Login button to retry.");
     }
 });
 

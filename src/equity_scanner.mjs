@@ -24,7 +24,7 @@ import {
     rsi as calcRsi
 } from "./indicators.mjs";
 import { UNIVERSE, SECTOR, getSector } from "./universe.mjs";
-import { fetchCandles, fetchBulkLtp } from "./groww.mjs";
+import { fetchCandles, fetchBulkLtp } from "./upstox.mjs";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants

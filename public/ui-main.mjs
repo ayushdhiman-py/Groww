@@ -11,13 +11,7 @@ let stateManager, dataManager, renderEngine, tabManager, timeframeManager;
 let livePriceUpdater, portfolioManager, sortManager, searchFilter, foManager, intervalManager;
 
 async function initApp() {
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('[App] ========== INITIALIZING ==========');
-  console.log('[App] Timestamp:', new Date().toISOString());
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
   // Create all managers
-  console.log('[App] Creating managers...');
   stateManager = new StateManager();
   dataManager = new DataManager();
   renderEngine = new RenderEngine();
@@ -42,43 +36,23 @@ async function initApp() {
   window.foManager = foManager;
 
   // Restore state from localStorage FIRST
-  console.log('[App] Restoring state from localStorage...');
   stateManager.restore();
-  
-  // Log current state
+
   const currentState = stateManager.get();
-  console.log('[App] Current state after restore:', {
-    timeframe: currentState.timeframe,
-    searchQuery: currentState.searchQuery,
-    showIndices: currentState.showIndices,
-    showDividend: currentState.showDividend
-  });
-  
-  // Log localStorage values
-  console.log('[App] localStorage values:', {
-    scanner_tf: localStorage.getItem('scanner_tf'),
-    scanner_searchQuery: localStorage.getItem('scanner_searchQuery'),
-    scanner_showIndices: localStorage.getItem('scanner_showIndices'),
-    scanner_showDividend: localStorage.getItem('scanner_showDividend')
-  });
 
   // Initialize UI components
-  console.log('[App] Initializing UI components...');
   timeframeManager.init();
-  
+
   // Update timeframe dropdown to show restored timeframe
-  console.log(`[App] Updating timeframe dropdown to: ${currentState.timeframe}`);
   timeframeManager.updateDropdown(currentState.timeframe);
-  
+
   // Update toggle states from restored state
-  console.log(`[App] Setting indices toggle to: ${currentState.showIndices}`);
   const idxToggle = document.getElementById('idxTgl');
   if (idxToggle) idxToggle.checked = currentState.showIndices;
-  
-  console.log(`[App] Setting dividend toggle to: ${currentState.showDividend}`);
+
   const divToggle = document.getElementById('divTgl');
   if (divToggle) divToggle.checked = currentState.showDividend;
-  
+
   tabManager.init();
   sortManager.init();
   searchFilter.init();
@@ -95,69 +69,48 @@ async function initApp() {
   // Start background tasks
   startBackgroundTasks();
 
-  console.log('[App] ✅ Initialization complete');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-
   // Initial load
   await checkAuth();
-  
-  console.log('[App] 🚀 App fully initialized');
 }
 
-// ── Authentication ──────────────────────────────────────────
+// ── Initial load ──────────────────────────────────────────────
+// The server authenticates with Upstox on its own at boot using the
+// configured access token — there is no user-facing login step. Just load
+// whatever data is available; if the backend hasn't finished authenticating
+// yet, pollStatus()'s regular polling picks up data as soon as it appears.
 async function checkAuth() {
   try {
-    const status = await dataManager.fetchStatus();
-    
-    if (!status.authenticated) {
-      document.getElementById('LS').style.display = 'flex';
-      document.getElementById('APP').style.display = 'none';
-      stateManager.set('isAuthenticated', false);
-    } else {
-      document.getElementById('LS').style.display = 'none';
-      document.getElementById('APP').style.display = 'block';
-      stateManager.set('isAuthenticated', true);
-      
-      // Load initial data
-      await loadInitialData();
-    }
+    await loadInitialData();
   } catch (e) {
-    console.error('[Auth] Error:', e);
+    console.error('[Init] Error loading initial data:', e);
   }
 }
 
 async function loadInitialData() {
-  console.log('[App] Loading initial data...');
   const timeframe = stateManager.get('timeframe');
   const activeTab = stateManager.get('activeTab');
-  
-  console.log(`[App] Loading data: timeframe="${timeframe}", tab="${activeTab}"`);
-  
+
   // Load scanner data
   const data = await dataManager.fetchState(timeframe, activeTab, true);
   if (data) {
-    console.log('[App] Data loaded successfully');
     renderStocks(data);
-    
+
     // Update universe count
     const sU = document.getElementById('sU');
     if (sU) {
       sU.textContent = data?.universe || '—';
-      console.log(`[App] Universe count: ${data?.universe}`);
     } else {
       console.warn('[App] Universe element (#sU) not found!');
     }
-    
+
     // Update stat cards (Golden, Buy, Sell, etc.)
-    console.log('[App] Updating stat cards...');
     if (typeof window.updateStatCards === 'function') {
       window.updateStatCards(data);
     }
-    
+
     // Update badges
     updateBadges(data);
     updateLastUpdatedBadge(data);
-    console.log('[App] Badges updated');
   } else {
     console.error('[App] Failed to load initial data');
   }
@@ -227,6 +180,40 @@ function updateMarketStatus() {
   // Refresh button always enabled
 }
 
+// NSE blocks dividend lookups from server/datacenter IPs — this is a
+// standing, not transient, restriction. If the Dividend toggle is left on
+// while the backend reports it unavailable, it silently hides every row on
+// every tab (the filter keeps only rows with dividend data, and none ever
+// have any) with no visible explanation. Disable the control and force it
+// off rather than let it sit as a trap; re-enable automatically if the
+// backend ever reports it working again (e.g. after moving to a non-blocked IP).
+let lastDividendAvailable = true;
+function syncDividendToggleAvailability(available) {
+  if (available === lastDividendAvailable) return;
+  lastDividendAvailable = available;
+
+  const divToggle = document.getElementById('divTgl');
+  if (!divToggle) return;
+
+  // The checkbox itself is visually hidden (the label + custom switch is
+  // what's actually shown/hovered), so the tooltip belongs on the label —
+  // setting it on the input alone would be invisible to the user.
+  const label = divToggle.closest('.div-tg') || divToggle;
+  if (!label.dataset.defaultTitle) label.dataset.defaultTitle = label.title || '';
+
+  divToggle.disabled = !available;
+  label.title = available
+    ? label.dataset.defaultTitle
+    : 'Dividend data is currently unavailable (NSE is blocking lookups from this server)';
+
+  if (!available && divToggle.checked) {
+    divToggle.checked = false;
+    stateManager.set('showDividend', false);
+    stateManager.persist();
+    renderCurrentView?.();
+  }
+}
+
 // ── Poll Status ──────────────────────────────────────────────
 let lastScanState = false;
 let lastUpdatedTs = null;
@@ -235,11 +222,16 @@ let scanDataInterval = null;
 async function pollStatus() {
   try {
     const status = await dataManager.fetchStatus();
+    syncDividendToggleAvailability(status.dividendAvailable !== false);
 
-    // If scanning, poll /api/state every 3s to show progress
+    // If scanning, poll /api/state every 3s to show progress. This MUST force
+    // a real fetch — DataManager's 30s cache TTL would otherwise silently
+    // serve the same stale snapshot for up to 10 consecutive polls, so rows
+    // discovered mid-scan wouldn't appear until the unrelated 30s fullReload
+    // interval happened to fire.
     if (status.scanning && !scanDataInterval) {
       scanDataInterval = setInterval(async () => {
-        const st = await dataManager.fetchState(stateManager.get('timeframe'), stateManager.get('activeTab'));
+        const st = await dataManager.fetchState(stateManager.get('timeframe'), stateManager.get('activeTab'), true);
         if (st?.lastUpdated && st.lastUpdated !== lastUpdatedTs) {
           lastUpdatedTs = st.lastUpdated;
           renderStocks(st);
@@ -264,7 +256,7 @@ async function pollStatus() {
         updateBadges(data);
       }
     }
-    
+
     lastScanState = status.scanning;
 
     // If no data yet and scan isn't running, keep trying
@@ -272,7 +264,7 @@ async function pollStatus() {
     const timeframe = stateManager.get('timeframe');
     const dataKey = dataManager.cacheKey(timeframe, activeTab);
     const hasData = dataManager.cache.get(dataKey)?.data;
-    
+
     if (!hasData && !status.scanning && !scanDataInterval) {
       await loadInitialData();
     }
@@ -304,7 +296,7 @@ async function fetchIndices() {
       const timeframe = stateManager.get('timeframe');
       const dataKey = dataManager.cacheKey(timeframe, 'ALL');
       const cached = dataManager.cache.get(dataKey);
-      
+
       if (cached?.data?.data?.['1d_ALL']) {
         const rowInfo = cached.data.data['1d_ALL'].find(r => r.symbol === idx.symbol);
         if (rowInfo && typeof rowInfo.chgPct === 'number') {
@@ -331,15 +323,15 @@ async function fetchIndices() {
             <span style='font-size:9px;background:rgba(${rgba},0.15);padding:1px 5px;border-radius:4px;color:rgb(${rgba})'>${sgn}${idx.chgPct.toFixed(2)}%</span>
           </div>`
         : '';
-      
+
       html += `<div class='sc'>
-        <div class='scl'><a href='https://groww.in/search?q=${idx.symbol}' target='_blank' rel='noopener noreferrer' style='color:inherit; text-decoration:none; cursor:pointer;' onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='inherit'">${idx.symbol}</a></div>
+        <div class='scl'>${idx.symbol}</div>
         <div class='scv ${cl}' style='font-size:14px;display:flex;align-items:center;justify-content:space-between;'>
           Rs ${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
           ${pctHtml}
         </div></div>`;
     });
-    
+
     ctr.innerHTML = html;
   } catch (e) {
     console.error('[Indices] Fetch error:', e);
@@ -411,48 +403,12 @@ function setupKeyboardShortcuts() {
   });
 }
 
-// ── Login Handler ────────────────────────────────────────────
-async function doLogin() {
-  const btn = document.querySelector('.lbtn');
-  if (btn) {
-    btn.textContent = 'Initiating Login...';
-    btn.disabled = true;
-  }
-  
-  try {
-    const r = await fetch('/api/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}'
-    });
-    const d = await r.json();
-    
-    if (d.ok) {
-      if (btn) btn.textContent = 'Login Successful! Redirecting...';
-      setTimeout(() => window.location.reload(), 1500);
-    } else {
-      if (d.error && d.error.toLowerCase().includes('timed out')) {
-        alert('Login Timed Out: Please make sure to approve the request in your Groww app quickly.');
-      } else {
-        alert('Login failed: ' + d.error);
-      }
-    }
-  } catch (e) {
-    alert('Login error: ' + e.message);
-  } finally {
-    if (btn) {
-      btn.textContent = '🔐 Login with Groww API';
-      btn.disabled = false;
-    }
-  }
-}
-
 // ── Manual Load Function (for refresh button) ────────────────
 async function manualLoad() {
   const timeframe = stateManager.get('timeframe');
   const activeTab = stateManager.get('activeTab');
   const data = await dataManager.fetchState(timeframe, activeTab, true);
-  
+
   if (data) {
     if (activeTab === 'PORTFOLIO') {
       await portfolioManager.loadAndRender(true);
@@ -474,7 +430,6 @@ if (document.readyState === 'loading') {
 }
 
 // Export for inline handlers
-window.doLogin = doLogin;
 window.manualLoad = manualLoad;
 window.load = manualLoad;
 window.toggleTfDropdown = () => document.getElementById('tfDropdown')?.classList.toggle('open');
@@ -484,7 +439,6 @@ window.toggleIndices = () => {
   if (el) {
     // Don't manually flip - onchange already did it
     stateManager.set('showIndices', el.checked);
-    console.log(`[Toggle] Indices: ${el.checked ? 'ON' : 'OFF'}`);
     renderCurrentView();
   }
 };
@@ -493,7 +447,6 @@ window.toggleDividendHighlight = () => {
   if (el) {
     // Don't manually flip - onchange already did it
     stateManager.set('showDividend', el.checked);
-    console.log(`[Toggle] Dividend: ${el.checked ? 'ON' : 'OFF'}`);
     renderCurrentView();
   }
 };

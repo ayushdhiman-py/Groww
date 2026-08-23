@@ -3,7 +3,6 @@ import { fileURLToPath } from "url";
 import { createRequire } from "module";
 
 export const __dirname = path.dirname(fileURLToPath(import.meta.url));
-export const TOKEN_FILE = path.join(__dirname, "..", ".groww_session.json");
 
 // ── Environment Variable Loading (Local + Production) ─────────────────────────
 // Render: Sets process.env.* automatically from dashboard
@@ -33,13 +32,15 @@ try {
 const getEnv = (key, fallback) => {
     let val = process.env[key];
     if (val === undefined || val === "") {
-        if (fallback) {
-            console.log(`[Config] ⚠️ ${key} not set, using fallback (local dev only)`);
+        if (fallback !== undefined) {
+            if (fallback !== null) {
+                console.log(`[Config] ⚠️ ${key} not set, using fallback (local dev only)`);
+            }
             return fallback;
         }
         throw new Error(`[Config] ❌ Missing required environment variable: ${key}`);
     }
-    
+
     val = val.trim();
     // Strip quotes if present
     if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
@@ -48,36 +49,27 @@ const getEnv = (key, fallback) => {
     return val;
 };
 
-// Helper: Decode base64 secret if prefixed
-const getApiSecret = () => {
-    const raw = getEnv("GROWW_API_SECRET", null);
-    
-    let secret = raw;
-    // Base64 encoded (recommended for Render to avoid special char corruption)
-    if (raw.startsWith("base64:")) {
-        secret = Buffer.from(raw.slice(7), "base64").toString("utf-8");
-        console.log(`[Config] ✅ API Secret decoded from base64. Length: ${secret.length}`);
-    } else {
-        console.log(`[Config] ✅ API Secret loaded from env. Length: ${secret.length} (expected: 30)`);
-    }
-    
-    if (secret.length < 30 || secret.length > 32) {
-        console.warn(`[Config] ⚠️ WARNING: API Secret length is ${secret.length}, expected 30-32. Login may fail.`);
-    } else {
-        console.log(`[Config] ✅ API Secret length: ${secret.length} (valid)`);
-    }
-    
-    return secret;
-};
-
+// ── Upstox Credentials ──────────────────────────────────────────────────────────
+// Upstox Analytics Token: long-lived (~1yr), read-only, generated once from the
+// Upstox Developer Apps dashboard. No daily login/checksum flow is required.
 export const CREDS = {
-    apiKey: getEnv("GROWW_API_KEY", null),
-    apiSecret: getApiSecret(),
+    accessToken: getEnv("UPSTOX_ACCESS_TOKEN", null),
 };
 
-export const BASE_URL = "https://api.groww.in";
-export const TOKEN_URL = `${BASE_URL}/v1/token/api/access`;
-export const CANDLE_URL = `${BASE_URL}/v1/historical/candle/range`;
+if (CREDS.accessToken) {
+    console.log(`[Config] ✅ Upstox access token loaded. Length: ${CREDS.accessToken.length}`);
+} else {
+    console.warn("[Config] ⚠️ UPSTOX_ACCESS_TOKEN not set. Market data calls will fail until it is configured.");
+}
+
+// ── Upstox API URLs ──────────────────────────────────────────────────────────────
+export const BASE_URL = "https://api.upstox.com";
+export const LTP_URL = `${BASE_URL}/v3/market-quote/ltp`;
+export const HISTORICAL_CANDLE_BASE = `${BASE_URL}/v3/historical-candle`;
+export const OPTION_CHAIN_URL = `${BASE_URL}/v2/option/chain`;
+export const HOLDINGS_URL = `${BASE_URL}/v2/portfolio/long-term-holdings`;
+export const POSITIONS_URL = `${BASE_URL}/v2/portfolio/short-term-positions`;
+export const INSTRUMENT_MASTER_URL = "https://assets.upstox.com/market-quote/instruments/exchange/complete.json.gz";
 
 export const TF_MAP = {
     "1m": 1, "5m": 5, "10m": 10, "15m": 15, "30m": 30,

@@ -1,19 +1,19 @@
-# 📊 Ayush's Groww Scanner
+# 📊 Ayush's Scanner
 
 > Real-time Indian stock market scanner with EMA 20/50 Golden Cross, MACD, RSI, and multi-signal analysis
 
 [![Deploy to Render](https://img.shields.io/badge/Deploy%20to-Render-46E3B7?style=for-the-badge&logo=render)](https://render.com)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=for-the-badge&logo=node.js)](https://nodejs.org)
-[![Groww API](https://img.shields.io/badge/API-Groww-00D4AA?style=for-the-badge)](https://groww.in)
+[![Upstox API](https://img.shields.io/badge/API-Upstox-00D4AA?style=for-the-badge)](https://upstox.com)
 
 ## ✨ Features
 
-- 🎯 **242+ Stocks** scanned in real-time
+- 🎯 **241+ Stocks** scanned in real-time
 - 📈 **Technical Indicators**: EMA 21/50, MACD, RSI, VWAP, Historical Volatility
 - 🔔 **Signal Detection**: Golden Cross, Death Cross, BUY/SELL signals
 - 📊 **Multiple Timeframes**: 1m, 5m, 10m, 15m, 30m, 1h, 1d
 - 🎨 **Beautiful UI**: Dark theme with live price updates
-- ⚡ **Live Feed**: Real-time LTP polling during market hours
+- ⚡ **Live Feed**: Real-time LTP streaming via Upstox WebSocket during market hours
 - 📱 **Responsive**: Works on desktop and mobile
 - 🆓 **F&O Data**: Option chain analysis for derivatives
 
@@ -26,16 +26,13 @@
 npm install
 
 # Set environment variables (Windows)
-set GROWW_API_KEY=your_api_key
-set GROWW_API_SECRET=your_api_secret
+set UPSTOX_ACCESS_TOKEN=your_upstox_analytics_token
 
 # Or (PowerShell)
-$env:GROWW_API_KEY="your_api_key"
-$env:GROWW_API_SECRET="your_api_secret"
+$env:UPSTOX_ACCESS_TOKEN="your_upstox_analytics_token"
 
 # Or (Linux/Mac)
-export GROWW_API_KEY=your_api_key
-export GROWW_API_SECRET=your_api_secret
+export UPSTOX_ACCESS_TOKEN=your_upstox_analytics_token
 
 # Start server
 npm start
@@ -45,21 +42,22 @@ npm start
 
 ### One-Click Deploy
 
-[![Deploy to Render](https://render.com/images/deploy-to-render.svg)](https://render.com/deploy?repo=https://github.com/YOUR_USERNAME/groww-scanner)
+[![Deploy to Render](https://render.com/images/deploy-to-render.svg)](https://render.com/deploy?repo=https://github.com/ayushdhiman-py/Groww)
 
 See [DEPLOYMENT.md](./DEPLOYMENT.md) for complete deployment instructions.
 
 ## 📁 Project Structure
 
 ```
-groww-scanner/
+Groww/
 ├── src/
 │   ├── scanner.mjs          # Main scanning logic
-│   ├── feed.mjs             # Live price polling
-│   ├── groww.mjs            # Groww API client
+│   ├── feed.mjs             # Live LTP feed (Upstox WebSocket)
+│   ├── upstox.mjs           # Upstox API client
+│   ├── instruments.mjs      # Upstox instrument master / symbol resolver
 │   ├── config.mjs           # Configuration
 │   ├── indicators.mjs       # Technical indicators
-│   ├── universe.mjs         # Stock universe (242 symbols)
+│   ├── universe.mjs         # Stock universe (241 symbols)
 │   └── options_feed.mjs     # Options data feed
 ├── public/
 │   └── index.html           # Frontend UI (single-file app)
@@ -107,15 +105,14 @@ See [DEPLOYMENT.md](./DEPLOYMENT.md) for step-by-step instructions.
 
 - ⚠️ **NEVER** commit API keys to git
 - ✅ Use environment variables for sensitive data
-- ✅ Session tokens stored securely (`.groww_session.json`)
-- ✅ `.gitignore` configured to exclude secrets
+- ✅ `.gitignore` configured to exclude secrets and the local `.env` file
 
 ## 📊 API Rate Limits
 
-Groww API limits (handled automatically):
-- **10 requests/second** (hard cap)
-- **300 requests/minute** (live data group)
-- Scanner uses intelligent rate limiting with backoff
+Upstox API limits (handled automatically by a shared, conservative rate limiter):
+- Requests are throttled well under Upstox's published per-second/per-minute caps
+- Live prices flow over a WebSocket feed rather than REST polling, minimizing REST call volume
+- Automatic backoff on 429 (rate-limited) responses
 
 ## ⌨️ Keyboard Shortcuts
 
@@ -138,7 +135,7 @@ When using the web interface:
 
 - **Backend**: Node.js, Express, Axios
 - **Frontend**: Vanilla JS, Chart.js, Custom CSS
-- **API**: Groww (SmartAPI)
+- **API**: Upstox (Analytics Token, no daily login required)
 - **Deployment**: Render, Oracle Cloud, or any Node.js host
 
 ## 📝 Market Hours
@@ -148,13 +145,13 @@ Scanner operates during **Indian market hours** (IST):
 - **Close**: 3:30 PM IST
 - **Days**: Monday - Friday (excluding holidays)
 
-Outside market hours, the scanner shows the last known signals.
+Outside market hours, the scanner shows the last known signals rather than continuing to re-scan, to avoid burning API calls on data that can't change while the market is shut.
 
 ## 🐛 Troubleshooting
 
-### "No session" error
-- Login via the web UI
-- Session persists for 23 hours
+### "Upstox authentication failed" on startup
+- Verify `UPSTOX_ACCESS_TOKEN` is set correctly (Upstox Developer Apps → Analytics tab → Generate Token)
+- The token is long-lived (~1 year) but does expire eventually — regenerate it if rejected
 
 ### Rate limit errors
 - Wait 1-2 minutes (auto-handled)
@@ -178,7 +175,7 @@ Built with ❤️ for Indian stock market traders
 ## 🚀 Deploy Now
 
 1. **Fork/Clone** this repository
-2. **Set up** Groww API credentials
+2. **Generate** an Upstox Analytics Token
 3. **Deploy** using instructions in [DEPLOYMENT.md](./DEPLOYMENT.md)
 4. **Start trading smarter!** 📈
 

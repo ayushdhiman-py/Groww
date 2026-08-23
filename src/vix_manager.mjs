@@ -3,7 +3,6 @@
 // VIX governs everything: position sizing, strategy selection, risk levels
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { fetchCandles, fetchBulkLtp } from "./groww.mjs";
 import { ema, rsi } from "./indicators.mjs";
 
 // VIX state
@@ -165,7 +164,7 @@ export async function fetchIndiaVix() {
 async function estimateVIX() {
   try {
     // Fetch Nifty option chain and average the ATM IV
-    const { fetchOptionChain } = await import("./groww.mjs");
+    const { fetchOptionChain } = await import("./upstox.mjs");
     const optionData = await fetchOptionChain("NIFTY");
     
     if (optionData && optionData.strikes) {

@@ -2,7 +2,7 @@
 // options_feed.mjs — Background Poller for Option Chain & Greeks
 // Includes OI delta tracking (change in OI between polls)
 // ─────────────────────────────────────────────────────────────────────────────
-import { fetchOptionChain } from "./groww.mjs";
+import { fetchOptionChain } from "./upstox.mjs";
 import { UNIVERSE } from "./universe.mjs";
 
 // symbol -> { topCalls, topPuts, spot, oiDelta, iv, pcr, updatedAt }

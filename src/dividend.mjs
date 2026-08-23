@@ -8,12 +8,17 @@ const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours
 let nseCookies = {};
 let cookiesExpiry = 0;
 
-/**
- * Get NSE session cookies by visiting homepage
- */
+// NSE blocks most server/datacenter IPs at the edge (confirmed: even a plain
+// homepage GET with full browser-like headers gets a 403) — this is an
+// environmental restriction, not something a header tweak fixes. Retrying it
+// once per stock (up to 235x per scan) just floods the log with identical
+// failures. Back off for a long window after a failure and warn only once.
+const COOKIE_RETRY_BACKOFF_MS = 60 * 60 * 1000; // 1 hour
+let lastFailureWarned = false;
+
 async function getNSECookies() {
     if (Date.now() < cookiesExpiry) return nseCookies;
-    
+
     try {
         const res = await axios.get("https://www.nseindia.com/", {
             headers: {
@@ -21,16 +26,22 @@ async function getNSECookies() {
             },
             timeout: 10000,
         });
-        
+
         const setCookie = res.headers["set-cookie"];
         if (setCookie) {
             const cookieStr = Array.isArray(setCookie) ? setCookie.join("; ") : setCookie;
             nseCookies = { Cookie: cookieStr };
             cookiesExpiry = Date.now() + (30 * 60 * 1000); // 30 min
+            lastFailureWarned = false;
             return nseCookies;
         }
     } catch (e) {
-        console.warn("[Dividend] Failed to get NSE cookies:", e.message);
+        if (!lastFailureWarned) {
+            console.warn(`[Dividend] NSE blocked cookie request (${e.response?.status || e.message}) — dividend data disabled for ${COOKIE_RETRY_BACKOFF_MS / 60000}min.`);
+            lastFailureWarned = true;
+        }
+        nseCookies = {};
+        cookiesExpiry = Date.now() + COOKIE_RETRY_BACKOFF_MS;
     }
     return {};
 }
@@ -164,6 +175,16 @@ function detectFrequency(purpose) {
 export function calculateDividendYield(annualDividend, currentPrice) {
     if (!annualDividend || !currentPrice || currentPrice === 0) return 0;
     return ((annualDividend / currentPrice) * 100);
+}
+
+/**
+ * Whether dividend lookups are currently expected to work. Optimistic until
+ * the first real attempt; once NSE has rejected a request, stays false until
+ * a later retry (after the backoff window) actually succeeds.
+ */
+export function isDividendServiceAvailable() {
+    if (!lastFailureWarned) return true;
+    return Object.keys(nseCookies).length > 0;
 }
 
 /**

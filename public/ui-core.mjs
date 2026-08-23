@@ -60,7 +60,7 @@ export class StateManager {
     try {
       const savedSorts = localStorage.getItem('scanner_tabSorts');
       if (savedSorts) this.state.tabSorts = JSON.parse(savedSorts);
-      
+
       // Restore search query
       const savedSearch = localStorage.getItem('scanner_searchQuery');
       if (savedSearch) {
@@ -71,13 +71,6 @@ export class StateManager {
           if (searchInput) searchInput.value = savedSearch;
         }, 0);
       }
-      
-      console.log('[State] Restored state:', {
-        timeframe: this.state.timeframe,
-        showIndices: this.state.showIndices,
-        showDividend: this.state.showDividend,
-        searchQuery: this.state.searchQuery
-      });
     } catch (e) { /* Ignore storage errors */ }
   }
 }
@@ -102,21 +95,12 @@ export class DataManager {
   async fetchState(timeframe, tab, force = false) {
     const key = this.cacheKey(timeframe, tab);
 
-    console.log(`[DataManager] fetchState called: timeframe="${timeframe}", tab="${tab}" => cacheKey="${key}"`);
-
     // Return cached data if fresh
     if (!force) {
       const cached = this.cache.get(key);
       if (cached && (Date.now() - cached.timestamp < this.CACHE_TTL) && cached.data) {
-        console.log(`[DataManager] ✅ Cache HIT for "${key}" (age: ${Math.round((Date.now() - cached.timestamp)/1000)}s)`);
         return cached.data;
-      } else if (cached) {
-        console.log(`[DataManager] ⏰ Cache STALE for "${key}" (age: ${Math.round((Date.now() - cached.timestamp)/1000)}s)`);
-      } else {
-        console.log(`[DataManager] ❌ Cache MISS for "${key}"`);
       }
-    } else {
-      console.log(`[DataManager] 🔄 Force refresh requested for "${key}"`);
     }
 
     // Prevent concurrent requests
@@ -127,22 +111,13 @@ export class DataManager {
 
     const fetchPromise = (async () => {
       try {
-        console.log(`[DataManager] 🌐 Fetching from API: /api/state`);
         const res = await fetch('/api/state');
         if (res.status === 401) {
           window.location.reload();
           return null;
         }
         const data = await res.json();
-        console.log(`[DataManager] 💾 Caching data with key="${key}"`);
-        console.log(`[DataManager] Data structure:`, Object.keys(data.data || {}));
-        if (data.data) {
-          for (const [dataKey, value] of Object.entries(data.data)) {
-            console.log(`[DataManager]   ${dataKey}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
-          }
-        }
         this.cache.set(key, { data, timestamp: Date.now(), promise: null });
-        console.log(`[DataManager] ✅ Cache updated for "${key}"`);
         return data;
       } catch (e) {
         console.error('[Data] Fetch state error:', e);
@@ -180,12 +155,12 @@ export class DataManager {
       if (!res.ok) return null;
       const data = await res.json();
       this.portfolioCache = { data, timestamp: Date.now() };
-      
+
       // Also cache to localStorage
       try {
         localStorage.setItem('scanner_portfolio', JSON.stringify({ data, ts: Date.now() }));
       } catch (e) { /* Ignore */ }
-      
+
       return data;
     } catch (e) {
       console.error('[Data] Fetch portfolio error:', e);
@@ -268,7 +243,7 @@ export class RenderEngine {
   scheduleRender(renderFn, delay = 0) {
     // Cancel pending render
     this.pendingRender = true;
-    
+
     // If currently rendering, queue it
     if (this.isRendering) {
       return;
@@ -296,7 +271,7 @@ export class RenderEngine {
 
     try {
       await renderFn(taskId);
-      
+
       // Check if newer task started during render
       if (taskId !== this.currentTaskId) {
         return; // Abort, newer render will take over
@@ -305,7 +280,7 @@ export class RenderEngine {
       console.error('[Render] Error:', e);
     } finally {
       this.isRendering = false;
-      
+
       // Execute pending render if queued
       if (this.pendingRender) {
         this.pendingRender = false;
@@ -368,13 +343,10 @@ export class TabManager {
 
   // Initialize tab click handlers
   init() {
-    console.log('[TabManager] Initializing tab click handlers...');
     document.querySelectorAll('.tab').forEach(tab => {
-      console.log(`[TabManager] Attached handler to tab: ${tab.dataset.set}`);
       tab.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        console.log(`[TabManager] Clicked tab: ${tab.dataset.set}`);
         this.switchToTab(tab.dataset.set);
       }, { passive: false });
     });
@@ -383,10 +355,8 @@ export class TabManager {
   // Switch to a different tab
   async switchToTab(newTab) {
     const oldTab = this.state.get('activeTab');
-    console.log(`[TabManager] Switching tab: ${oldTab} → ${newTab}`);
-    
+
     if (oldTab === newTab) {
-      console.log(`[TabManager] Already on tab ${newTab}, skipping`);
       return;
     }
 
@@ -428,6 +398,7 @@ export class TabManager {
     if (tbody) tbody.innerHTML = '';
     if (empty) {
       empty.style.display = 'block';
+      empty.classList.add('loading');
       empty.textContent = 'Loading...';
     }
   }
@@ -440,7 +411,7 @@ export class TabManager {
       const summaryEl = document.getElementById('portfolioSummary');
       if (summaryEl) summaryEl.style.display = 'none';
     }
-    
+
     if (tab === 'FO') {
       // Clear expanded F&O row
       window.foManager?.collapseAll();
@@ -449,35 +420,27 @@ export class TabManager {
 
   // Load data for new tab
   async loadTabData(tab) {
-    console.log(`[TabManager] Loading data for tab: ${tab}`);
-    
     // Restore sort state for new tab
     const tabSorts = this.state.get('tabSorts');
     const savedSort = tabSorts[tab];
     if (savedSort) {
-      console.log(`[TabManager] Restored sort for ${tab}:`, savedSort);
       this.state.set('sortStack', [...savedSort]);
     } else {
-      console.log(`[TabManager] Using default sort for ${tab}`);
       this.state.set('sortStack', [{ col: 'techScore', asc: false }]);
     }
 
     // Load appropriate data based on tab
     if (tab === 'PORTFOLIO') {
-      console.log('[TabManager] Loading portfolio data...');
       await window.portfolioManager?.loadAndRender();
     } else if (tab === 'SECTORS') {
-      console.log('[TabManager] Loading sectors data...');
       // Sectors always use daily data (1d_ALL)
       const data = await this.data.fetchState('1d', 'ALL');
       if (data) {
-        console.log('[TabManager] Rendering sectors');
         window.renderSectors(data);
       } else {
         console.error('[TabManager] Failed to fetch sectors data');
       }
     } else {
-      console.log(`[TabManager] Loading scanner data for ${tab}...`);
       await this.loadScannerData();
     }
   }
@@ -486,49 +449,24 @@ export class TabManager {
   async loadScannerData() {
     const timeframe = this.state.get('timeframe');
     const tab = this.state.get('activeTab');
-    
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('[TabManager] ========== LOAD SCANNER DATA ==========');
-    console.log(`[TabManager] timeframe="${timeframe}", tab="${tab}"`);
-    console.log(`[TabManager] Computing cache key: cacheKey("${timeframe}", "${tab}")`);
-    console.log('[TabManager] Current cache keys:', Array.from(this.data.cache.keys()));
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
+
     const data = await this.data.fetchState(timeframe, tab, true);
-    
+
     if (data) {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('[TabManager] ========== DATA FETCHED ==========');
-      console.log(`[TabManager] Cache key used: ${this.data.cacheKey(timeframe, tab)}`);
-      console.log(`[TabManager] Data structure keys:`, Object.keys(data.data || {}));
-      console.log(`[TabManager] Universe count:`, data.universe);
-      
-      // Log row counts per timeframe/tab combination
-      if (data.data) {
-        for (const [key, value] of Object.entries(data.data)) {
-          console.log(`[TabManager]   ${key}: ${Array.isArray(value) ? value.length : 'NOT_ARRAY'} rows`);
-        }
-      }
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      
-      console.log(`[TabManager] Rendering stocks for ${tab}`);
       window.renderStocks(data);
-      
+
       // Update universe count
       const sU = document.getElementById('sU');
       if (sU) {
         sU.textContent = data?.universe || '—';
-        console.log(`[TabManager] Universe count: ${data?.universe}`);
       }
-      
+
       // Update stat cards (Golden, Buy, Sell, Vol Spikes, etc.)
-      console.log('[TabManager] Updating stat cards...');
       if (typeof window.updateStatCards === 'function') {
         window.updateStatCards(data);
       }
-      
+
       // Update badges with fresh data
-      console.log('[TabManager] Updating badges...');
       if (typeof window.updateBadges === 'function') {
         window.updateBadges(data);
       }
@@ -586,22 +524,18 @@ export class TimeframeManager {
   }
 
   selectTimeframe(value, optionEl) {
-    console.log(`[Timeframe] Selecting timeframe: ${value}`);
     // Debounce to prevent rapid switching
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
 
     this.debounceTimer = setTimeout(() => {
       const changed = this.state.set('timeframe', value);
       if (changed) {
-        console.log(`[Timeframe] Timeframe changed to ${value}, persisting and reloading`);
         this.state.persist();
         this.updateDropdown(value);
         document.getElementById('tfDropdown')?.classList.remove('open');
-        
+
         // Reload data with new timeframe
         window.tabManager?.loadScannerData();
-      } else {
-        console.log(`[Timeframe] Timeframe already ${value}, no change`);
       }
     }, 150);
   }

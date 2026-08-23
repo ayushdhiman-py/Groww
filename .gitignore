@@ -9,17 +9,14 @@ tmp/
 extras/
 
 # Development files
-claude.mjs
-test_chain.mjs
 scanner_testing.mjs.bak
 
 # Environment
 .env
 .env.local
 
-# Session files (security)
-.groww_session.json
-.groww_backoff.json
+# Upstox instrument master cache (re-downloaded automatically, refreshed daily)
+.upstox_instruments_cache.json
 
 # OS files
 .DS_Store
