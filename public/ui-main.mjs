@@ -142,15 +142,19 @@ function startBackgroundTasks() {
   // Full state reload (every 30s)
   intervalManager.add('fullReload', async () => {
     const activeTab = stateManager.get('activeTab');
-    if (activeTab !== 'PORTFOLIO') {
-      const timeframe = stateManager.get('timeframe');
-      const data = await dataManager.fetchState(timeframe, activeTab, true);
-      if (data) {
-        renderStocks(data);
-        updateBadges(data);
-        updateLastUpdatedBadge(data);
-      }
+    if (activeTab === 'PORTFOLIO') return;
+    const timeframe = stateManager.get('timeframe');
+    const data = await dataManager.fetchState(timeframe, activeTab, true);
+    if (!data) return;
+    if (activeTab === 'INTRADAY') {
+      window.renderIntraday(data);
+    } else if (activeTab === 'SECTORS') {
+      window.renderSectors(data);
+    } else {
+      renderStocks(data);
     }
+    updateBadges(data);
+    updateLastUpdatedBadge(data);
   }, 30000);
 
   // Fetch indices (every 5s)
@@ -231,10 +235,17 @@ async function pollStatus() {
     // interval happened to fire.
     if (status.scanning && !scanDataInterval) {
       scanDataInterval = setInterval(async () => {
-        const st = await dataManager.fetchState(stateManager.get('timeframe'), stateManager.get('activeTab'), true);
+        const activeTab = stateManager.get('activeTab');
+        const st = await dataManager.fetchState(stateManager.get('timeframe'), activeTab, true);
         if (st?.lastUpdated && st.lastUpdated !== lastUpdatedTs) {
           lastUpdatedTs = st.lastUpdated;
-          renderStocks(st);
+          if (activeTab === 'INTRADAY') {
+            window.renderIntraday(st);
+          } else if (activeTab === 'SECTORS') {
+            window.renderSectors(st);
+          } else if (activeTab !== 'PORTFOLIO') {
+            renderStocks(st);
+          }
           updateBadges(st);
           updateLastUpdatedBadge(st);
         }
@@ -390,6 +401,10 @@ function setupKeyboardShortcuts() {
       case '5':
         e.preventDefault();
         document.querySelector('[data-set="SELL"]')?.click();
+        break;
+      case '6':
+        e.preventDefault();
+        document.querySelector('[data-set="INTRADAY"]')?.click();
         break;
       case '7':
         e.preventDefault();

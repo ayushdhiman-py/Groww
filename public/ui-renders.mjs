@@ -60,8 +60,9 @@ function renderStocks(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
-  // GUARD: Don't render stocks when on Portfolio or Sectors tabs
-  if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS') {
+  // GUARD: Don't render stocks when on Portfolio, Sectors, or Intraday tabs —
+  // each has its own dedicated render function with a different table shape.
+  if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS' || activeTab === 'INTRADAY') {
     return;
   }
 
@@ -467,6 +468,132 @@ function renderStocks(data) {
     const wrap = document.getElementById(`wrap-${window.foManager.expandedSymbol}`);
     if (wrap) window.foManager.loadOptionChain(window.foManager.expandedSymbol, wrap);
   }
+}
+
+// ── INTRADAY SCREENER ────────────────────────────────────────
+// No indicator combination predicts a stock will close above its open with
+// certainty — this surfaces the strongest CURRENT technical confluence
+// (confirmed on both 5m and 15m, so a momentary blip on one timeframe can't
+// qualify alone) as a starting point for the user's own risk management, not
+// a guarantee. Entry/target/stop are mechanical calculations from today's
+// actual price levels (VWAP, day range), not predictions.
+function computeIntradayCandidates(data) {
+  const rows5m = data.data['5m_ALL'] || [];
+  const rows15m = data.data['15m_ALL'] || [];
+  const by15m = new Map(rows15m.map(r => [r.symbol, r]));
+
+  const candidates = [];
+  for (const r5 of rows5m) {
+    if (r5.sector === 'INDEX') continue; // "shares" — stocks only
+    const r15 = by15m.get(r5.symbol);
+    if (!r15) continue;
+
+    const strong5 = r5.techScore >= 5 && r5.price > r5.open;
+    const strong15 = r15.techScore >= 5 && r15.price > r15.open;
+    const hasVolSpike = r5.volSpike || r15.volSpike;
+    if (!strong5 || !strong15 || !hasVolSpike) continue;
+
+    const entry = r5.price;
+    const dayH = r5.dayH, dayL = r5.dayL, vwap = r5.vwap || entry;
+
+    // Target: aim for today's high if not reached yet; if price has already
+    // pushed through it, project a continuation using today's own range.
+    let target = entry < dayH ? dayH : entry + (dayH - dayL) * 0.3;
+    if (target <= entry) target = entry * 1.005; // guard: degenerate range
+    // Stop: VWAP is the standard intraday risk line while price holds above
+    // it; fall back to today's low if VWAP is somehow above entry.
+    let stop = vwap < entry ? vwap : dayL;
+    if (stop >= entry) stop = entry * 0.995;
+
+    const targetPct = ((target - entry) / entry) * 100;
+    const stopPct = ((entry - stop) / entry) * 100;
+    const rr = stopPct > 0 ? targetPct / stopPct : 0;
+
+    candidates.push({
+      symbol: r5.symbol, sector: r5.sector,
+      entry, target, stop, targetPct, stopPct, rr,
+      score5m: r5.techScore, score15m: r15.techScore,
+      combinedScore: r5.techScore + r15.techScore,
+      volSpike: hasVolSpike,
+      volumeChange: r5.volumeChange || 0,
+      dayH, dayL, chgPct: r5.chgPct,
+    });
+  }
+
+  candidates.sort((a, b) => {
+    if (b.combinedScore !== a.combinedScore) return b.combinedScore - a.combinedScore;
+    return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
+  });
+
+  return candidates.slice(0, 40);
+}
+
+function renderIntraday(data) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+
+  document.getElementById('tableHeader').innerHTML = `<tr>
+    <th style="text-align:left;">Stock / Sector</th>
+    <th>Entry</th>
+    <th>Target</th>
+    <th>Stop-Loss</th>
+    <th>R:R</th>
+    <th>5m / 15m Score</th>
+    <th>Day Range</th>
+  </tr>`;
+
+  if (!data?.data) {
+    if (tbody) tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data available'; }
+    return;
+  }
+
+  const picks = computeIntradayCandidates(data);
+  const rcEl = document.getElementById('rowCount');
+  const marketOpen = window.stateManager?.get('marketOpen');
+  if (rcEl) {
+    rcEl.textContent = `Intraday: ${picks.length} setup(s) · confirmed on 5m + 15m${marketOpen ? '' : ' (last scan — market closed)'}`;
+  }
+
+  if (!picks.length) {
+    tbody.innerHTML = '';
+    if (empty) {
+      empty.classList.remove('loading');
+      empty.style.display = 'block';
+      empty.textContent = 'No stocks currently show strong bullish confluence on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
+    }
+    return;
+  }
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+
+  const html = picks.map(p => {
+    const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(p.symbol.toUpperCase())}`;
+    const cc = p.chgPct >= 0 ? 'up' : 'dn';
+    return `<tr class="main-row">
+      <td style="text-align:left;">
+        <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
+        <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
+      </td>
+      <td><span class="price-bold">₹${p.entry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></td>
+      <td>
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <span class="up" style="font-weight:700;">₹${p.target.toFixed(2)}</span>
+          <span class="muted-xl up" style="font-size:10px;">+${p.targetPct.toFixed(2)}%</span>
+        </div>
+      </td>
+      <td>
+        <div style="display:flex;flex-direction:column;align-items:center;">
+          <span class="dn" style="font-weight:700;">₹${p.stop.toFixed(2)}</span>
+          <span class="muted-xl dn" style="font-size:10px;">-${p.stopPct.toFixed(2)}%</span>
+        </div>
+      </td>
+      <td><span style="font-family:var(--mono);font-weight:700;">${p.rr.toFixed(2)}</span></td>
+      <td><span style="font-family:var(--mono);">${p.score5m}/7 · ${p.score15m}/7</span></td>
+      <td>${generateRangeBar(p.dayL, p.dayH, p.entry)}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML = html;
 }
 
 // ── RENDER: SECTORS ──────────────────────────────────────────
@@ -896,6 +1023,7 @@ function updateBadges(data) {
   setBadge('badge-SELL', uniqueSell);
   setBadge('badge-FO', 30);
   setBadge('badge-SECTORS', uniqueSectors);
+  setBadge('badge-INTRADAY', computeIntradayCandidates(data).length);
 }
 
 // ── HELPER: Update last updated badge ────────────────────────
@@ -922,6 +1050,8 @@ function renderCurrentView() {
     renderPortfolio(window.dataManager.portfolioCache?.data);
   } else if (activeTab === 'SECTORS') {
     renderSectors(cached.data);
+  } else if (activeTab === 'INTRADAY') {
+    renderIntraday(cached.data);
   } else {
     renderStocks(cached.data);
   }
@@ -930,6 +1060,7 @@ function renderCurrentView() {
 // Export to window
 window.renderStocks = renderStocks;
 window.renderSectors = renderSectors;
+window.renderIntraday = renderIntraday;
 window.renderPortfolio = renderPortfolio;
 window.renderOptionChain = renderOptionChain;
 window.openModalChart = openModalChart;

@@ -440,6 +440,16 @@ export class TabManager {
       } else {
         console.error('[TabManager] Failed to fetch sectors data');
       }
+    } else if (tab === 'INTRADAY') {
+      // Intraday always needs both 5m and 15m regardless of the timeframe
+      // dropdown — /api/state returns the full scan state either way.
+      const data = await this.data.fetchState('INTRADAY', 'INTRADAY', true);
+      if (data) {
+        window.renderIntraday(data);
+        window.updateBadges?.(data);
+      } else {
+        console.error('[TabManager] Failed to fetch intraday data');
+      }
     } else {
       await this.loadScannerData();
     }

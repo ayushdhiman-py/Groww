@@ -964,6 +964,29 @@
       filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.7));
     }
 
+    /* INTRADAY — orange */
+    .tab[data-set="INTRADAY"].active {
+      background: rgba(249, 115, 22, 0.12);
+      color: #fb923c;
+      border-color: rgba(249, 115, 22, 0.3);
+      box-shadow: 0 0 18px rgba(249, 115, 22, 0.12), inset 0 1px 0 rgba(249, 115, 22, 0.15);
+    }
+
+    .tab[data-set="INTRADAY"].active::after {
+      width: 60%;
+      background: #fb923c;
+      opacity: 1;
+    }
+
+    .tab[data-set="INTRADAY"].active .tab-badge {
+      background: rgba(249, 115, 22, 0.2);
+      color: #fb923c;
+    }
+
+    .tab[data-set="INTRADAY"].active .tab-icon {
+      filter: drop-shadow(0 0 4px rgba(249, 115, 22, 0.7));
+    }
+
     /* SECTORS — yellow */
     .tab[data-set="SECTORS"].active {
       background: rgba(245, 158, 11, 0.1);
@@ -2320,6 +2343,11 @@
           <span class="tab-icon">◈</span>
           <span class="tab-label">Top F&amp;O</span>
           <span class="tab-badge" id="badge-FO">30</span>
+        </div>
+        <div class="tab" data-set="INTRADAY">
+          <span class="tab-icon">⚡</span>
+          <span class="tab-label">Intraday</span>
+          <span class="tab-badge" id="badge-INTRADAY">—</span>
         </div>
         <div class="tab" data-set="BUY">
           <span class="tab-icon">▲</span>
