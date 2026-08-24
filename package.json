@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node scanner_testing.mjs",
     "dev": "node --watch scanner_testing.mjs",
-    "test": "node --test"
+    "test": "node --test",
+    "backtest": "node src/backtest.mjs"
   },
   "dependencies": {
     "axios": "^1.7.0",

@@ -470,63 +470,22 @@ function renderStocks(data) {
   }
 }
 
-// ── INTRADAY SCREENER ────────────────────────────────────────
-// No indicator combination predicts a stock will close above its open with
-// certainty — this surfaces the strongest CURRENT technical confluence
-// (confirmed on both 5m and 15m, so a momentary blip on one timeframe can't
-// qualify alone) as a starting point for the user's own risk management, not
-// a guarantee. Entry/target/stop are mechanical calculations from today's
-// actual price levels (VWAP, day range), not predictions.
+// ── INTRADAY OPPORTUNITIES ───────────────────────────────────
+// Ranking, Opportunity Score, Entry Attractiveness, and Upside estimates are
+// all computed server-side (src/entry_score.mjs) from real Upstox candles —
+// this just reads state.intradayOpportunities. No indicator combination
+// predicts a stock will keep moving with certainty; this surfaces the
+// strongest CURRENT multi-factor confluence as a starting point for the
+// user's own risk management, not a guarantee.
 function computeIntradayCandidates(data) {
-  const rows5m = data.data['5m_ALL'] || [];
-  const rows15m = data.data['15m_ALL'] || [];
-  const by15m = new Map(rows15m.map(r => [r.symbol, r]));
+  return data?.intradayOpportunities || [];
+}
 
-  const candidates = [];
-  for (const r5 of rows5m) {
-    if (r5.sector === 'INDEX') continue; // "shares" — stocks only
-    const r15 = by15m.get(r5.symbol);
-    if (!r15) continue;
-
-    const strong5 = r5.techScore >= 5 && r5.price > r5.open;
-    const strong15 = r15.techScore >= 5 && r15.price > r15.open;
-    const hasVolSpike = r5.volSpike || r15.volSpike;
-    if (!strong5 || !strong15 || !hasVolSpike) continue;
-
-    const entry = r5.price;
-    const dayH = r5.dayH, dayL = r5.dayL, vwap = r5.vwap || entry;
-
-    // Target: aim for today's high if not reached yet; if price has already
-    // pushed through it, project a continuation using today's own range.
-    let target = entry < dayH ? dayH : entry + (dayH - dayL) * 0.3;
-    if (target <= entry) target = entry * 1.005; // guard: degenerate range
-    // Stop: VWAP is the standard intraday risk line while price holds above
-    // it; fall back to today's low if VWAP is somehow above entry.
-    let stop = vwap < entry ? vwap : dayL;
-    if (stop >= entry) stop = entry * 0.995;
-
-    const targetPct = ((target - entry) / entry) * 100;
-    const stopPct = ((entry - stop) / entry) * 100;
-    const rr = stopPct > 0 ? targetPct / stopPct : 0;
-
-    candidates.push({
-      symbol: r5.symbol, sector: r5.sector, tf: r5.tf,
-      entry, target, stop, targetPct, stopPct, rr,
-      score5m: r5.techScore, score15m: r15.techScore,
-      combinedScore: r5.techScore + r15.techScore,
-      volSpike: hasVolSpike,
-      volumeChange: r5.volumeChange || 0,
-      dayH, dayL, chgPct: r5.chgPct,
-      priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
-    });
-  }
-
-  candidates.sort((a, b) => {
-    if (b.combinedScore !== a.combinedScore) return b.combinedScore - a.combinedScore;
-    return Math.abs(b.volumeChange) - Math.abs(a.volumeChange);
-  });
-
-  return candidates.slice(0, 40);
+function bandColor(band) {
+  if (band === 'VERY STRONG') return '#22c55e';
+  if (band === 'STRONG') return '#4ade80';
+  if (band === 'WATCH') return '#f59e0b';
+  return '#ef4444';
 }
 
 function renderIntraday(data) {
@@ -535,13 +494,15 @@ function renderIntraday(data) {
 
   document.getElementById('tableHeader').innerHTML = `<tr>
     <th style="text-align:left;">Stock / Sector</th>
-    <th>Entry</th>
+    <th>Price</th>
     <th>Chart</th>
-    <th>Target</th>
-    <th>Stop-Loss</th>
-    <th>R:R</th>
-    <th>5m / 15m Score</th>
-    <th>Day Range</th>
+    <th>Opportunity</th>
+    <th>Entry Attractiveness</th>
+    <th>Move From Open</th>
+    <th>Est. Upside Zone</th>
+    <th title="How much of the estimated upside is still ahead, given how far price has already travelled">Remaining Upside</th>
+    <th>Confidence</th>
+    <th>Action</th>
   </tr>`;
 
   if (!data?.data) {
@@ -550,11 +511,14 @@ function renderIntraday(data) {
     return;
   }
 
+  renderRegimeBanner(data.marketRegime);
+
   const picks = computeIntradayCandidates(data);
   const rcEl = document.getElementById('rowCount');
   const marketOpen = window.stateManager?.get('marketOpen');
   if (rcEl) {
-    rcEl.textContent = `Intraday: ${picks.length} setup(s) · confirmed on 5m + 15m${marketOpen ? '' : ' (last scan — market closed)'}`;
+    const gate = data.marketRegime?.noTrade ? ' · regime unfavorable — bar raised' : '';
+    rcEl.textContent = `Intraday Opportunities: ${picks.length} · confirmed WATCH+ on both 5m and 15m${gate}${marketOpen ? '' : ' (last scan — market closed)'}`;
   }
 
   if (!picks.length) {
@@ -562,7 +526,9 @@ function renderIntraday(data) {
     if (empty) {
       empty.classList.remove('loading');
       empty.style.display = 'block';
-      empty.textContent = 'No stocks currently show strong bullish confluence on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
+      empty.textContent = data.marketRegime?.noTrade
+        ? 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.'
+        : 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
     }
     return;
   }
@@ -571,32 +537,51 @@ function renderIntraday(data) {
   const html = picks.map(p => {
     const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(p.symbol.toUpperCase())}`;
     const cc = p.chgPct >= 0 ? 'up' : 'dn';
-    return `<tr class="main-row">
+    const moveCls = p.pctFromOpen == null ? '' : (p.pctFromOpen >= 0 && p.pctFromOpen <= 2.5 ? 'up' : (p.pctFromOpen > 2.5 ? 'dn' : 'dn'));
+    const upside = p.upside || {};
+    const notesTitle = (p.notes || []).join(' · ');
+    return `<tr class="main-row" title="${notesTitle.replace(/"/g, '&quot;')}">
       <td style="text-align:left;">
         <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
       </td>
-      <td><span class="price-bold">₹${p.entry.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></td>
-      <td><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
+      <td><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></td>
+      <td><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td>
         <div style="display:flex;flex-direction:column;align-items:center;">
-          <span class="up" style="font-weight:700;">₹${p.target.toFixed(2)}</span>
-          <span class="muted-xl up" style="font-size:10px;">+${p.targetPct.toFixed(2)}%</span>
+          <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
+          <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>
         </div>
       </td>
       <td>
         <div style="display:flex;flex-direction:column;align-items:center;">
-          <span class="dn" style="font-weight:700;">₹${p.stop.toFixed(2)}</span>
-          <span class="muted-xl dn" style="font-size:10px;">-${p.stopPct.toFixed(2)}%</span>
+          <span style="font-weight:700;">${p.entryAttractiveness}</span>
+          <span class="muted-xl" style="font-size:9px;">${p.entryAttractivenessLabel || ''}</span>
         </div>
       </td>
-      <td><span style="font-family:var(--mono);font-weight:700;">${p.rr.toFixed(2)}</span></td>
-      <td><span style="font-family:var(--mono);">${p.score5m}/7 · ${p.score15m}/7</span></td>
-      <td>${generateRangeBar(p.dayL, p.dayH, p.entry)}</td>
+      <td><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
+      <td>${upside.zoneLow != null ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span>` : '<span class="muted-xl">—</span>'}</td>
+      <td>${upside.remainingPct != null ? `<span class="up">+${upside.remainingPct}%</span>` : '—'}</td>
+      <td><span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'}</span></td>
+      <td><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
   }).join('');
 
   tbody.innerHTML = html;
+}
+
+// ── MARKET REGIME BANNER ──────────────────────────────────────
+function renderRegimeBanner(regime) {
+  const el = document.getElementById('regimeBanner');
+  if (!el) return;
+  if (!regime || !regime.regime || regime.regime === 'UNKNOWN') { el.style.display = 'none'; return; }
+
+  el.style.display = 'flex';
+  el.className = 'regime-banner ' + (regime.regime === 'BULLISH' ? 'regime-bullish' : regime.regime === 'BEARISH' ? 'regime-bearish' : 'regime-sideways');
+  const icon = regime.regime === 'BULLISH' ? '📈' : regime.regime === 'BEARISH' ? '📉' : '➖';
+  el.innerHTML = `<span>${icon} MARKET REGIME: ${regime.regime}</span>` +
+    (regime.noTrade ? `<span class="no-trade-flag">NO TRADE</span>` : '') +
+    `<span class="regime-notes">${(regime.notes || []).join(' · ')}</span>`;
 }
 
 // ── RENDER: MARKET SCREENERS (Nifty 500) ─────────────────────
@@ -1149,12 +1134,136 @@ function renderCurrentView() {
   }
 }
 
+// ── RENDER: CRITICAL TRADES ───────────────────────────────────
+const CRIT_STATE_ORDER = ["STRONG HOLD", "HOLD", "MOMENTUM WEAKENING", "PROFIT PROTECTION", "STRONG EXIT WARNING", "THESIS INVALIDATED"];
+function critStateClass(state) {
+  return 'state-' + (state || '').toLowerCase().replace(/\s+/g, '-');
+}
+function critStateColor(state) {
+  if (state === "STRONG HOLD" || state === "HOLD") return '#22c55e';
+  if (state === "MOMENTUM WEAKENING" || state === "PROFIT PROTECTION") return '#f59e0b';
+  return '#ef4444';
+}
+
+function renderCritical(payload) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  document.getElementById('tableHeader').innerHTML = '';
+
+  const trades = payload?.trades || [];
+  const rcEl = document.getElementById('rowCount');
+  if (rcEl) rcEl.textContent = `Critical Trades: ${trades.length} active`;
+
+  if (!trades.length) {
+    if (empty) {
+      empty.classList.remove('loading');
+      empty.style.display = 'block';
+      empty.textContent = 'No Critical trades marked. Use "Mark Critical" on any Intraday/All-stocks row after you enter a position.';
+    }
+    tbody.innerHTML = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  const cards = trades.map(t => {
+    const health = t.lastHealth || {};
+    const score = health.score ?? '—';
+    const state = health.state || 'PENDING';
+    const pnl = health.pnl ?? 0;
+    const pnlPct = health.pnlPct ?? 0;
+    const pnlCls = pnl >= 0 ? 'up' : 'dn';
+    const history = (t.minuteHistory || []).slice(-30);
+    const historySpark = history.length >= 2
+      ? generateSparkline(history.map(h => h.health), history.map(() => history[0]?.health ?? 50), history.map(() => history[0]?.health ?? 50))
+      : '<span class="muted-xl">Building history…</span>';
+
+    const notifHtml = (t.notifications || []).slice(0, 4).map(n =>
+      `<div class="crit-notif severity-${n.severity}">${n.type}: ${n.message}</div>`
+    ).join('');
+
+    const betterOppHtml = t.betterOpportunity
+      ? `<div class="crit-better-opp">💡 BETTER OPPORTUNITY: ${t.betterOpportunity.reason}</div>`
+      : '';
+
+    const trapHtml = t.trap && t.trap.level !== 'NORMAL'
+      ? `<div class="crit-warnings">⚠️ Trap risk: ${t.trap.level} — ${(t.trap.flags || []).join('; ')}</div>`
+      : '';
+
+    const warningsHtml = (health.warnings || []).length
+      ? `<div class="crit-warnings">${health.warnings.slice(0, 4).join(' · ')}</div>`
+      : '';
+
+    return `<div class="crit-card ${critStateClass(state)}">
+      <div class="crit-card-head">
+        <div>
+          <span class="sym" style="font-size:15px;">${t.symbol}</span>
+          <span class="muted-xl" style="margin-left:8px;">Qty ${t.quantity} @ ₹${t.entryPrice}</span>
+        </div>
+        <span class="crit-health-badge" style="background:${critStateColor(state)}22;color:${critStateColor(state)};">
+          ${score} — ${state}
+        </span>
+      </div>
+      <div class="crit-metrics">
+        <div><div class="m-label">Live Price</div><div>₹${health.price ?? '—'}</div></div>
+        <div><div class="m-label">P&amp;L</div><div class="${pnlCls}">₹${pnl.toFixed ? pnl.toFixed(2) : pnl} (${pnlPct >= 0 ? '+' : ''}${pnlPct}%)</div></div>
+        <div><div class="m-label">Peak Price</div><div>₹${t.peakPrice}</div></div>
+        <div><div class="m-label">Giveback</div><div>${t.givebackPct != null ? t.givebackPct + '%' : '—'}</div></div>
+        <div><div class="m-label">Stop / Target</div><div>${t.stopLoss ?? '—'} / ${t.target ?? '—'}</div></div>
+        <div><div class="m-label">Deterioration</div><div>${t.lastDeteriorationPattern || '—'}</div></div>
+      </div>
+      <div style="opacity:0.8;">${historySpark}</div>
+      ${warningsHtml}
+      ${trapHtml}
+      ${betterOppHtml}
+      ${notifHtml}
+      <div class="crit-actions" style="margin-top:10px;">
+        <button onclick="window.criticalManager?.promptEditLevels('${t.id}', ${t.stopLoss ?? 'null'}, ${t.target ?? 'null'})">Edit SL/Target</button>
+        <button onclick="window.criticalManager?.closeTrade('${t.id}')">Close Trade</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  tbody.innerHTML = `<div class="crit-grid">${cards}</div>`;
+}
+
+// ── NOTIFICATIONS BANNER (persists across tabs) ───────────────
+let lastSeenNotifIds = new Set();
+function renderCritNotifBanner(trades) {
+  const el = document.getElementById('critNotifBanner');
+  if (!el) return;
+  const all = [];
+  for (const t of trades || []) {
+    for (const n of (t.notifications || []).slice(0, 3)) {
+      all.push({ ...n, symbol: t.symbol });
+    }
+  }
+  all.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+  const recent = all.slice(0, 3);
+  if (!recent.length) { el.innerHTML = ''; return; }
+
+  el.innerHTML = recent.map(n => `
+    <div class="crit-notif severity-${n.severity}" style="margin-bottom:4px;">
+      <strong>${n.symbol}</strong> — ${n.type}: ${n.message}
+    </div>`).join('');
+
+  // Browser notification for genuinely new, severe alerts only (avoid spam).
+  for (const n of recent) {
+    if (n.severity === 'danger' && !lastSeenNotifIds.has(n.id)) {
+      try { window.notify?.(`${n.symbol}: ${n.type}`, n.message); } catch (_) { /* noop */ }
+    }
+    lastSeenNotifIds.add(n.id);
+  }
+}
+
 // Export to window
 window.renderStocks = renderStocks;
 window.renderSectors = renderSectors;
 window.renderIntraday = renderIntraday;
 window.renderScreeners = renderScreeners;
 window.renderPortfolio = renderPortfolio;
+window.renderCritical = renderCritical;
+window.renderCritNotifBanner = renderCritNotifBanner;
+window.renderRegimeBanner = renderRegimeBanner;
 window.renderOptionChain = renderOptionChain;
 window.openModalChart = openModalChart;
 window.closeModalChart = closeModalChart;

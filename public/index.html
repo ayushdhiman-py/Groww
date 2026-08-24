@@ -1056,6 +1056,104 @@
       filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.7));
     }
 
+    /* CRITICAL — pink */
+    .tab[data-set="CRITICAL"].active {
+      background: rgba(236, 72, 153, 0.12);
+      color: #ec4899;
+      border-color: rgba(236, 72, 153, 0.3);
+      box-shadow: 0 0 18px rgba(236, 72, 153, 0.12), inset 0 1px 0 rgba(236, 72, 153, 0.15);
+    }
+
+    .tab[data-set="CRITICAL"].active::after {
+      width: 60%;
+      background: #ec4899;
+      opacity: 1;
+    }
+
+    .tab[data-set="CRITICAL"].active .tab-badge {
+      background: rgba(236, 72, 153, 0.2);
+      color: #ec4899;
+    }
+
+    .tab[data-set="CRITICAL"].active .tab-icon {
+      filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.7));
+    }
+
+    /* Market regime banner */
+    .regime-banner {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      border: 1px solid transparent;
+    }
+    .regime-banner.regime-bullish { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); color: var(--green); }
+    .regime-banner.regime-bearish { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: var(--red); }
+    .regime-banner.regime-sideways { background: rgba(245,158,11,0.1); border-color: rgba(245,158,11,0.3); color: var(--yellow); }
+    .regime-banner .regime-notes { font-weight: 400; opacity: 0.85; font-size: 11px; }
+    .regime-banner .no-trade-flag {
+      background: rgba(239,68,68,0.25); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    }
+
+    /* Critical trade cards */
+    .crit-grid { display: flex; flex-direction: column; gap: 10px; padding: 4px; }
+    .crit-card {
+      background: var(--panel2, rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .crit-card.state-strong-hold, .crit-card.state-hold { border-left: 3px solid var(--green); }
+    .crit-card.state-momentum-weakening, .crit-card.state-profit-protection { border-left: 3px solid var(--yellow); }
+    .crit-card.state-strong-exit-warning, .crit-card.state-thesis-invalidated { border-left: 3px solid var(--red); }
+    .crit-card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+    .crit-health-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 12px; }
+    .crit-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; font-size: 11px; margin-bottom: 8px; }
+    .crit-metrics .m-label { color: var(--muted); font-size: 9px; text-transform: uppercase; }
+    .crit-warnings { font-size: 11px; color: var(--yellow); margin-top: 4px; }
+    .crit-notif { font-size: 11px; padding: 4px 8px; border-radius: 6px; margin-top: 4px; }
+    .crit-notif.severity-danger { background: rgba(239,68,68,0.12); color: var(--red); }
+    .crit-notif.severity-warning { background: rgba(245,158,11,0.12); color: var(--yellow); }
+    .crit-notif.severity-info { background: rgba(56,189,248,0.12); color: #38bdf8; }
+    .crit-better-opp { font-size: 11px; background: rgba(139,92,246,0.12); color: #a78bfa; padding: 6px 10px; border-radius: 6px; margin-top: 6px; }
+    .crit-actions button {
+      font-size: 11px; padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+      background: transparent; color: var(--text); cursor: pointer; margin-right: 6px;
+    }
+    .crit-actions button:hover { background: rgba(255,255,255,0.08); }
+    .mark-critical-btn {
+      font-size: 10px; padding: 3px 8px; border-radius: 5px; border: 1px solid rgba(236,72,153,0.4);
+      background: rgba(236,72,153,0.1); color: #ec4899; cursor: pointer;
+    }
+    .mark-critical-btn:hover { background: rgba(236,72,153,0.2); }
+
+    /* Mark Critical modal */
+    .mc-modal-overlay {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+      z-index: 200; align-items: center; justify-content: center;
+    }
+    .mc-modal-overlay.open { display: flex; }
+    .mc-modal {
+      background: var(--panel, #12161f); border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+      padding: 20px; width: 320px; max-width: 90vw;
+    }
+    .mc-modal h3 { margin: 0 0 12px; font-size: 15px; }
+    .mc-modal label { display: block; font-size: 11px; color: var(--muted); margin: 10px 0 4px; }
+    .mc-modal input {
+      width: 100%; padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.04); color: var(--text); font-size: 13px; box-sizing: border-box;
+    }
+    .mc-modal-actions { display: flex; gap: 8px; margin-top: 16px; }
+    .mc-modal-actions button {
+      flex: 1; padding: 9px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; font-size: 12px;
+    }
+    .mc-modal-actions .mc-cancel { background: rgba(255,255,255,0.08); color: var(--text); }
+    .mc-modal-actions .mc-submit { background: #ec4899; color: #fff; }
+
     .meta {
       display: flex;
       justify-content: space-between;
@@ -2284,6 +2382,9 @@
       
       <div class="stats" id="indexCardsContainer" style="margin-top: -6px; margin-bottom: 14px;"></div>
 
+      <div id="regimeBanner" class="regime-banner" style="display:none;"></div>
+      <div id="critNotifBanner" style="margin-bottom:10px;"></div>
+
       <details class="guide-details">
         <summary class="guide-summary">
           <span class="guide-icon">▶</span> 💡 Quick Guide to Indicators
@@ -2367,6 +2468,11 @@
           <span class="tab-label">Intraday</span>
           <span class="tab-badge" id="badge-INTRADAY">—</span>
         </div>
+        <div class="tab" data-set="CRITICAL">
+          <span class="tab-icon">🎯</span>
+          <span class="tab-label">Critical</span>
+          <span class="tab-badge" id="badge-CRITICAL">—</span>
+        </div>
         <div class="tab" data-set="SCREENERS">
           <span class="tab-icon">🔎</span>
           <span class="tab-label">Screeners</span>
@@ -2433,6 +2539,24 @@
         id="modalTitle">Chart</div>
       <div style="height: 400px; position: relative;">
         <canvas id="modalCanvas"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div id="mcModalOverlay" class="mc-modal-overlay" onclick="window.criticalManager?.closeMarkModal(event)">
+    <div class="mc-modal" onclick="event.stopPropagation()">
+      <h3>Mark Critical — <span id="mcSymbol">—</span></h3>
+      <label>Entry Price (₹)</label>
+      <input type="number" id="mcEntryPrice" step="0.01" placeholder="e.g. 102.50">
+      <label>Quantity</label>
+      <input type="number" id="mcQuantity" step="1" placeholder="e.g. 500">
+      <label>Stop Loss (₹) — optional</label>
+      <input type="number" id="mcStopLoss" step="0.01" placeholder="optional">
+      <label>Target (₹) — optional</label>
+      <input type="number" id="mcTarget" step="0.01" placeholder="optional">
+      <div class="mc-modal-actions">
+        <button class="mc-cancel" onclick="window.criticalManager?.closeMarkModal()">Cancel</button>
+        <button class="mc-submit" onclick="window.criticalManager?.submitMarkCritical()">Mark Critical</button>
       </div>
     </div>
   </div>

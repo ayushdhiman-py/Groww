@@ -183,6 +183,118 @@ export class PortfolioManager {
   }
 }
 
+// ── 7b. CRITICAL TRADES MANAGER ──────────────────────────────
+export class CriticalManager {
+  constructor() {
+    this.refreshInterval = null;
+    this.markContext = null;
+    this.lastPayload = null;
+  }
+
+  async fetchAndRender() {
+    try {
+      const res = await fetch('/api/critical');
+      if (!res.ok) return;
+      const payload = await res.json();
+      this.lastPayload = payload;
+
+      const badge = document.getElementById('badge-CRITICAL');
+      if (badge) badge.textContent = payload.trades?.length ?? 0;
+
+      window.renderCritNotifBanner?.(payload.trades);
+      if (window.stateManager?.get('activeTab') === 'CRITICAL') {
+        window.renderCritical?.(payload);
+      }
+    } catch (e) {
+      console.error('[Critical] fetch error:', e);
+    }
+  }
+
+  startPolling() {
+    if (this.refreshInterval) return;
+    this.fetchAndRender();
+    // Notifications should stay live regardless of which tab is open — poll
+    // faster than the main 30s scanner reload since Trade Health depends on
+    // the same scan cycle anyway, but the banner should feel responsive.
+    this.refreshInterval = setInterval(() => this.fetchAndRender(), 8000);
+  }
+
+  openMarkModal(symbol, price) {
+    this.markContext = { symbol };
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+    document.getElementById('mcSymbol').textContent = symbol;
+    set('mcEntryPrice', price ? (+price).toFixed(2) : '');
+    set('mcQuantity', '');
+    set('mcStopLoss', '');
+    set('mcTarget', '');
+    document.getElementById('mcModalOverlay')?.classList.add('open');
+  }
+
+  closeMarkModal(event) {
+    if (event && event.target.id !== 'mcModalOverlay') return;
+    document.getElementById('mcModalOverlay')?.classList.remove('open');
+  }
+
+  async submitMarkCritical() {
+    const symbol = this.markContext?.symbol;
+    const entryPrice = parseFloat(document.getElementById('mcEntryPrice').value);
+    const quantity = parseInt(document.getElementById('mcQuantity').value, 10);
+    const stopLossRaw = document.getElementById('mcStopLoss').value;
+    const targetRaw = document.getElementById('mcTarget').value;
+
+    if (!symbol || !Number.isFinite(entryPrice) || !Number.isFinite(quantity)) {
+      alert('Symbol, entry price and quantity are required.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/critical', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol, entryPrice, quantity,
+          stopLoss: stopLossRaw === '' ? null : parseFloat(stopLossRaw),
+          target: targetRaw === '' ? null : parseFloat(targetRaw),
+        }),
+      });
+      const json = await res.json();
+      if (!json.ok) { alert('Failed to mark critical: ' + json.error); return; }
+      document.getElementById('mcModalOverlay')?.classList.remove('open');
+      this.fetchAndRender();
+    } catch (e) {
+      alert('Failed to mark critical: ' + e.message);
+    }
+  }
+
+  async closeTrade(id) {
+    if (!confirm('Close this Critical trade? This only stops monitoring it here — it does not place any order.')) return;
+    try {
+      await fetch(`/api/critical/${id}/close`, { method: 'POST' });
+      this.fetchAndRender();
+    } catch (e) {
+      console.error('[Critical] close error:', e);
+    }
+  }
+
+  async promptEditLevels(id, currentStop, currentTarget) {
+    const sl = prompt('Stop Loss (blank = none):', currentStop ?? '');
+    if (sl === null) return; // cancelled
+    const tgt = prompt('Target (blank = none):', currentTarget ?? '');
+    if (tgt === null) return;
+    try {
+      await fetch(`/api/critical/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          stopLoss: sl === '' ? null : parseFloat(sl),
+          target: tgt === '' ? null : parseFloat(tgt),
+        }),
+      });
+      this.fetchAndRender();
+    } catch (e) {
+      console.error('[Critical] update error:', e);
+    }
+  }
+}
+
 // ── 8. SORT MANAGER ──────────────────────────────────────────
 export class SortManager {
   constructor(stateManager) {

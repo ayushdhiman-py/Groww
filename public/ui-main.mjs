@@ -3,12 +3,12 @@
 // ============================================================
 
 import { StateManager, DataManager, RenderEngine } from './ui-core.mjs';
-import { TabManager, TimeframeManager, LivePriceUpdater, PortfolioManager, SortManager, SearchFilter, FOManager, IntervalManager } from './ui-managers.mjs';
+import { TabManager, TimeframeManager, LivePriceUpdater, PortfolioManager, SortManager, SearchFilter, FOManager, IntervalManager, CriticalManager } from './ui-managers.mjs';
 import './ui-renders.mjs';
 
 // ── Initialize all managers ──────────────────────────────────
 let stateManager, dataManager, renderEngine, tabManager, timeframeManager;
-let livePriceUpdater, portfolioManager, sortManager, searchFilter, foManager, intervalManager;
+let livePriceUpdater, portfolioManager, sortManager, searchFilter, foManager, intervalManager, criticalManager;
 
 async function initApp() {
   // Create all managers
@@ -23,6 +23,7 @@ async function initApp() {
   searchFilter = new SearchFilter(stateManager);
   foManager = new FOManager(stateManager, dataManager);
   intervalManager = new IntervalManager(stateManager);
+  criticalManager = new CriticalManager();
 
   // Make managers globally accessible
   window.stateManager = stateManager;
@@ -34,6 +35,7 @@ async function initApp() {
   window.sortManager = sortManager;
   window.searchFilter = searchFilter;
   window.foManager = foManager;
+  window.criticalManager = criticalManager;
 
   // Restore state from localStorage FIRST
   stateManager.restore();
@@ -94,6 +96,7 @@ async function loadInitialData() {
   const data = await dataManager.fetchState(timeframe, activeTab, true);
   if (data) {
     renderStocks(data);
+    window.renderRegimeBanner?.(data.marketRegime);
 
     // Update universe count
     const sU = document.getElementById('sU');
@@ -139,10 +142,15 @@ function startBackgroundTasks() {
   // Live price updates (every 3s) - managed by LivePriceUpdater
   livePriceUpdater.start();
 
+  // Critical trades: health/notifications poll (independent of active tab —
+  // "continuously monitor Critical trades" per the spec, not just while the
+  // Critical tab happens to be open).
+  criticalManager.startPolling();
+
   // Full state reload (every 30s)
   intervalManager.add('fullReload', async () => {
     const activeTab = stateManager.get('activeTab');
-    if (activeTab === 'PORTFOLIO') return;
+    if (activeTab === 'PORTFOLIO' || activeTab === 'CRITICAL') return; // handled by their own managers
     if (activeTab === 'SCREENERS') {
       const screenerData = await dataManager.fetchScreener();
       if (screenerData) {
@@ -154,6 +162,7 @@ function startBackgroundTasks() {
     const timeframe = stateManager.get('timeframe');
     const data = await dataManager.fetchState(timeframe, activeTab, true);
     if (!data) return;
+    window.renderRegimeBanner?.(data.marketRegime);
     if (activeTab === 'INTRADAY') {
       window.renderIntraday(data);
     } else if (activeTab === 'SECTORS') {
@@ -425,6 +434,10 @@ function setupKeyboardShortcuts() {
       case '9':
         e.preventDefault();
         document.querySelector('[data-set="SCREENERS"]')?.click();
+        break;
+      case 'c':
+        e.preventDefault();
+        document.querySelector('[data-set="CRITICAL"]')?.click();
         break;
     }
   });

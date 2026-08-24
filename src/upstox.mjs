@@ -148,18 +148,15 @@ function toDateStr(d) {
     return d.toISOString().split("T")[0];
 }
 
-export async function fetchCandles(symbol, tf) {
-    if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
-    const instrumentKey = resolveInstrumentKey(symbol);
-    if (!instrumentKey) {
-        throw new Error(`No Upstox instrument_key found for symbol "${symbol}"`);
-    }
+// Upstox's v3 historical-candle endpoint rejects intraday (minutes/hours)
+// date ranges wider than roughly a month (confirmed live: a 31-day 5m
+// request succeeds, 33 days returns UDAPI1148 "Invalid date range"). The
+// live scanner's own default TF_DAYS windows already stay under this, so
+// this only matters for explicit wide `range` overrides (backtest.mjs).
+// Kept conservative since the exact boundary may vary slightly by interval.
+const INTRADAY_CHUNK_DAYS = 24;
 
-    const unitInterval = UNIT_INTERVAL_BY_TF[tf];
-    if (!unitInterval) throw new Error(`Unsupported timeframe "${tf}"`);
-
-    const to = new Date();
-    const from = new Date(to.getTime() - TF_DAYS[tf] * 86400000);
+async function fetchCandlesChunk(instrumentKey, unitInterval, from, to) {
     const url = [
         HISTORICAL_CANDLE_BASE,
         encodeURIComponent(instrumentKey),
@@ -175,17 +172,63 @@ export async function fetchCandles(symbol, tf) {
         const candles = res.data?.data?.candles || [];
         // Upstox returns candles newest-first; the rest of this app (EMA/MACD/
         // RSI/buildSignal) assumes oldest-first chronological order.
-        return candles
-            .slice()
-            .reverse()
-            .map(c => ({
-                ts: Date.parse(c[0]),
-                open: +c[1], high: +c[2], low: +c[3], close: +c[4], volume: +c[5],
-            }));
+        return candles.map(c => ({
+            ts: Date.parse(c[0]),
+            open: +c[1], high: +c[2], low: +c[3], close: +c[4], volume: +c[5],
+        }));
     } catch (e) {
         if (e.response?.status === 429) triggerBackoff(15);
         throw new Error(describeError(e));
     }
+}
+
+/**
+ * @param {string} symbol
+ * @param {string} tf
+ * @param {{to?: Date, from?: Date}} [range] — override the default "last
+ *   TF_DAYS[tf] days up to now" window. Used by backtest.mjs to pull a
+ *   specific historical window; live scanning never passes this.
+ */
+export async function fetchCandles(symbol, tf, range = null) {
+    if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
+    const instrumentKey = resolveInstrumentKey(symbol);
+    if (!instrumentKey) {
+        throw new Error(`No Upstox instrument_key found for symbol "${symbol}"`);
+    }
+
+    const unitInterval = UNIT_INTERVAL_BY_TF[tf];
+    if (!unitInterval) throw new Error(`Unsupported timeframe "${tf}"`);
+
+    const to = range?.to ?? new Date();
+    const from = range?.from ?? new Date(to.getTime() - TF_DAYS[tf] * 86400000);
+
+    const spanDays = (to.getTime() - from.getTime()) / 86400000;
+    const needsChunking = unitInterval.unit !== "days" && spanDays > INTRADAY_CHUNK_DAYS;
+
+    let all;
+    if (!needsChunking) {
+        all = await fetchCandlesChunk(instrumentKey, unitInterval, from, to);
+    } else {
+        all = [];
+        let chunkTo = to;
+        while (chunkTo > from) {
+            const chunkFrom = new Date(Math.max(from.getTime(), chunkTo.getTime() - INTRADAY_CHUNK_DAYS * 86400000));
+            const part = await fetchCandlesChunk(instrumentKey, unitInterval, chunkFrom, chunkTo);
+            all.push(...part);
+            chunkTo = new Date(chunkFrom.getTime() - 86400000); // step back a day to avoid re-requesting the same boundary day
+        }
+    }
+
+    // Dedupe (chunk boundaries can overlap by a day) and sort chronologically.
+    const seen = new Set();
+    const deduped = [];
+    for (const c of all) {
+        if (seen.has(c.ts)) continue;
+        seen.add(c.ts);
+        deduped.push(c);
+    }
+    deduped.sort((a, b) => a.ts - b.ts);
+    return deduped;
 }
 
 // ── Bulk LTP ─────────────────────────────────────────────────────────────────────

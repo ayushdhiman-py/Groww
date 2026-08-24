@@ -13,6 +13,10 @@ import { theoreticalOptionChain } from "./src/indicators.mjs";
 import { runOperatorScan, getOperatorState, buildMarketSummary, formatMarketSummaryBlock, transformScannerData } from "./src/operator_scanner.mjs";
 import { isDividendServiceAvailable } from "./src/dividend.mjs";
 import { screenerState, startScreenerScan } from "./src/screener.mjs";
+import {
+    markCritical, listCriticalTrades,
+    updateCriticalTrade, closeCriticalTrade, deleteCriticalTrade,
+} from "./src/critical_trades.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -77,6 +81,46 @@ app.get("/api/status", (_, res) => res.json({
 // 52-Week breakouts, and pattern scans. Refreshes on its own ~15min cadence
 // (see src/screener.mjs), independent of the main 241-symbol deep scan.
 app.get("/api/screener", (_, res) => res.json(screenerState));
+
+// ── Market Regime — BULLISH / BEARISH / SIDEWAYS, refreshed once per scan ──
+app.get("/api/regime", (_, res) => res.json(state.marketRegime || { regime: "UNKNOWN", notes: ["No scan completed yet"] }));
+
+// ── Critical Trades ────────────────────────────────────────────────────────
+// MARK CRITICAL persists a trade; every subsequent full scan (~30s) updates
+// its Trade Health, minute history, trap classification, and notifications
+// (see src/critical_trades.mjs onScanComplete(), called from scanner.mjs).
+app.get("/api/critical", (req, res) => {
+    const includeClosed = req.query.includeClosed === "1" || req.query.includeClosed === "true";
+    res.json({ trades: listCriticalTrades({ includeClosed }) });
+});
+
+app.post("/api/critical", (req, res) => {
+    try {
+        const { symbol, entryPrice, quantity, entryTime, stopLoss, target } = req.body || {};
+        const trade = markCritical({ symbol, entryPrice, quantity, entryTime, stopLoss, target });
+        res.json({ ok: true, trade });
+    } catch (e) {
+        res.status(400).json({ ok: false, error: e.message });
+    }
+});
+
+app.patch("/api/critical/:id", (req, res) => {
+    const trade = updateCriticalTrade(req.params.id, req.body || {});
+    if (!trade) return res.status(404).json({ ok: false, error: "Trade not found" });
+    res.json({ ok: true, trade });
+});
+
+app.post("/api/critical/:id/close", (req, res) => {
+    const trade = closeCriticalTrade(req.params.id, req.body?.reason || "manual");
+    if (!trade) return res.status(404).json({ ok: false, error: "Trade not found" });
+    res.json({ ok: true, trade });
+});
+
+app.delete("/api/critical/:id", (req, res) => {
+    const ok = deleteCriticalTrade(req.params.id);
+    if (!ok) return res.status(404).json({ ok: false, error: "Trade not found" });
+    res.json({ ok: true });
+});
 
 // Starts (or no-ops if already running) background scanning + live feeds.
 // Safe to call from both server boot and /api/login, since scanAll/startFeed/

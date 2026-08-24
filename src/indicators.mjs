@@ -32,6 +32,59 @@ export function rsi(closes, period = 14) {
 }
 
 /**
+ * Average True Range (Wilder's smoothing) from OHLC candles.
+ * Used to size a "realistic" intraday move — NOT the same thing as
+ * historicalVolatility() below (that is an annualised log-return stdev used
+ * for option pricing; this is a same-scale-as-price move-capacity measure).
+ */
+export function atr(candles, period = 14) {
+    if (!candles || candles.length < period + 1) return null;
+    const trs = [];
+    for (let i = 1; i < candles.length; i++) {
+        const c = candles[i], p = candles[i - 1];
+        trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+    }
+    if (trs.length < period) return null;
+    let a = trs.slice(0, period).reduce((s, v) => s + v, 0) / period;
+    for (let i = period; i < trs.length; i++) a = (a * (period - 1) + trs[i]) / period;
+    return Number.isFinite(a) ? a : null;
+}
+
+/**
+ * Slope of an EMA series over `lookback` bars, expressed as %-change per bar
+ * relative to the series' own current level (so it's comparable across
+ * stocks at very different price levels). Returns null if not enough data.
+ */
+export function emaSlopePct(emaArr, lookback = 5) {
+    const valid = emaArr.filter(v => v !== null && Number.isFinite(v));
+    if (valid.length < lookback + 1) return null;
+    const cur = valid[valid.length - 1];
+    const prior = valid[valid.length - 1 - lookback];
+    if (!prior) return null;
+    return ((cur - prior) / prior) * 100 / lookback;
+}
+
+/**
+ * Running (cumulative) VWAP at every bar. Pass ONLY the current session's
+ * candles (e.g. today's 5m candles) — VWAP is defined to reset each session,
+ * and this function does not know where a "day" boundary is. Returns an
+ * array parallel to `candles`; index i uses only candles[0..i], so this is
+ * safe to use in a no-look-ahead context.
+ */
+export function vwapSeries(candles) {
+    if (!candles || candles.length === 0) return [];
+    const out = [];
+    let tpvSum = 0, volSum = 0;
+    for (const c of candles) {
+        const tp = (c.high + c.low + c.close) / 3;
+        tpvSum += tp * c.volume;
+        volSum += c.volume;
+        out.push(volSum === 0 ? null : +(tpvSum / volSum).toFixed(2));
+    }
+    return out;
+}
+
+/**
  * VWAP calculation
  */
 export function vwap(candles) {

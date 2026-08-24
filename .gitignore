@@ -18,6 +18,9 @@ scanner_testing.mjs.bak
 # Upstox instrument master cache (re-downloaded automatically, refreshed daily)
 .upstox_instruments_cache.json
 
+# Critical trades store — personal trade data, runtime state only
+data/
+
 # OS files
 .DS_Store
 Thumbs.db

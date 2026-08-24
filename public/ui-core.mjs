@@ -471,6 +471,8 @@ export class TabManager {
       const data = await this.data.fetchScreener();
       window.renderScreeners(data);
       if (data) window.updateBadges?.(null, data);
+    } else if (tab === 'CRITICAL') {
+      await window.criticalManager?.fetchAndRender();
     } else {
       await this.loadScannerData();
     }

@@ -9,9 +9,13 @@
 ## ✨ Features
 
 - 🎯 **241+ Stocks** scanned in real-time
-- 📈 **Technical Indicators**: EMA 21/50, MACD, RSI, VWAP, Historical Volatility
+- 📈 **Technical Indicators**: EMA 9/21/50, MACD, RSI, VWAP (+ session VWAP slope), ATR, Historical Volatility
 - 🔔 **Signal Detection**: Golden Cross, Death Cross, BUY/SELL signals
 - 📊 **Multiple Timeframes**: 1m, 5m, 10m, 15m, 30m, 1h, 1d
+- 🧭 **Intraday Opportunities**: server-computed Opportunity Score (0–100), Entry Attractiveness, and an ATR/structure-bounded Upside Potential estimate — see below
+- 🎯 **Critical Trades**: mark a position Critical after entering it; a Trade Health engine continuously monitors it and warns on deterioration, profit giveback, and traps
+- 🌡️ **Market Regime**: BULLISH / BEARISH / SIDEWAYS classification with a NO TRADE flag when conditions are unfavorable
+- 🧪 **Backtesting**: `npm run backtest` replays the exact live scoring/health logic against real historical Upstox candles, with no look-ahead
 - 🎨 **Beautiful UI**: Dark theme with live price updates
 - ⚡ **Live Feed**: Real-time LTP streaming via Upstox WebSocket during market hours
 - 📱 **Responsive**: Works on desktop and mobile
@@ -56,16 +60,60 @@ Groww/
 │   ├── upstox.mjs           # Upstox API client
 │   ├── instruments.mjs      # Upstox instrument master / symbol resolver
 │   ├── config.mjs           # Configuration
-│   ├── indicators.mjs       # Technical indicators
+│   ├── indicators.mjs       # Technical indicators (EMA/MACD/RSI/VWAP/ATR)
+│   ├── price_action.mjs     # Swing structure, breakout/retest/rejection detection
+│   ├── entry_score.mjs      # Opportunity Score, Entry Attractiveness, Upside Potential
+│   ├── market_regime.mjs    # BULLISH/BEARISH/SIDEWAYS regime classification
+│   ├── critical_trades.mjs  # MARK CRITICAL persistence + per-scan orchestrator
+│   ├── trade_health.mjs     # Trade Health engine, exit priorities, trap detection
+│   ├── notifications.mjs    # Debounced Critical-trade alerts
+│   ├── capital_rotation.mjs # "Better opportunity" suggestions for weakening trades
+│   ├── backtest.mjs         # Offline historical replay/backtester (see below)
 │   ├── universe.mjs         # Stock universe (241 symbols)
 │   └── options_feed.mjs     # Options data feed
 ├── public/
 │   └── index.html           # Frontend UI (single-file app)
+├── data/                    # Critical trades store (gitignored, runtime only)
 ├── scanner_testing.mjs      # Express server entry point
 ├── render.yaml              # Render deployment config
 ├── DEPLOYMENT.md            # Deployment guide
 └── ENV_VARIABLES.md         # Environment variables docs
 ```
+
+## 🧭 Intraday Decision Support
+
+The **Intraday** tab ranks stocks with a server-side scoring engine (`src/entry_score.mjs`) instead of a simple two-timeframe filter:
+
+- **Opportunity Score (0–100)** — "how strong is the stock?" Weighted, non-double-counted buckets: price action/structure, opening strength, session VWAP, opening-range breakout (5m/15m/30m), volume, relative strength (vs NIFTY + sector), and EMA/MACD/RSI as a small confirmation allowance only. Gated (not just added to) by liquidity and ATR. Bands: 90–100 VERY STRONG, 80–89 STRONG, 70–79 WATCH, <70 IGNORE.
+- **Entry Attractiveness (0–100)** — a *separate* "is NOW a good entry?" score. Peaks in the 0–2.5% move-from-open zone and decays the more of the stock's typical daily range (ATR%) is already used up — deliberately discourages chasing a stock that already made its move.
+- **Upside Potential** — an Estimated Upside Zone, Remaining Upside %, and a LOW/MEDIUM/HIGH Confidence label, derived from ATR, price structure, and real resistance levels (previous-day high, 52-week high) — never just "price + 5%", and never presented as guaranteed.
+
+### Critical Trades
+
+After entering a position, hit **Mark Critical** on its Intraday row (stores symbol, entry price, quantity, entry time, optional stop/target — persisted to `data/critical_trades.json`). Every ~30s scan cycle, the **Trade Health Engine** (`src/trade_health.mjs`) re-scores it 0–100 using a *different* priority order than entry (price action > VWAP > volume > relative strength > EMA/MACD/RSI, which only confirm and never trigger an exit alone):
+
+| Score | State |
+|---|---|
+| 90–100 | STRONG HOLD |
+| 80–89 | HOLD |
+| 70–79 | MOMENTUM WEAKENING |
+| 60–69 | PROFIT PROTECTION |
+| 50–59 | STRONG EXIT WARNING |
+| <50 | THESIS INVALIDATED |
+
+It also tracks peak profit for giveback detection, classifies trap risk (breakout without volume, failed ORB retest, rejection wicks, deteriorating volume/RS while price rises — observable behaviour, not a claim about who's behind it), keeps rolling minute-by-minute history, and surfaces `BETTER OPPORTUNITY AVAILABLE` suggestions from the same scan's Intraday Opportunities list — it never places, closes, or resizes a trade automatically. Notifications (Momentum Weakening, Profit Protection, Exhaustion, Profit Giveback, Strong Exit Warning, Thesis Invalidated, Better Opportunity, Momentum Recovered) are debounced per trade and require confirmation across two consecutive checks before a strong warning fires — one bad tick never triggers one on its own.
+
+### Market Regime
+
+`GET /api/regime` (and the banner on the Intraday tab) classifies the tape BULLISH / BEARISH / SIDEWAYS from NIFTY's own trend vs. its session VWAP plus breadth across the scanned universe, and raises the Opportunity Score bar (or shows **NO TRADE**) when conditions are unfavorable, instead of using a fixed entry bar all the time.
+
+### Backtesting
+
+```bash
+npm run backtest -- --symbols=RELIANCE,TCS --devFrom=2026-06-01 --devTo=2026-07-15 --valFrom=2026-07-16 --valTo=2026-08-20
+```
+
+Replays real historical Upstox candles bar-by-bar, feeding only `candles.slice(0, i+1)` (never a future bar) into the *same* scoring/health functions the live app uses. Reports win rate, expectancy, profit factor, average/median return, max drawdown, false-positive rate, MFE/MAE, and profit giveback — broken out by entry score band and by separate dev/validation periods. Runtime is network/rate-limit-bound (each symbol needs a few historical-candle requests), not compute-bound — scope `--symbols` down for a quick check; omitting it defaults to the full universe and a long run. See the caveats it prints (no cross-sectional sector breadth for small symbol sets, fixed end-of-day exit, systematic exit rule rather than a human reading live notifications).
 
 ## 🎯 Trading Signals
 
@@ -125,11 +173,14 @@ When using the web interface:
 | `Esc` | Close modal |
 | `1` | Golden Cross tab |
 | `2` | All Stocks tab |
-| `3` | F&O tab |
-| `4` | BUY signals tab |
-| `5` | SELL signals tab |
+| `3` | Intraday tab |
+| `4` | Top F&O tab |
+| `5` | BUY signals tab |
+| `6` | SELL signals tab |
 | `7` | Sectors tab |
 | `8` | Portfolio tab |
+| `9` | Screeners tab |
+| `c` | Critical trades tab |
 
 ## 🛠 Tech Stack
 
