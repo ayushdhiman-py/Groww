@@ -1079,6 +1079,49 @@
       filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.7));
     }
 
+    /* MODEL — violet */
+    .tab[data-set="MODEL"].active {
+      background: rgba(139, 92, 246, 0.12);
+      color: #8b5cf6;
+      border-color: rgba(139, 92, 246, 0.3);
+      box-shadow: 0 0 18px rgba(139, 92, 246, 0.12), inset 0 1px 0 rgba(139, 92, 246, 0.15);
+    }
+
+    .tab[data-set="MODEL"].active::after {
+      width: 60%;
+      background: #8b5cf6;
+      opacity: 1;
+    }
+
+    .tab[data-set="MODEL"].active .tab-badge {
+      background: rgba(139, 92, 246, 0.2);
+      color: #8b5cf6;
+    }
+
+    .tab[data-set="MODEL"].active .tab-icon {
+      filter: drop-shadow(0 0 4px rgba(139, 92, 246, 0.7));
+    }
+
+    /* Model / Learning dashboard */
+    .model-grid { display: flex; flex-direction: column; gap: 14px; padding: 4px; }
+    .model-summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+    .model-card {
+      background: var(--panel2, rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .model-card .m-label { color: var(--muted); font-size: 10px; text-transform: uppercase; margin-bottom: 4px; }
+    .model-card .m-value { font-size: 18px; font-weight: 700; }
+    .model-section { background: var(--panel2, rgba(255,255,255,0.03)); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 14px 16px; }
+    .model-section h3 { font-size: 13px; margin: 0 0 10px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .model-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .model-table th { text-align: left; color: var(--muted); font-weight: 600; padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .model-table td { padding: 4px 8px; border-bottom: 1px solid rgba(255,255,255,0.04); }
+    .model-table tr.insufficient td { opacity: 0.45; }
+    .model-drift-row.flagged { color: var(--yellow); }
+    .model-empty { color: var(--muted); font-size: 12px; padding: 12px 4px; }
+
     /* Market regime banner */
     .regime-banner {
       display: flex;
@@ -2513,6 +2556,11 @@
           <span class="tab-icon">💼</span>
           <span class="tab-label">Portfolio</span>
           <span class="tab-badge" id="badge-PORTFOLIO">—</span>
+        </div>
+        <div class="tab" data-set="MODEL">
+          <span class="tab-icon">🧠</span>
+          <span class="tab-label">Model</span>
+          <span class="tab-badge" id="badge-MODEL">—</span>
         </div>
       </div>
 

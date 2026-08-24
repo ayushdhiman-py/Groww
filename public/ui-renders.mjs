@@ -1333,6 +1333,125 @@ function renderCritical(payload) {
   restoreScroll();
 }
 
+// ── MODEL / LEARNING dashboard (read-only) ────────────────────
+function fmtPct(v) {
+  return v == null ? '—' : `${(v * 100).toFixed(1)}%`;
+}
+
+function renderModel(payload) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  document.getElementById('tableHeader').innerHTML = '';
+  const restoreScroll = captureScroll();
+
+  const overview = payload?.overview;
+  const segments = payload?.segments?.segments || [];
+  const drift = payload?.drift?.drift || [];
+  const versions = payload?.versions?.versions || [];
+
+  const badge = document.getElementById('badge-MODEL');
+  if (badge) badge.textContent = overview?.ok ? (overview.recentDriftFlagCount || 0) : '—';
+
+  const rcEl = document.getElementById('rowCount');
+
+  if (!overview?.ok) {
+    if (rcEl) rcEl.textContent = 'Model / Learning';
+    if (empty) {
+      empty.classList.remove('loading');
+      empty.style.display = 'block';
+      empty.textContent = 'Learning layer unavailable — this is optional instrumentation and never affects live scoring either way.';
+    }
+    tbody.innerHTML = '';
+    restoreScroll();
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  if (rcEl) rcEl.textContent = `Model / Learning — ${overview.snapshotCount} candidates captured, ${overview.outcomeCount} finalized`;
+
+  const summaryCards = [
+    { label: 'Snapshots Captured', value: overview.snapshotCount },
+    { label: 'Outcomes Finalized', value: overview.outcomeCount },
+    { label: 'Actually Traded', value: overview.takenCount },
+    { label: 'Stats As Of', value: overview.latestAsOfDate || '—' },
+    { label: 'Last Job Run', value: overview.lastJobRun ? `${overview.lastJobRun.run_date} (${overview.lastJobRun.status})` : '—' },
+    { label: 'Production Model', value: overview.productionModel ? `v${overview.productionModel.version_id}` : 'None — rule-based scoring' },
+  ].map(c => `<div class="model-card"><div class="m-label">${c.label}</div><div class="m-value">${c.value}</div></div>`).join('');
+
+  const regimeRows = (overview.regimeOverview || []).map(r => `
+    <tr class="${r.sufficient_sample ? '' : 'insufficient'}">
+      <td>${r.segment_key.replace('regime:', '')}</td>
+      <td>${r.window}</td>
+      <td>${r.sample_count}</td>
+      <td>${fmtPct(r.win_rate)}</td>
+      <td>${r.sufficient_sample ? 'Yes' : 'No — below minimum sample size'}</td>
+    </tr>`).join('');
+
+  const segmentRows = segments.slice(0, 100).map(s => `
+    <tr class="${s.sufficient_sample ? '' : 'insufficient'}">
+      <td>${s.segment_key}</td>
+      <td>${s.window}</td>
+      <td>${s.sample_count}</td>
+      <td>${fmtPct(s.win_rate)}</td>
+      <td>${fmtPct(s.prob_reach_1pct)}</td>
+      <td>${fmtPct(s.prob_reach_2pct)}</td>
+      <td>${fmtPct(s.prob_reach_5pct)}</td>
+      <td>${fmtPct(s.prob_major_adverse)}</td>
+    </tr>`).join('');
+
+  const driftRows = drift.map(d => `
+    <tr class="model-drift-row ${d.flagged ? 'flagged' : ''}">
+      <td>${d.segment_key}</td>
+      <td>${fmtPct(d.recent_win_rate)}</td>
+      <td>${fmtPct(d.historical_win_rate)}</td>
+      <td>${d.delta > 0 ? '+' : ''}${d.delta}pp</td>
+      <td>${d.recent_sample_count} / ${d.historical_sample_count}</td>
+      <td>${d.notes || '—'}</td>
+    </tr>`).join('');
+
+  const versionRows = versions.map(v => `
+    <tr>
+      <td>v${v.version_id}</td>
+      <td>${v.status}</td>
+      <td>${v.training_sample_count ?? '—'}</td>
+      <td>${v.validation_sample_count ?? '—'}</td>
+      <td>${v.promoted_at ? new Date(v.promoted_at).toLocaleString() : '—'}</td>
+    </tr>`).join('');
+
+  tbody.innerHTML = `<div class="model-grid">
+    <div class="model-summary-cards">${summaryCards}</div>
+
+    <div class="model-section">
+      <h3>Win Rate by Market Regime</h3>
+      ${regimeRows
+        ? `<table class="model-table"><thead><tr><th>Regime</th><th>Window</th><th>Samples</th><th>Win Rate</th><th>Sufficient?</th></tr></thead><tbody>${regimeRows}</tbody></table>`
+        : '<div class="model-empty">No rolling stats computed yet — runs automatically after the first day with finalized outcomes.</div>'}
+    </div>
+
+    <div class="model-section">
+      <h3>Segments (regime × time-of-day × signal combo)</h3>
+      ${segmentRows
+        ? `<table class="model-table"><thead><tr><th>Segment</th><th>Window</th><th>N</th><th>Win Rate</th><th>P(+1%)</th><th>P(+2%)</th><th>P(+5%)</th><th>P(Major Adverse)</th></tr></thead><tbody>${segmentRows}</tbody></table>`
+        : '<div class="model-empty">No segments yet.</div>'}
+      ${segments.length > 100 ? `<div class="model-empty">Showing 100 of ${segments.length} segments.</div>` : ''}
+    </div>
+
+    <div class="model-section">
+      <h3>Drift Alerts ${drift.length ? `(${drift.length})` : ''}</h3>
+      ${driftRows
+        ? `<table class="model-table"><thead><tr><th>Segment</th><th>Recent</th><th>Historical</th><th>Delta</th><th>N (recent/hist)</th><th>Notes</th></tr></thead><tbody>${driftRows}</tbody></table>`
+        : '<div class="model-empty">No drift flagged — recent behavior matches historical baselines.</div>'}
+    </div>
+
+    <div class="model-section">
+      <h3>Model Versions</h3>
+      ${versionRows
+        ? `<table class="model-table"><thead><tr><th>Version</th><th>Status</th><th>Train N</th><th>Validation N</th><th>Promoted At</th></tr></thead><tbody>${versionRows}</tbody></table>`
+        : '<div class="model-empty">No weight adaptation yet — scoring is fully rule-based (Part 1\'s Entry Score), unaffected by anything on this tab.</div>'}
+    </div>
+  </div>`;
+  restoreScroll();
+}
+
 // ── NOTIFICATIONS BANNER (persists across tabs) ───────────────
 let lastSeenNotifIds = new Set();
 function renderCritNotifBanner(trades) {
@@ -1369,6 +1488,7 @@ window.renderIntraday = renderIntraday;
 window.renderScreeners = renderScreeners;
 window.renderPortfolio = renderPortfolio;
 window.renderCritical = renderCritical;
+window.renderModel = renderModel;
 window.renderCritNotifBanner = renderCritNotifBanner;
 window.renderRegimeBanner = renderRegimeBanner;
 window.renderOptionChain = renderOptionChain;

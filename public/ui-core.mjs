@@ -224,6 +224,25 @@ export class DataManager {
     }
   }
 
+  // MODEL/LEARNING dashboard — read-only, refreshes once daily server-side
+  // (the nightly job), so no client-side TTL logic needed, same reasoning
+  // as fetchScreener().
+  async fetchLearningOverview() {
+    try {
+      const [overviewRes, segmentsRes, driftRes, versionsRes] = await Promise.all([
+        fetch('/api/learning/overview'), fetch('/api/learning/segments'),
+        fetch('/api/learning/drift'), fetch('/api/learning/versions'),
+      ]);
+      const [overview, segments, drift, versions] = await Promise.all([
+        overviewRes.json(), segmentsRes.json(), driftRes.json(), versionsRes.json(),
+      ]);
+      return { overview, segments, drift, versions };
+    } catch (e) {
+      console.error('[Data] Fetch learning overview error:', e);
+      return null;
+    }
+  }
+
   // Fetch scan status
   async fetchStatus() {
     try {
@@ -473,6 +492,9 @@ export class TabManager {
       if (data) window.updateBadges?.(null, data);
     } else if (tab === 'CRITICAL') {
       await window.criticalManager?.fetchAndRender();
+    } else if (tab === 'MODEL') {
+      const data = await this.data.fetchLearningOverview();
+      window.renderModel(data);
     } else {
       await this.loadScannerData();
     }

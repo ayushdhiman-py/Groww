@@ -343,7 +343,14 @@ Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
              job_runs table (no double-run/silent-skip on restart), re-entrancy
              guard, manual trigger via POST /api/learning/retrain. Weight
              proposal/validation steps still to be appended (Phase 5/6).
-  [NOT DONE] "MODEL / LEARNING" dashboard section.
+  [DONE]     "MODEL / LEARNING" dashboard section (read-only).
+             4 new GET routes (/api/learning/overview, /segments, /drift,
+             /versions) + a new MODEL tab (index.html/ui-core.mjs/
+             ui-renders.mjs) — summary cards, win-rate-by-regime table, full
+             segment table, drift alerts, model-version history. Verified via
+             curl against a live server boot; not yet visually verified in a
+             browser (no browser-automation tool available in this session)
+             — worth a quick manual look before relying on it.
 
 --------------------------------------------------------------------------------
 PART 3 IS A FULL NEW SUBSYSTEM, BUILT FROM SCRATCH:
@@ -373,18 +380,21 @@ Part 2: DONE and live-verified (candle cache, two-stage scan, decoupled
         Critical-trade history, incremental indicators, time-of-day volume
         normalization, event-driven re-evaluation) — not addressed.
 
-Part 3: IN PROGRESS (Phases 0-3 of 6 done, tested, live-verified).
+Part 3: IN PROGRESS (Phases 0-4 of 6 done; 0-3 fully tested, Phase 4 is a
+        read-only dashboard verified at the API level but not yet clicked
+        through in an actual browser).
         Phase 0 (SQLite foundation) + Phase 1 (selection-bias-free snapshot
         capture, wired into scanAll()) + Phase 2 (EOD outcome finalization +
         the guarded daily job + manual retrain route) + Phase 3 (rolling
         win-rate/calibrated-probability statistics, segmented by regime x
-        time-bucket x signal-combo, plus drift detection) are complete — 29
-        new tests, full suite (116) green, confirmed against a live server
-        boot (POST /api/learning/retrain returns real job_runs rows).
-        Remaining: Phase 4 (MODEL/LEARNING dashboard tab, read-only), Phase 5
-        (weight adaptation — PROPOSED vs PRODUCTION, gated, manual promotion),
-        Phase 6 (operational hardening — retention pruning, inertness
-        verification, full dry run).
+        time-bucket x signal-combo, plus drift detection) + Phase 4
+        (MODEL/LEARNING dashboard tab) are complete — 29 new backend tests,
+        full suite (116) green, confirmed against a live server boot
+        (POST /api/learning/retrain and all 4 new GET routes return correct
+        real data).
+        Remaining: Phase 5 (weight adaptation — PROPOSED vs PRODUCTION,
+        gated, manual promotion), Phase 6 (operational hardening — retention
+        pruning, inertness verification, full dry run).
 
 This file is updated in place as each item is completed.
 ================================================================================

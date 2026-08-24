@@ -150,7 +150,7 @@ function startBackgroundTasks() {
   // Full state reload (every 30s)
   intervalManager.add('fullReload', async () => {
     const activeTab = stateManager.get('activeTab');
-    if (activeTab === 'PORTFOLIO' || activeTab === 'CRITICAL') return; // handled by their own managers
+    if (activeTab === 'PORTFOLIO' || activeTab === 'CRITICAL' || activeTab === 'MODEL') return; // handled by their own managers / refresh on their own once-daily cadence
     if (activeTab === 'SCREENERS') {
       const screenerData = await dataManager.fetchScreener();
       if (screenerData) {
@@ -261,7 +261,7 @@ async function pollStatus() {
             window.renderIntraday(st);
           } else if (activeTab === 'SECTORS') {
             window.renderSectors(st);
-          } else if (activeTab !== 'PORTFOLIO') {
+          } else if (activeTab !== 'PORTFOLIO' && activeTab !== 'MODEL') {
             renderStocks(st);
           }
           updateBadges(st);
@@ -279,10 +279,12 @@ async function pollStatus() {
       lastUpdatedTs = null;
       const timeframe = stateManager.get('timeframe');
       const activeTab = stateManager.get('activeTab');
-      const data = await dataManager.fetchState(timeframe, activeTab, true);
-      if (data) {
-        renderStocks(data);
-        updateBadges(data);
+      if (activeTab !== 'MODEL') {
+        const data = await dataManager.fetchState(timeframe, activeTab, true);
+        if (data) {
+          renderStocks(data);
+          updateBadges(data);
+        }
       }
     }
 
@@ -446,8 +448,13 @@ function setupKeyboardShortcuts() {
 
 // ── Manual Load Function (for refresh button) ────────────────
 async function manualLoad() {
-  const timeframe = stateManager.get('timeframe');
   const activeTab = stateManager.get('activeTab');
+  if (activeTab === 'MODEL') {
+    const data = await dataManager.fetchLearningOverview();
+    window.renderModel(data);
+    return;
+  }
+  const timeframe = stateManager.get('timeframe');
   const data = await dataManager.fetchState(timeframe, activeTab, true);
 
   if (data) {

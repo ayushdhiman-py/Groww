@@ -21,6 +21,7 @@ import {
 } from "./src/critical_trades.mjs";
 import { startCriticalMonitor } from "./src/critical_monitor.mjs";
 import { runDailyLearningJob, startDailyLearningScheduler } from "./src/daily_learning_job.mjs";
+import { getDb } from "./src/learning_db.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -121,6 +122,83 @@ app.post("/api/learning/retrain", async (req, res) => {
     try {
         const result = await runDailyLearningJob({ force: !!req.body?.force, tradeDate: req.body?.tradeDate });
         res.json({ ok: true, ...result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// ── MODEL / LEARNING dashboard — read-only inspection of the learning layer.
+// Every route here is diagnostic only: nothing it returns feeds back into
+// live scoring (that's Phase 5's weight adaptation, still gated behind a
+// manual promotion). All four wrap getDb() in try/catch so a learning-layer
+// problem can never surface as anything worse than a 500 on these specific
+// dashboard calls — the live scanner routes above don't depend on this file.
+app.get("/api/learning/overview", (_, res) => {
+    try {
+        const db = getDb();
+        const snapshotCount = db.prepare("SELECT COUNT(*) c FROM snapshots").get().c;
+        const outcomeCount = db.prepare("SELECT COUNT(*) c FROM outcomes").get().c;
+        const takenCount = db.prepare("SELECT COUNT(*) c FROM snapshots WHERE was_taken = 1").get().c;
+        const latestAsOfDate = db.prepare("SELECT MAX(as_of_date) d FROM rolling_stats").get().d;
+        const lastJobRun = db.prepare("SELECT * FROM job_runs ORDER BY run_date DESC LIMIT 1").get() ?? null;
+        const productionModel = db.prepare("SELECT * FROM model_versions WHERE status = 'PRODUCTION' LIMIT 1").get() ?? null;
+        const openDriftFlags = latestAsOfDate
+            ? db.prepare("SELECT COUNT(*) c FROM drift_log WHERE flagged = 1 AND checked_at >= ?").get(Date.now() - 24 * 60 * 60 * 1000).c
+            : 0;
+        const regimeOverview = latestAsOfDate
+            ? db.prepare(`
+                SELECT segment_key, window, sample_count, win_rate, sufficient_sample
+                FROM rolling_stats
+                WHERE as_of_date = ? AND segment_key LIKE 'regime:%' AND segment_key NOT LIKE '%|bucket:%'
+                ORDER BY segment_key, window
+            `).all(latestAsOfDate)
+            : [];
+        res.json({
+            ok: true, snapshotCount, outcomeCount, takenCount, latestAsOfDate, lastJobRun, productionModel,
+            recentDriftFlagCount: openDriftFlags, regimeOverview,
+        });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// All rolling_stats rows for the latest as-of date (or ?asOfDate=YYYY-MM-DD),
+// optionally narrowed with ?window=RECENT|HISTORICAL.
+app.get("/api/learning/segments", (req, res) => {
+    try {
+        const db = getDb();
+        const asOfDate = req.query.asOfDate || db.prepare("SELECT MAX(as_of_date) d FROM rolling_stats").get().d;
+        if (!asOfDate) return res.json({ ok: true, asOfDate: null, segments: [] });
+        const windowFilter = req.query.window === "RECENT" || req.query.window === "HISTORICAL" ? req.query.window : null;
+        const rows = windowFilter
+            ? db.prepare("SELECT * FROM rolling_stats WHERE as_of_date = ? AND window = ? ORDER BY segment_key").all(asOfDate, windowFilter)
+            : db.prepare("SELECT * FROM rolling_stats WHERE as_of_date = ? ORDER BY segment_key, window").all(asOfDate);
+        res.json({ ok: true, asOfDate, segments: rows });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// Drift log, most recent first — ?all=1 includes non-flagged comparisons too (default: flagged only).
+app.get("/api/learning/drift", (req, res) => {
+    try {
+        const db = getDb();
+        const includeAll = req.query.all === "1" || req.query.all === "true";
+        const rows = includeAll
+            ? db.prepare("SELECT * FROM drift_log ORDER BY checked_at DESC LIMIT 200").all()
+            : db.prepare("SELECT * FROM drift_log WHERE flagged = 1 ORDER BY checked_at DESC LIMIT 200").all();
+        res.json({ ok: true, drift: rows });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// Full model-version history (empty until Phase 5's weight adaptation lands).
+app.get("/api/learning/versions", (_, res) => {
+    try {
+        const db = getDb();
+        const rows = db.prepare("SELECT * FROM model_versions ORDER BY version_id DESC").all();
+        res.json({ ok: true, versions: rows });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
     }
