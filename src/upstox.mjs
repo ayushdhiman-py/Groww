@@ -1,6 +1,6 @@
 import axios from "axios";
 import {
-    CREDS, LTP_URL, HISTORICAL_CANDLE_BASE, OPTION_CHAIN_URL,
+    CREDS, LTP_URL, QUOTES_URL, HISTORICAL_CANDLE_BASE, OPTION_CHAIN_URL,
     HOLDINGS_URL, POSITIONS_URL, TF_DAYS,
 } from "./config.mjs";
 import {
@@ -273,6 +273,62 @@ export async function fetchBulkLtp(symbols) {
         }
     }
     return prices;
+}
+
+// ── Bulk Quotes (bid/ask depth) ───────────────────────────────────────────────
+// Upstox's v3 LTP endpoint (used everywhere else in this app) doesn't carry
+// quote/spread data at all — only this older v2 "full quote" endpoint does,
+// via best-5 market depth. Used sparingly (Intraday Opportunities shortlist
+// + active Critical trades only, not the whole scanned universe every
+// cycle) since it's a separate, heavier call than the LTP path.
+export async function fetchBulkQuotes(symbols) {
+    if (!symbols || symbols.length === 0) return {};
+    if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
+
+    const { instrumentKeyBySymbol, unresolved } = resolveInstrumentKeys(symbols);
+    if (unresolved.length > 0 && process.env.NODE_ENV !== "production") {
+        console.warn(`[Upstox] Quotes: ${unresolved.length} symbol(s) unresolved: ${unresolved.slice(0, 5).join(", ")}`);
+    }
+    const keys = [...instrumentKeyBySymbol.values()];
+    if (keys.length === 0) return {};
+
+    const chunks = [];
+    for (let i = 0; i < keys.length; i += 500) chunks.push(keys.slice(i, i + 500));
+
+    const fetchChunk = async (chunkKeys) => {
+        await rateLimit();
+        try {
+            const res = await axios.get(QUOTES_URL, {
+                params: { instrument_key: chunkKeys.join(",") },
+                headers: authHeaders(),
+                timeout: 15000,
+            });
+            return res.data?.data || {};
+        } catch (e) {
+            if (e.response?.status === 429) triggerBackoff(20);
+            console.error(`[Upstox] Quotes fetch error:`, describeError(e));
+            return {};
+        }
+    };
+
+    const results = await Promise.all(chunks.map(fetchChunk));
+    const quotes = {};
+    for (const data of results) {
+        for (const entry of Object.values(data)) {
+            const sym = symbolForInstrumentKey(entry.instrument_token);
+            if (!sym) continue;
+            const bestBid = entry.depth?.buy?.[0]?.price ?? null;
+            const bestAsk = entry.depth?.sell?.[0]?.price ?? null;
+            let spread = null, spreadPct = null;
+            if (bestBid != null && bestAsk != null && bestBid > 0 && bestAsk > bestBid) {
+                spread = +(bestAsk - bestBid).toFixed(2);
+                const mid = (bestAsk + bestBid) / 2;
+                spreadPct = +((spread / mid) * 100).toFixed(3);
+            }
+            quotes[sym] = { bestBid, bestAsk, spread, spreadPct, lastPrice: entry.last_price ?? null };
+        }
+    }
+    return quotes;
 }
 
 // ── Option Chain ─────────────────────────────────────────────────────────────────

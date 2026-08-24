@@ -12,6 +12,8 @@
 // a future backtester without violating no-look-ahead.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { recordSectorSnapshot, getSectorMomentum } from "./sector_history.mjs";
+
 const INTRADAY_TFS = ["5m", "15m", "30m"];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
@@ -42,6 +44,15 @@ export function buildMarketContext(dataBuckets, tf) {
             count: s.count,
         };
     }
+
+    // Only the 5m context is used to sample sector history — 15m/30m call
+    // this too but the 1/min throttle inside recordSectorSnapshot means only
+    // the first call in any given minute actually records anything.
+    if (tf === "5m") recordSectorSnapshot(sectorStats);
+    for (const sector of Object.keys(sectorStats)) {
+        sectorStats[sector].momentum = getSectorMomentum(sector, 10);
+    }
+
     return { niftyRow, sectorStats };
 }
 
@@ -170,6 +181,11 @@ function scoreRelativeStrength(row, ctx) {
         } else {
             notes.push(`Sector ${row.sector} weak today`);
         }
+        // Momentum = change in the sector's own average move-from-open over
+        // the last ~10 minutes — a trend, distinct from the snapshot above.
+        if (sectorStat.momentum != null && sectorStat.momentum > 0.2) {
+            score += 1; notes.push(`Sector ${row.sector} momentum improving (+${sectorStat.momentum}pp/10min)`);
+        }
     }
     return { score: clamp(score, 0, 15), notes };
 }
@@ -292,6 +308,7 @@ export function computeUpsidePotential(row, ctx) {
     if (nifty && row.pctFromOpen != null && nifty.pctFromOpen != null && row.pctFromOpen > nifty.pctFromOpen) { capacityFraction += 0.05; confidenceScore += 1; notes.push("Outperforming NIFTY"); }
     const sectorStat = ctx.sectorStats?.[row.sector];
     if (sectorStat?.positiveShare >= 0.6) { capacityFraction += 0.05; confidenceScore += 1; notes.push("Sector participation broadly positive"); }
+    if (sectorStat?.momentum != null && sectorStat.momentum > 0.2) { capacityFraction += 0.05; confidenceScore += 1; notes.push("Sector momentum improving"); }
 
     const consumedFraction = row.pctFromOpen != null ? clamp(row.pctFromOpen / row.atrPct, 0, 3) : 0;
     if (consumedFraction > 0.5) {

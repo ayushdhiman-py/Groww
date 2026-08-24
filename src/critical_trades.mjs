@@ -13,6 +13,7 @@ import fs from "fs";
 import path from "path";
 import { __dirname } from "./config.mjs";
 import { getLtp } from "./feed.mjs";
+import { fetchBulkQuotes } from "./upstox.mjs";
 import { computeTradeHealth, classifyDeteriorationPattern, classifyTrapRisk } from "./trade_health.mjs";
 import { buildMarketContext } from "./entry_score.mjs";
 import { maybeNotify } from "./notifications.mjs";
@@ -21,6 +22,25 @@ import { findBetterOpportunity } from "./capital_rotation.mjs";
 const DATA_DIR = path.join(__dirname, "..", "data");
 const STORE_FILE = path.join(DATA_DIR, "critical_trades.json");
 const MAX_MINUTE_HISTORY = 240; // ~4 hours at 1 entry/minute — covers a full trading session
+
+// Real bid/ask spread for active Critical trades only (a handful of
+// symbols at most) — throttled the same way as the Intraday shortlist.
+let lastQuoteFetchTs = 0;
+let lastQuoteMap = {};
+const QUOTE_FETCH_INTERVAL_MS = 20000;
+
+async function getSpreadMap(symbols) {
+    const now = Date.now();
+    if (now - lastQuoteFetchTs >= QUOTE_FETCH_INTERVAL_MS) {
+        lastQuoteFetchTs = now;
+        try {
+            lastQuoteMap = await fetchBulkQuotes(symbols);
+        } catch (e) {
+            console.error("[CriticalTrades] Spread fetch failed:", e.message);
+        }
+    }
+    return lastQuoteMap;
+}
 
 let trades = [];
 
@@ -127,8 +147,9 @@ function findRow(dataBuckets, symbol, tf) {
 
 /**
  * Called once per full scan cycle (~30s) from scanner.mjs's scanAll(), right
- * after enrichOpportunities() has run. Uses only data that scan just fetched
- * from Upstox — no extra API calls.
+ * after enrichOpportunities() has run. Uses the data that scan just fetched
+ * from Upstox for everything except spread, which is a small, separately
+ * throttled bulk quote call scoped to just the active trades' symbols.
  * @param {object} scanResult — the freshly-built `next` state object: { data, intradayOpportunities, marketRegime }
  */
 export async function onScanComplete(scanResult) {
@@ -138,6 +159,7 @@ export async function onScanComplete(scanResult) {
     const dataBuckets = scanResult.data;
     const ctx5m = buildMarketContext(dataBuckets, "5m");
     const nowMinuteKey = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
+    const spreadMap = await getSpreadMap([...new Set(active.map(t => t.symbol))]);
 
     for (const trade of active) {
         const row1m = findRow(dataBuckets, trade.symbol, "1m");
@@ -150,6 +172,15 @@ export async function onScanComplete(scanResult) {
         const health = computeTradeHealth(trade, {
             row1m, row5m, row15m, niftyRow5m: ctx5m.niftyRow, sectorStats5m: ctx5m.sectorStats, livePrice,
         });
+
+        const quote = spreadMap[trade.symbol];
+        if (quote?.spreadPct != null) {
+            health.spreadPct = quote.spreadPct;
+            if (quote.spreadPct > 0.15) {
+                health.warnings = [...health.warnings, `Spread widened to ${quote.spreadPct}% — execution risk on exit`];
+            }
+        }
+
         trade.lastHealth = health;
         trade.trap = classifyTrapRisk(row5m, trade);
 

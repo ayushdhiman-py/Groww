@@ -1,4 +1,4 @@
-import { fetchCandles, fetchBulkLtp, rateLimit } from "./upstox.mjs";
+import { fetchCandles, fetchBulkLtp, fetchBulkQuotes, rateLimit } from "./upstox.mjs";
 import { ema, macd, rsi, vwap, vwapSeries, historicalVolatility, atr, emaSlopePct } from "./indicators.mjs";
 import { analyzeStructure, detectBreakout, detectRetest, detectRejection, detectConsolidation } from "./price_action.mjs";
 import { TF_MAP } from "./config.mjs";
@@ -85,7 +85,15 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
 
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
-    const tzStr = new Date(lastTs).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
+    // IST calendar-day bucket as a plain integer instead of
+    // toLocaleDateString(..., {timeZone}) — Intl-based timezone formatting
+    // is expensive enough that calling it per-candle in the loop below (run
+    // once per bar by the backtester, on an array that can run into the
+    // thousands of candles) dominates runtime. India has no DST, so a fixed
+    // +5:30 offset is exact, not an approximation.
+    const IST_OFFSET_MS = 5.5 * 3600000;
+    const istDay = ts => Math.floor((ts + IST_OFFSET_MS) / 86400000);
+    const todayIdx = istDay(lastTs);
 
     // Day High/Low
     let dayH = -Infinity, dayL = Infinity;
@@ -95,7 +103,7 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
     let h52w = -Infinity, l52w = Infinity;
 
     let prevClose = null;
-    let prevDayStr = null;
+    let prevDayIdx = null;
     let prevDayH = -Infinity, prevDayL = Infinity;
     const todayCandlesRev = []; // filled newest-first, reversed below
     const weekThresh = lastTs - (7 * 86400000);
@@ -117,20 +125,20 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
             weekL = Math.min(weekL, c.low);
         }
 
-        const cTzStr = new Date(ts).toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
-        if (cTzStr === tzStr) {
+        const cIdx = istDay(ts);
+        if (cIdx === todayIdx) {
             dayH = Math.max(dayH, c.high);
             dayL = Math.min(dayL, c.low);
             todayCandlesRev.push(c);
-        } else if (prevDayStr === null) {
+        } else if (prevDayIdx === null) {
             // First non-today candle encountered scanning backward from the
             // most recent bar — this is the previous trading day's LAST bar,
             // so its close is the exact previous close.
-            prevDayStr = cTzStr;
+            prevDayIdx = cIdx;
             prevClose = c.close;
             prevDayH = c.high;
             prevDayL = c.low;
-        } else if (cTzStr === prevDayStr) {
+        } else if (cIdx === prevDayIdx) {
             prevDayH = Math.max(prevDayH, c.high);
             prevDayL = Math.min(prevDayL, c.low);
         }
@@ -382,6 +390,40 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
     }
 }
 
+// Real bid/ask spread (via Upstox's v2 full-quote endpoint — the v3 LTP
+// path used everywhere else doesn't carry it) for the shortlist only, not
+// the whole scanned universe, and throttled independently of how often the
+// periodic sync tick fires — spread doesn't need refreshing every ~2s.
+let lastQuoteFetchTs = 0;
+let lastQuoteMap = {};
+const QUOTE_FETCH_INTERVAL_MS = 20000;
+
+async function annotateSpread(opportunities) {
+    if (!opportunities.length) return;
+    const now = Date.now();
+    if (now - lastQuoteFetchTs >= QUOTE_FETCH_INTERVAL_MS) {
+        lastQuoteFetchTs = now;
+        try {
+            lastQuoteMap = await fetchBulkQuotes(opportunities.map(o => o.symbol));
+        } catch (e) {
+            console.error("[Scanner] Spread fetch failed:", e.message);
+        }
+    }
+    for (const o of opportunities) {
+        const q = lastQuoteMap[o.symbol];
+        if (!q || q.spreadPct == null) continue;
+        o.spreadPct = q.spreadPct;
+        // A discount, not a hard filter — a wide spread makes a setup less
+        // attractive to act on right now (execution/slippage risk), it
+        // doesn't invalidate the underlying technical picture.
+        if (q.spreadPct > 0.15) {
+            const penalty = Math.min(20, (q.spreadPct - 0.15) * 40);
+            o.entryAttractiveness = Math.max(0, Math.round(o.entryAttractiveness - penalty));
+            o.notes = [...(o.notes || []), `Spread ${q.spreadPct}% — wider than typical, mind slippage at size`].slice(0, 7);
+        }
+    }
+}
+
 export async function scanAll() {
     if (!isAuthenticated || scanning) return;
     scanning = true;
@@ -438,6 +480,7 @@ export async function scanAll() {
             next.marketRegime = computeMarketRegime(next.data);
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
             next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
+            await annotateSpread(next.intradayOpportunities);
 
             next.lastUpdated = new Date().toISOString();
             state = JSON.parse(JSON.stringify(next));

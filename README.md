@@ -62,6 +62,7 @@ Groww/
 │   ├── config.mjs           # Configuration
 │   ├── indicators.mjs       # Technical indicators (EMA/MACD/RSI/VWAP/ATR)
 │   ├── price_action.mjs     # Swing structure, breakout/retest/rejection detection
+│   ├── sector_history.mjs   # Rolling per-sector snapshots for real sector momentum
 │   ├── entry_score.mjs      # Opportunity Score, Entry Attractiveness, Upside Potential
 │   ├── market_regime.mjs    # BULLISH/BEARISH/SIDEWAYS regime classification
 │   ├── critical_trades.mjs  # MARK CRITICAL persistence + per-scan orchestrator
@@ -84,7 +85,7 @@ Groww/
 
 The **Intraday** tab ranks stocks with a server-side scoring engine (`src/entry_score.mjs`) instead of a simple two-timeframe filter:
 
-- **Opportunity Score (0–100)** — "how strong is the stock?" Weighted, non-double-counted buckets: price action/structure, opening strength, session VWAP, opening-range breakout (5m/15m/30m), volume, relative strength (vs NIFTY + sector), and EMA/MACD/RSI as a small confirmation allowance only. Gated (not just added to) by liquidity and ATR. Bands: 90–100 VERY STRONG, 80–89 STRONG, 70–79 WATCH, <70 IGNORE.
+- **Opportunity Score (0–100)** — "how strong is the stock?" Weighted, non-double-counted buckets: price action/structure (incl. previous-day high breakout/rejection), opening strength, session VWAP (incl. reclaim detection), opening-range breakout (5m/15m/30m), volume, relative strength (vs NIFTY snapshot + trend, vs sector strength + momentum), and EMA/MACD/RSI as a small confirmation allowance only. Gated (not just added to) by liquidity and ATR, and discounted post-score by real bid/ask spread (fetched for the shortlist only, via Upstox's full-quote endpoint) when it's wider than typical. Bands: 90–100 VERY STRONG, 80–89 STRONG, 70–79 WATCH, <70 IGNORE.
 - **Entry Attractiveness (0–100)** — a *separate* "is NOW a good entry?" score. Peaks in the 0–2.5% move-from-open zone and decays the more of the stock's typical daily range (ATR%) is already used up — deliberately discourages chasing a stock that already made its move.
 - **Upside Potential** — an Estimated Upside Zone, Remaining Upside %, and a LOW/MEDIUM/HIGH Confidence label, derived from ATR, price structure, and real resistance levels (previous-day high, 52-week high) — never just "price + 5%", and never presented as guaranteed.
 
@@ -113,7 +114,11 @@ It also tracks peak profit for giveback detection, classifies trap risk (breakou
 npm run backtest -- --symbols=RELIANCE,TCS --devFrom=2026-06-01 --devTo=2026-07-15 --valFrom=2026-07-16 --valTo=2026-08-20
 ```
 
-Replays real historical Upstox candles bar-by-bar, feeding only `candles.slice(0, i+1)` (never a future bar) into the *same* scoring/health functions the live app uses. Reports win rate, expectancy, profit factor, average/median return, max drawdown, false-positive rate, MFE/MAE, and profit giveback — broken out by entry score band and by separate dev/validation periods. Runtime is network/rate-limit-bound (each symbol needs a few historical-candle requests), not compute-bound — scope `--symbols` down for a quick check; omitting it defaults to the full universe and a long run. See the caveats it prints (no cross-sectional sector breadth for small symbol sets, fixed end-of-day exit, systematic exit rule rather than a human reading live notifications).
+Replays real historical Upstox candles bar-by-bar, feeding only `candles.slice(0, i+1)` (never a future bar) into the *same* scoring/health functions the live app uses. Reports win rate, expectancy, profit factor, average/median return, max drawdown, false-positive rate, MFE/MAE, and profit giveback — broken out by entry score band and by separate dev/validation periods. It also reports a **Trade Health calibration**: every evaluated bar of every simulated open trade is bucketed by its health score (90–100 / 80–89 / 70–79 / 60–69 / 50–59 / <50) and matched against the actual return from that bar's price to that day's real close, checking whether a lower health score really did predict a worse outcome (`healthCalibrationMonotonic`) rather than just looking plausible. Bucket counts are usually small (quality setups are rare by design) — treat it as a directional check, not a precision instrument, until a bucket's count is in the dozens+.
+
+A 15-symbol, dev+validation run was actually done (2026-07-27–08-14 dev, 08-17–08-21 validation): the dev period was NOT monotonic (bands 90 down to 60 were flat at ~0.11% forward return with no differentiation, and the <50 "THESIS INVALIDATED" band showed the *highest* forward return of any band, backwards from theory, on only 10 samples); the validation period WAS monotonic and sensible, but its worst bands had only 13 and 0 samples. **The thresholds were left unchanged** — the two periods disagree and the decision-critical low bands have nowhere near enough samples to justify moving numbers for a system trading real money. The Opportunity Score's VERY STRONG (90+) band had zero observations in both periods — genuinely unvalidated, not just rare. Re-run with more symbols/longer windows before trusting this further.
+
+Runtime is network/rate-limit-bound (each symbol needs a few historical-candle requests), not compute-bound — scope `--symbols` down for a quick check; omitting it defaults to the full universe and a long run. See the caveats it prints (no cross-sectional sector breadth for small symbol sets, fixed end-of-day exit, systematic exit rule rather than a human reading live notifications).
 
 ## 🎯 Trading Signals
 

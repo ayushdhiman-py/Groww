@@ -65,6 +65,7 @@ if (CREDS.accessToken) {
 // ── Upstox API URLs ──────────────────────────────────────────────────────────────
 export const BASE_URL = "https://api.upstox.com";
 export const LTP_URL = `${BASE_URL}/v3/market-quote/ltp`;
+export const QUOTES_URL = `${BASE_URL}/v2/market-quote/quotes`; // full quote incl. bid/ask depth
 export const HISTORICAL_CANDLE_BASE = `${BASE_URL}/v3/historical-candle`;
 export const OPTION_CHAIN_URL = `${BASE_URL}/v2/option/chain`;
 export const HOLDINGS_URL = `${BASE_URL}/v2/portfolio/long-term-holdings`;

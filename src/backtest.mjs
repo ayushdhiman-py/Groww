@@ -64,17 +64,24 @@ function uniqueDayKeysInRange(candles, fromDate, toDate) {
 
 /**
  * Simulate one symbol across one date range using already-fetched candle
- * series (5m/15m/1d for the symbol and for NIFTY). Returns an array of
- * completed hypothetical trades.
+ * series (5m/15m/1d for the symbol and for NIFTY). Returns completed
+ * hypothetical trades AND health-score calibration samples.
  */
 function simulateSymbol(symbol, series, niftySeries, fromDate, toDate) {
     const { c5, c15, c1d } = series;
     const dayKeys = uniqueDayKeysInRange(c5, fromDate, toDate);
     const trades = [];
+    // Calibration samples: { score, forwardReturnToEODPct }. Using the
+    // REAL end-of-day close here is intentional and does NOT reintroduce
+    // look-ahead into the trading simulation above — this is the standard
+    // backtesting technique of using a known outcome to check whether a
+    // score computed from only-past data was actually predictive.
+    const healthSamples = [];
 
     for (const dayKey of dayKeys) {
         const dayBars5 = c5.filter(c => istDateKey(c.ts) === dayKey);
         if (dayBars5.length < 5) continue;
+        const eodClose = dayBars5[dayBars5.length - 1].close;
 
         let openTrade = null;
         let enteredToday = false;
@@ -140,6 +147,9 @@ function simulateSymbol(symbol, series, niftySeries, fromDate, toDate) {
             const health = computeTradeHealth(openTrade, { row5m: row5, row15m: row15, niftyRow5m: niftyRow5, sectorStats5m: {}, livePrice: price });
             openTrade.minuteHistory.push({ minuteKey: String(t), health: health.score, price });
 
+            const forwardReturnToEODPct = ((eodClose - price) / price) * 100;
+            healthSamples.push({ score: health.score, forwardReturnToEODPct: +forwardReturnToEODPct.toFixed(2) });
+
             const lastTwo = openTrade.minuteHistory.slice(-2);
             const confirmedExit = lastTwo.length === 2 && lastTwo.every(m => m.health < 60);
             const isLastBarOfDay = bar === dayBars5[dayBars5.length - 1];
@@ -156,7 +166,7 @@ function simulateSymbol(symbol, series, niftySeries, fromDate, toDate) {
         }
     }
 
-    return trades;
+    return { trades, healthSamples };
 }
 
 function finalizeTrade(openTrade, exitPrice, exitReason, exitTs) {
@@ -223,6 +233,44 @@ function metricsByBand(trades) {
     return out;
 }
 
+// Trade Health state bands per spec: 90-100 STRONG HOLD .. <50 THESIS
+// INVALIDATED. This measures whether a LOWER band, while a position is
+// still open, actually predicted a WORSE subsequent return to end-of-day —
+// i.e. whether the thresholds are placed somewhere real, not just plausible.
+const HEALTH_BANDS = [
+    { label: "90-100 (STRONG HOLD)", min: 90, max: 100 },
+    { label: "80-89 (HOLD)", min: 80, max: 89 },
+    { label: "70-79 (MOMENTUM WEAKENING)", min: 70, max: 79 },
+    { label: "60-69 (PROFIT PROTECTION)", min: 60, max: 69 },
+    { label: "50-59 (STRONG EXIT WARNING)", min: 50, max: 59 },
+    { label: "<50 (THESIS INVALIDATED)", min: -Infinity, max: 49 },
+];
+
+function computeHealthCalibration(samples) {
+    return HEALTH_BANDS.map(b => {
+        const inBand = samples.filter(s => s.score >= b.min && s.score <= b.max);
+        if (!inBand.length) return { band: b.label, count: 0, avgForwardReturnToEODPct: null, medianForwardReturnToEODPct: null };
+        const returns = inBand.map(s => s.forwardReturnToEODPct);
+        const avg = returns.reduce((s, r) => s + r, 0) / returns.length;
+        const sorted = [...returns].sort((a, b) => a - b);
+        const median = sorted[Math.floor(sorted.length / 2)];
+        return {
+            band: b.label, count: inBand.length,
+            avgForwardReturnToEODPct: +avg.toFixed(2),
+            medianForwardReturnToEODPct: +median.toFixed(2),
+        };
+    });
+}
+
+/** Is avgForwardReturnToEODPct monotonically non-increasing as bands go from 90-100 down to <50? */
+function isCalibrationMonotonic(calibration) {
+    const withData = calibration.filter(c => c.count > 0);
+    for (let i = 1; i < withData.length; i++) {
+        if (withData[i].avgForwardReturnToEODPct > withData[i - 1].avgForwardReturnToEODPct) return false;
+    }
+    return withData.length >= 2;
+}
+
 /**
  * @param {object} opts — { symbols, devFrom, devTo, valFrom, valTo }
  * Dates are "YYYY-MM-DD" strings. Fetches each symbol's 5m/15m/1d candles
@@ -266,17 +314,20 @@ export async function runBacktest(opts) {
         const series = { c5, c15, c1d };
 
         if (devFrom && devTo) {
-            const trades = simulateSymbol(symbol, series, niftySeries, parseDate(devFrom), parseDate(devTo));
-            devResults[symbol] = trades;
+            devResults[symbol] = simulateSymbol(symbol, series, niftySeries, parseDate(devFrom), parseDate(devTo));
         }
         if (valFrom && valTo) {
-            const trades = simulateSymbol(symbol, series, niftySeries, parseDate(valFrom), parseDate(valTo));
-            valResults[symbol] = trades;
+            valResults[symbol] = simulateSymbol(symbol, series, niftySeries, parseDate(valFrom), parseDate(valTo));
         }
     }
 
-    const allDevTrades = Object.values(devResults).flat();
-    const allValTrades = Object.values(valResults).flat();
+    const allDevTrades = Object.values(devResults).flatMap(r => r.trades);
+    const allValTrades = Object.values(valResults).flatMap(r => r.trades);
+    const allDevHealthSamples = Object.values(devResults).flatMap(r => r.healthSamples);
+    const allValHealthSamples = Object.values(valResults).flatMap(r => r.healthSamples);
+
+    const devCalibration = allDevHealthSamples.length ? computeHealthCalibration(allDevHealthSamples) : null;
+    const valCalibration = allValHealthSamples.length ? computeHealthCalibration(allValHealthSamples) : null;
 
     return {
         exitRule: EXIT_RULE,
@@ -284,18 +335,23 @@ export async function runBacktest(opts) {
             range: { from: devFrom, to: devTo },
             overall: computeMetrics(allDevTrades),
             byBand: metricsByBand(allDevTrades),
+            healthCalibration: devCalibration,
+            healthCalibrationMonotonic: devCalibration ? isCalibrationMonotonic(devCalibration) : null,
             trades: allDevTrades,
         } : null,
         validation: valFrom && valTo ? {
             range: { from: valFrom, to: valTo },
             overall: computeMetrics(allValTrades),
             byBand: metricsByBand(allValTrades),
+            healthCalibration: valCalibration,
+            healthCalibrationMonotonic: valCalibration ? isCalibrationMonotonic(valCalibration) : null,
             trades: allValTrades,
         } : null,
         caveats: [
             "Small/isolated symbol sets have no meaningful sector breadth — sector-strength scoring is a no-op in this mode.",
             "Every simulated trade force-closes at end of day (intraday only).",
             "Exit rule is a fixed systematic rule, not a human reading live notifications — treat as a lower bound on what disciplined execution of the Trade Health engine's warnings would have done.",
+            "healthCalibration buckets EVERY evaluated bar of every open simulated trade by its health score and reports the average/median return from that bar's price to that day's actual close — this checks whether lower health scores really did predict worse outcomes, not just whether they look reasonable. Bucket counts are typically small (quality setups are rare by design) — treat this as a directional check, not a precise calibration, unless a bucket's count is at least in the dozens.",
             "Past performance of this scoring logic on historical data is not a guarantee of future results.",
         ],
     };
@@ -330,11 +386,13 @@ if (process.argv[1] && process.argv[1].endsWith("backtest.mjs")) {
                 console.log(`-- DEV period ${result.dev.range.from} .. ${result.dev.range.to} --`);
                 console.log(JSON.stringify(result.dev.overall, null, 2));
                 console.log("By entry band:", JSON.stringify(result.dev.byBand, null, 2));
+                console.log(`Trade Health calibration (monotonic: ${result.dev.healthCalibrationMonotonic}):`, JSON.stringify(result.dev.healthCalibration, null, 2));
             }
             if (result.validation) {
                 console.log(`\n-- VALIDATION period ${result.validation.range.from} .. ${result.validation.range.to} --`);
                 console.log(JSON.stringify(result.validation.overall, null, 2));
                 console.log("By entry band:", JSON.stringify(result.validation.byBand, null, 2));
+                console.log(`Trade Health calibration (monotonic: ${result.validation.healthCalibrationMonotonic}):`, JSON.stringify(result.validation.healthCalibration, null, 2));
             }
             console.log("\nCaveats:");
             result.caveats.forEach(c => console.log(`  - ${c}`));
