@@ -3,6 +3,27 @@
 // ============================================================
 
 // ── Utility Functions ────────────────────────────────────────
+
+/**
+ * Save both scroll positions that matter here before a wholesale
+ * tbody.innerHTML replacement, and return a function that restores them.
+ * `.tw` has no max-height, so in practice the page (body/window) is usually
+ * the element that's actually scrolling, not `.tw` itself — replacing many
+ * rows' worth of DOM at once can still shift/clamp either one, so both are
+ * captured. (renderStocks avoids this entirely via in-place row patching
+ * instead of wholesale replacement; renderIntraday/renderCritical don't do
+ * that, hence needing this.)
+ */
+function captureScroll() {
+  const tableContainer = document.querySelector('.tw');
+  const tableScrollPos = tableContainer ? tableContainer.scrollTop : 0;
+  const pageScrollPos = window.scrollY;
+  return () => {
+    if (tableContainer) tableContainer.scrollTop = tableScrollPos;
+    window.scrollTo(window.scrollX, pageScrollPos);
+  };
+}
+
 function formatVolume(v) {
   if (!v) return '—';
   const abs = Math.abs(v);
@@ -492,6 +513,12 @@ function renderIntraday(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
 
+  // Every branch below replaces tbody's content wholesale (unlike
+  // renderStocks' in-place row patching), which can shift or clamp scroll —
+  // save/restore around every exit path so a periodic refresh doesn't yank
+  // the user back to the top of the list.
+  const restoreScroll = captureScroll();
+
   document.getElementById('tableHeader').innerHTML = `<tr>
     <th style="text-align:left;">Stock / Sector</th>
     <th>Price</th>
@@ -508,6 +535,7 @@ function renderIntraday(data) {
   if (!data?.data) {
     if (tbody) tbody.innerHTML = '';
     if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data available'; }
+    restoreScroll();
     return;
   }
 
@@ -530,6 +558,7 @@ function renderIntraday(data) {
         ? 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.'
         : 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
     }
+    restoreScroll();
     return;
   }
   if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
@@ -568,6 +597,7 @@ function renderIntraday(data) {
   }).join('');
 
   tbody.innerHTML = html;
+  restoreScroll();
 }
 
 // ── MARKET REGIME BANNER ──────────────────────────────────────
@@ -628,10 +658,12 @@ function renderScreeners(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
   document.getElementById('tableHeader').innerHTML = '';
+  const restoreScroll = captureScroll();
 
   if (!data) {
     if (tbody) tbody.innerHTML = '';
     if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No screener data available yet — the first market-wide scan can take a few minutes.'; }
+    restoreScroll();
     return;
   }
 
@@ -650,6 +682,7 @@ function renderScreeners(data) {
     </div>
     ${cards}
   </div>`;
+  restoreScroll();
 }
 
 // ── RENDER: SECTORS ──────────────────────────────────────────
@@ -1150,6 +1183,11 @@ function renderCritical(payload) {
   const empty = document.getElementById('empty');
   document.getElementById('tableHeader').innerHTML = '';
 
+  // Same wholesale-replacement scroll issue as renderIntraday — this tab
+  // polls every ~8s, so without this a health-score update yanks the user
+  // back to the top of the list constantly.
+  const restoreScroll = captureScroll();
+
   const trades = payload?.trades || [];
   const rcEl = document.getElementById('rowCount');
   if (rcEl) rcEl.textContent = `Critical Trades: ${trades.length} active`;
@@ -1161,6 +1199,7 @@ function renderCritical(payload) {
       empty.textContent = 'No Critical trades marked. Use "Mark Critical" on any Intraday/All-stocks row after you enter a position.';
     }
     tbody.innerHTML = '';
+    restoreScroll();
     return;
   }
   if (empty) empty.style.display = 'none';
@@ -1224,6 +1263,7 @@ function renderCritical(payload) {
   }).join('');
 
   tbody.innerHTML = `<div class="crit-grid">${cards}</div>`;
+  restoreScroll();
 }
 
 // ── NOTIFICATIONS BANNER (persists across tabs) ───────────────
