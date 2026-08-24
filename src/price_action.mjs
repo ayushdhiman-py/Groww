@@ -124,3 +124,20 @@ export function detectConsolidation(candles, lookback = 10, maxRangePct = 1.5) {
     const rangePct = ((hi - lo) / lo) * 100;
     return { consolidating: rangePct <= maxRangePct, rangePct: +rangePct.toFixed(2) };
 }
+
+/**
+ * Exhaustion risk: how much of today's typical (ATR-based) daily movement
+ * capacity has already been consumed by the current move from open? The
+ * same `pctFromOpen / atrPct` ratio computeUpsidePotential() (entry_score.mjs)
+ * already computes internally to discount its own zone estimate — surfaced
+ * here as a standalone, reusable classification (used by the learning
+ * layer's snapshot capture, not just the live Upside Potential estimate).
+ * A starting point (thresholds are not battle-tested), easy to retune once
+ * real outcome data exists to check against.
+ */
+export function classifyExhaustionRisk(row) {
+    if (row?.pctFromOpen == null || !row?.atrPct) return { level: "LOW", consumedFraction: null };
+    const consumedFraction = row.pctFromOpen / row.atrPct;
+    const level = consumedFraction > 0.7 ? "HIGH" : consumedFraction > 0.4 ? "MEDIUM" : "LOW";
+    return { level, consumedFraction: +consumedFraction.toFixed(2) };
+}

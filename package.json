@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node scanner_testing.mjs",
     "dev": "node --watch scanner_testing.mjs",
-    "test": "node --test",
+    "test": "node --test --test-concurrency=1",
     "backtest": "node src/backtest.mjs"
   },
   "dependencies": {

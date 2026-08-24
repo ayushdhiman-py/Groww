@@ -297,8 +297,16 @@ Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
 
   [NOT DONE] Database/ML dependencies — package.json has none (no sqlite3,
              better-sqlite3, node:sqlite, pg, supabase-js, or any ML library).
-  [NOT DONE] Snapshot storage of candidate features + later outcomes.
-  [NOT DONE] Storing missed/non-entered candidates (to avoid selection bias).
+             DONE — node:sqlite (built-in, zero dependency), render.yaml
+             bumped to Node 22.x. src/learning_db.mjs, 6 tables.
+  [DONE]     Snapshot storage of candidate features + later outcomes.
+             src/learning_capture.mjs (capture) + src/learning_outcomes.mjs
+             (EOD finalization: final_close/MFE/MAE/labels, no-look-ahead).
+  [DONE]     Storing missed/non-entered candidates (to avoid selection bias).
+             captureQualifyingSnapshots() stores every candidate clearing the
+             SAME 5m+15m confluence gate the Opportunities list uses, BEFORE
+             its top-40 truncation — not just ones actually taken.
+             backfillTakenTrades() separately marks was_taken afterward.
   [NOT DONE] Statistical learning (rolling win rate, Bayesian updating,
              logistic regression, calibrated probability).
   [NOT DONE] Weight adaptation (PROPOSED vs PRODUCTION weights).
@@ -317,7 +325,11 @@ Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
              but nothing enforces a minimum anywhere in code.
   [NOT DONE] Model safety fallback, drift detection, model versioning/rollback.
   [NOT DONE] Storage efficiency / retention policy (nothing stored yet).
-  [NOT DONE] Daily post-market-close learning loop.
+  [DONE]     Daily post-market-close learning loop (outcome finalization).
+             src/daily_learning_job.mjs — runs at 15:45 IST, guarded by a
+             job_runs table (no double-run/silent-skip on restart), re-entrancy
+             guard, manual trigger via POST /api/learning/retrain. Statistical
+             rollup/drift/weight-adaptation steps still to be appended (below).
   [NOT DONE] "MODEL / LEARNING" dashboard section.
 
 --------------------------------------------------------------------------------
@@ -348,11 +360,17 @@ Part 2: DONE and live-verified (candle cache, two-stage scan, decoupled
         Critical-trade history, incremental indicators, time-of-day volume
         normalization, event-driven re-evaluation) — not addressed.
 
-Part 3: NOT STARTED. Still a full new subsystem to build from scratch
-        (schema, daily job, walk-forward validation, dashboard) — realistically
-        a multi-day build on its own. Now that Part 2's speed fix means the
-        underlying data is genuinely fresh, this is a reasonable next phase
-        whenever you want to take it on.
+Part 3: IN PROGRESS (Phases 0-2 of 6 done, tested, live-verified).
+        Phase 0 (SQLite foundation) + Phase 1 (selection-bias-free snapshot
+        capture, wired into scanAll()) + Phase 2 (EOD outcome finalization +
+        the guarded daily job + manual retrain route) are complete — 23 new
+        tests, full suite (110) green, confirmed against a live server boot
+        (POST /api/learning/retrain returns real job_runs rows).
+        Remaining: Phase 3 (statistical learning — rolling win rates,
+        calibrated probability, drift detection), Phase 4 (MODEL/LEARNING
+        dashboard tab, read-only), Phase 5 (weight adaptation — PROPOSED vs
+        PRODUCTION, gated, manual promotion), Phase 6 (operational hardening
+        — retention pruning, inertness verification, full dry run).
 
 This file is updated in place as each item is completed.
 ================================================================================

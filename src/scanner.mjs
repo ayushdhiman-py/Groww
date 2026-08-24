@@ -14,6 +14,7 @@ import { enrichOpportunities } from "./entry_score.mjs";
 import { computeMarketRegime, regimeMinOpportunityScore } from "./market_regime.mjs";
 import { listCriticalTrades } from "./critical_trades.mjs";
 import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } from "./stage1_filter.mjs";
+import { captureQualifyingSnapshots } from "./learning_capture.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -253,6 +254,7 @@ export function buildSignal(candles, tf, symbol, ltpFresh = UNAVAILABLE("no ltp 
         prevDayL: prevDayL !== null ? +prevDayL.toFixed(2) : null,
         chgPct: Number.isFinite(chgPct) ? +chgPct.toFixed(2) : chgPct,
         volume: lastVol, volumeChange: lastVol - prevVol, volSpike,
+        relativeVolume: avgVol ? +(lastVol / avgVol).toFixed(2) : null,
         ema9: c9 !== null && Number.isFinite(c9) ? +c9.toFixed(2) : null,
         ema21: c21 !== null && Number.isFinite(c21) ? +c21.toFixed(2) : null,
         ema50: c50 !== null && Number.isFinite(c50) ? +c50.toFixed(2) : null,
@@ -589,6 +591,14 @@ export async function scanAll() {
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
             next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
             annotateSpread(next.intradayOpportunities);
+
+            // Learning-layer snapshot capture — stores EVERY qualifying
+            // candidate (not just ones you act on), so the statistical
+            // layer can learn from what was passed on too, not only from a
+            // self-selected subset. Purely additive/optional: never allowed
+            // to affect the live scan (see captureQualifyingSnapshots' own
+            // try/catch).
+            captureQualifyingSnapshots(next.data, next.marketRegime, minOppScore);
 
             next.lastUpdated = new Date().toISOString();  // when this scan cycle synced — NOT a data-freshness claim
             next.dataAsOf = computeDataAsOf(next.data);    // the actual oldest price timestamp behind what synced

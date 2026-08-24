@@ -20,6 +20,7 @@ import {
     updateCriticalTrade, closeCriticalTrade, deleteCriticalTrade,
 } from "./src/critical_trades.mjs";
 import { startCriticalMonitor } from "./src/critical_monitor.mjs";
+import { runDailyLearningJob, startDailyLearningScheduler } from "./src/daily_learning_job.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -112,6 +113,19 @@ app.post("/api/scan/refresh/:symbol", async (req, res) => {
     }
 });
 
+// Manual trigger for the learning layer's once-daily job — for testing
+// without waiting for the real 15:45 IST schedule. `force:true` re-runs an
+// already-finalized day (finalizeOutcomes/backfillTakenTrades are both
+// idempotent, so this is safe).
+app.post("/api/learning/retrain", async (req, res) => {
+    try {
+        const result = await runDailyLearningJob({ force: !!req.body?.force, tradeDate: req.body?.tradeDate });
+        res.json({ ok: true, ...result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 // Market-wide screeners (Nifty 500) — Top Gainers/Losers, Volume Shockers,
 // 52-Week breakouts, and pattern scans. Refreshes on its own ~15min cadence
 // (see src/screener.mjs), independent of the main 241-symbol deep scan.
@@ -166,6 +180,7 @@ function activateMarketData() {
     startOptionsFeed();
     startScreenerScan();
     startCriticalMonitor();
+    startDailyLearningScheduler();
 }
 
 app.post("/api/login", async (req, res) => {
