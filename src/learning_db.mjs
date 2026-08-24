@@ -17,7 +17,10 @@ import path from "path";
 import { __dirname } from "./config.mjs";
 
 const DATA_DIR = path.join(__dirname, "..", "data");
-const DB_FILE = path.join(DATA_DIR, "learning.db");
+// LEARNING_DB_PATH lets the test suite (see test/setup.mjs) point this at a
+// completely separate file so destructive test operations (retention
+// pruning) never touch the real production database.
+const DB_FILE = process.env.LEARNING_DB_PATH ? path.resolve(process.env.LEARNING_DB_PATH) : path.join(DATA_DIR, "learning.db");
 
 let db = null;
 
