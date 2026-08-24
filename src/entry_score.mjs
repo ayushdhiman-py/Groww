@@ -16,6 +16,7 @@ import fs from "fs";
 import path from "path";
 import { recordSectorSnapshot, getSectorMomentum } from "./sector_history.mjs";
 import { __dirname } from "./config.mjs";
+import { getProductionWeights, DEFAULT_WEIGHTS } from "./model_registry.mjs";
 
 const INTRADAY_TFS = ["5m", "15m", "30m"];
 
@@ -310,8 +311,19 @@ export function computeOpportunityScore(row, ctx, tf) {
         relativeStrength: scoreRelativeStrength(row, ctx),
         confirmation: scoreConfirmation(row),
     };
-    const MAX_RAW = 20 + 15 + 15 + 15 + 15 + 15 + 10; // 105
-    const raw = Object.values(buckets).reduce((s, b) => s + b.score, 0);
+    // Weight-aware aggregation: scales each bucket's raw 0-N sub-score by
+    // weight/DEFAULT_WEIGHTS[bucket] instead of using the raw score
+    // directly. Every scoreXxx() function above is untouched — this is the
+    // ONLY thing Phase 5's weight adaptation ever changes about live
+    // scoring, and it's inert (bit-for-bit identical to the old fixed
+    // 20/15/15/15/15/15/10 formula) until a PROPOSED version is manually
+    // promoted — see model_registry.mjs.
+    const weights = getProductionWeights();
+    const MAX_RAW = Object.keys(buckets).reduce((s, k) => s + (weights[k] ?? DEFAULT_WEIGHTS[k]), 0);
+    const raw = Object.entries(buckets).reduce((s, [k, b]) => {
+        const w = weights[k] ?? DEFAULT_WEIGHTS[k];
+        return s + b.score * (w / DEFAULT_WEIGHTS[k]);
+    }, 0);
     const normalized = clamp((raw / MAX_RAW) * 100, 0, 100);
 
     const liq = liquidityGate(row);

@@ -22,6 +22,7 @@ import {
 import { startCriticalMonitor } from "./src/critical_monitor.mjs";
 import { runDailyLearningJob, startDailyLearningScheduler } from "./src/daily_learning_job.mjs";
 import { getDb } from "./src/learning_db.mjs";
+import { proposeNewWeights, validateWeights, meetsPromotionCriteria, promoteModelVersion, rollbackToVersion } from "./src/model_registry.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -193,7 +194,7 @@ app.get("/api/learning/drift", (req, res) => {
     }
 });
 
-// Full model-version history (empty until Phase 5's weight adaptation lands).
+// Full model-version history.
 app.get("/api/learning/versions", (_, res) => {
     try {
         const db = getDb();
@@ -201,6 +202,56 @@ app.get("/api/learning/versions", (_, res) => {
         res.json({ ok: true, versions: rows });
     } catch (e) {
         res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+// ── Weight adaptation (Phase 5) — propose/validate are safe to call anytime
+// (they only ever write a PROPOSED row); promote/rollback are the ONLY
+// calls that ever change live scoring, and are always a deliberate manual
+// action (dashboard button), never automatic.
+app.post("/api/learning/propose", (req, res) => {
+    try {
+        const { from, to } = req.body || {};
+        if (!from || !to) return res.status(400).json({ ok: false, error: "from and to (trade dates) are required" });
+        res.json(proposeNewWeights({ from, to }));
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post("/api/learning/validate/:versionId", (req, res) => {
+    try {
+        const { from, to } = req.body || {};
+        if (!from || !to) return res.status(400).json({ ok: false, error: "from and to (trade dates) are required" });
+        res.json(validateWeights(+req.params.versionId, { from, to }));
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.get("/api/learning/versions/:versionId/criteria", (req, res) => {
+    try {
+        res.json({ ok: true, ...meetsPromotionCriteria(+req.params.versionId) });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post("/api/learning/promote/:versionId", (req, res) => {
+    try {
+        const version = promoteModelVersion(+req.params.versionId, { promotedBy: req.body?.promotedBy || "dashboard" });
+        res.json({ ok: true, version });
+    } catch (e) {
+        res.status(400).json({ ok: false, error: e.message });
+    }
+});
+
+app.post("/api/learning/rollback/:versionId", (req, res) => {
+    try {
+        const version = rollbackToVersion(+req.params.versionId, { promotedBy: req.body?.promotedBy || "dashboard-rollback" });
+        res.json({ ok: true, version });
+    } catch (e) {
+        res.status(400).json({ ok: false, error: e.message });
     }
 });
 

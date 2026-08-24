@@ -1408,14 +1408,23 @@ function renderModel(payload) {
       <td>${d.notes || '—'}</td>
     </tr>`).join('');
 
-  const versionRows = versions.map(v => `
-    <tr>
+  const versionRows = versions.map(v => {
+    const actions = [];
+    if (v.status === 'PROPOSED') {
+      actions.push(`<button onclick="window.modelManager?.validateVersion(${v.version_id})">Validate</button>`);
+      actions.push(`<button onclick="window.modelManager?.promoteVersion(${v.version_id})">Promote</button>`);
+    } else if (v.status === 'SUPERSEDED' || v.status === 'REJECTED') {
+      actions.push(`<button onclick="window.modelManager?.rollbackToVersion(${v.version_id})">Rollback to this</button>`);
+    }
+    return `<tr>
       <td>v${v.version_id}</td>
       <td>${v.status}</td>
       <td>${v.training_sample_count ?? '—'}</td>
       <td>${v.validation_sample_count ?? '—'}</td>
       <td>${v.promoted_at ? new Date(v.promoted_at).toLocaleString() : '—'}</td>
-    </tr>`).join('');
+      <td>${actions.join(' ')}</td>
+    </tr>`;
+  }).join('');
 
   tbody.innerHTML = `<div class="model-grid">
     <div class="model-summary-cards">${summaryCards}</div>
@@ -1443,9 +1452,12 @@ function renderModel(payload) {
     </div>
 
     <div class="model-section">
-      <h3>Model Versions</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h3 style="margin:0;">Model Versions</h3>
+        <button onclick="window.modelManager?.proposeNewWeights()">Propose New Weights…</button>
+      </div>
       ${versionRows
-        ? `<table class="model-table"><thead><tr><th>Version</th><th>Status</th><th>Train N</th><th>Validation N</th><th>Promoted At</th></tr></thead><tbody>${versionRows}</tbody></table>`
+        ? `<table class="model-table"><thead><tr><th>Version</th><th>Status</th><th>Train N</th><th>Validation N</th><th>Promoted At</th><th>Actions</th></tr></thead><tbody>${versionRows}</tbody></table>`
         : '<div class="model-empty">No weight adaptation yet — scoring is fully rule-based (Part 1\'s Entry Score), unaffected by anything on this tab.</div>'}
     </div>
   </div>`;

@@ -315,7 +315,25 @@ Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
              coarse-to-fine and never returns an under-sampled segment.
              (Logistic-regression weight LEARNING, as opposed to rolling win
              rates, is Phase 5 below — this phase is pure descriptive stats.)
-  [NOT DONE] Weight adaptation (PROPOSED vs PRODUCTION weights).
+  [DONE]     Weight adaptation (PROPOSED vs PRODUCTION weights).
+             src/model_registry.mjs: hand-rolled logistic regression (7
+             features, L2-regularized, fixed iterations) trains on stored
+             breakdown_json, converts coefficients to non-negative bucket-
+             weight proposals (±25%-per-bucket stability cap from current
+             production), inserts a PROPOSED model_versions row. Validation
+             re-scores stored validation-period snapshots under both weight
+             sets (no re-fetch, no look-ahead) and records the comparison.
+             Promotion is MANUAL ONLY — a dashboard button
+             (POST /api/learning/promote/:versionId) flips PROPOSED to
+             PRODUCTION and demotes the prior PRODUCTION to SUPERSEDED;
+             rollback is the same operation in reverse. entry_score.mjs's
+             computeOpportunityScore reads getProductionWeights() (falls
+             back to DEFAULT_WEIGHTS on any DB error) — every scoreXxx()
+             function is untouched; only the final aggregation is weight-
+             aware. Confirmed inert (bit-for-bit identical scoring, full
+             116-test suite unchanged) while no PRODUCTION version exists,
+             and a real propose->validate->promote->rollback cycle was run
+             end-to-end against a live server boot with seeded data.
   [PARTIAL]  Walk-forward / frozen validation — backtest.mjs already supports
              a one-off manual dev/validation date-range split via CLI flags,
              but there's no rolling walk-forward loop, no automation, no
@@ -333,9 +351,8 @@ Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
   [PARTIAL]  Model safety fallback, drift detection, model versioning/rollback.
              Drift detection DONE (detectDrift(), drift_log table, flags
              RECENT-vs-HISTORICAL win-rate divergence >=15pp with >=15 recent
-             samples). Model versioning/rollback is Phase 5 (weight
-             adaptation) below — model_versions table schema exists (Phase 0)
-             but nothing writes to it yet.
+             samples). Model versioning/rollback DONE — see Phase 5 (weight
+             adaptation) above.
   [NOT DONE] Storage efficiency / retention policy (nothing pruned yet).
   [DONE]     Daily post-market-close learning loop (outcome finalization +
              statistical rollup + drift detection).
@@ -380,21 +397,23 @@ Part 2: DONE and live-verified (candle cache, two-stage scan, decoupled
         Critical-trade history, incremental indicators, time-of-day volume
         normalization, event-driven re-evaluation) — not addressed.
 
-Part 3: IN PROGRESS (Phases 0-4 of 6 done; 0-3 fully tested, Phase 4 is a
-        read-only dashboard verified at the API level but not yet clicked
-        through in an actual browser).
+Part 3: IN PROGRESS (Phases 0-5 of 6 done; 0-3 and 5 fully tested, Phase 4
+        is a read-only dashboard verified at the API level but not yet
+        clicked through in an actual browser).
         Phase 0 (SQLite foundation) + Phase 1 (selection-bias-free snapshot
         capture, wired into scanAll()) + Phase 2 (EOD outcome finalization +
         the guarded daily job + manual retrain route) + Phase 3 (rolling
         win-rate/calibrated-probability statistics, segmented by regime x
         time-bucket x signal-combo, plus drift detection) + Phase 4
-        (MODEL/LEARNING dashboard tab) are complete — 29 new backend tests,
-        full suite (116) green, confirmed against a live server boot
-        (POST /api/learning/retrain and all 4 new GET routes return correct
-        real data).
-        Remaining: Phase 5 (weight adaptation — PROPOSED vs PRODUCTION,
-        gated, manual promotion), Phase 6 (operational hardening — retention
-        pruning, inertness verification, full dry run).
+        (MODEL/LEARNING dashboard tab) + Phase 5 (weight adaptation —
+        hand-rolled logistic regression, PROPOSED vs PRODUCTION, manual
+        gated promotion, dashboard buttons) are complete — 41 new backend
+        tests, full suite (128) green, confirmed against a live server boot
+        (all learning routes return correct real data, and a full
+        propose->validate->promote->rollback cycle was run end-to-end with
+        seeded data before being cleaned back out of the real DB).
+        Remaining: Phase 6 (operational hardening — retention pruning,
+        inertness verification via backtest.mjs, full dry run).
 
 This file is updated in place as each item is completed.
 ================================================================================

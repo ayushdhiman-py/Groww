@@ -3,12 +3,12 @@
 // ============================================================
 
 import { StateManager, DataManager, RenderEngine } from './ui-core.mjs';
-import { TabManager, TimeframeManager, LivePriceUpdater, PortfolioManager, SortManager, SearchFilter, FOManager, IntervalManager, CriticalManager } from './ui-managers.mjs';
+import { TabManager, TimeframeManager, LivePriceUpdater, PortfolioManager, SortManager, SearchFilter, FOManager, IntervalManager, CriticalManager, ModelManager } from './ui-managers.mjs';
 import './ui-renders.mjs';
 
 // ── Initialize all managers ──────────────────────────────────
 let stateManager, dataManager, renderEngine, tabManager, timeframeManager;
-let livePriceUpdater, portfolioManager, sortManager, searchFilter, foManager, intervalManager, criticalManager;
+let livePriceUpdater, portfolioManager, sortManager, searchFilter, foManager, intervalManager, criticalManager, modelManager;
 
 async function initApp() {
   // Create all managers
@@ -24,6 +24,7 @@ async function initApp() {
   foManager = new FOManager(stateManager, dataManager);
   intervalManager = new IntervalManager(stateManager);
   criticalManager = new CriticalManager();
+  modelManager = new ModelManager();
 
   // Make managers globally accessible
   window.stateManager = stateManager;
@@ -36,6 +37,7 @@ async function initApp() {
   window.searchFilter = searchFilter;
   window.foManager = foManager;
   window.criticalManager = criticalManager;
+  window.modelManager = modelManager;
 
   // Restore state from localStorage FIRST
   stateManager.restore();

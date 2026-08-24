@@ -306,6 +306,81 @@ export class CriticalManager {
   }
 }
 
+// ── 7c. MODEL / LEARNING MANAGER ──────────────────────────────
+// Propose/validate/promote/rollback are deliberate, infrequent, manual
+// actions (Phase 5's weight adaptation is gated behind an explicit human
+// decision, never automatic) — a couple of prompt() dialogs for the date
+// range is consistent with CriticalManager's promptEditLevels() above and
+// avoids building a full date-picker UI for something used rarely.
+export class ModelManager {
+  async refresh() {
+    const data = await window.dataManager?.fetchLearningOverview();
+    window.renderModel(data);
+  }
+
+  async proposeNewWeights() {
+    const from = prompt('Training period start (YYYY-MM-DD):');
+    if (!from) return;
+    const to = prompt('Training period end (YYYY-MM-DD):', from);
+    if (!to) return;
+    try {
+      const res = await fetch('/api/learning/propose', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      });
+      const json = await res.json();
+      if (!json.ok) { alert('Propose failed: ' + (json.reason || json.error)); return; }
+      alert(`Proposed model version ${json.versionId} from ${json.sampleCount} samples (train accuracy ${(json.trainAccuracy * 100).toFixed(1)}%). Validate it next.`);
+      this.refresh();
+    } catch (e) {
+      alert('Propose failed: ' + e.message);
+    }
+  }
+
+  async validateVersion(versionId) {
+    const from = prompt('Validation period start (YYYY-MM-DD):');
+    if (!from) return;
+    const to = prompt('Validation period end (YYYY-MM-DD):', from);
+    if (!to) return;
+    try {
+      const res = await fetch(`/api/learning/validate/${versionId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from, to }),
+      });
+      const json = await res.json();
+      if (!json.ok) { alert('Validate failed: ' + (json.reason || json.error)); return; }
+      alert(`Validated version ${versionId} on ${json.metrics.sampleCount} samples.\nProposed correlation: ${json.metrics.proposedCorrelation}\nProduction correlation: ${json.metrics.productionCorrelation}`);
+      this.refresh();
+    } catch (e) {
+      alert('Validate failed: ' + e.message);
+    }
+  }
+
+  async promoteVersion(versionId) {
+    if (!confirm(`Promote model version ${versionId} to PRODUCTION? This changes live Opportunity Score weighting immediately.`)) return;
+    try {
+      const res = await fetch(`/api/learning/promote/${versionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const json = await res.json();
+      if (!json.ok) { alert('Promote failed: ' + json.error); return; }
+      this.refresh();
+    } catch (e) {
+      alert('Promote failed: ' + e.message);
+    }
+  }
+
+  async rollbackToVersion(versionId) {
+    if (!confirm(`Roll back to model version ${versionId}? This demotes the current PRODUCTION version and reinstates this one.`)) return;
+    try {
+      const res = await fetch(`/api/learning/rollback/${versionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      const json = await res.json();
+      if (!json.ok) { alert('Rollback failed: ' + json.error); return; }
+      this.refresh();
+    } catch (e) {
+      alert('Rollback failed: ' + e.message);
+    }
+  }
+}
+
 // ── 8. SORT MANAGER ──────────────────────────────────────────
 export class SortManager {
   constructor(stateManager) {
