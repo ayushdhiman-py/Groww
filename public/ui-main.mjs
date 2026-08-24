@@ -293,6 +293,20 @@ async function pollStatus() {
     if (status.scanning && !scanDataInterval) {
       scanDataInterval = setInterval(async () => {
         const activeTab = stateManager.get('activeTab');
+        // These tabs each have their own independent data source/refresh
+        // path (CriticalManager's 8s poll, Screeners' own ~15min cycle,
+        // Portfolio/Model's own managers) — fetching /api/state and falling
+        // through to renderStocks() for them would overwrite their correct
+        // view with the generic stocks table every 3s while a scan is
+        // running (this was a real, visible bug: a Critical trade card
+        // flickering into "No results for current filter" every few
+        // seconds during market hours).
+        if (activeTab === 'CRITICAL') {
+          window.criticalManager?.fetchAndRender();
+          return;
+        }
+        if (activeTab === 'PORTFOLIO' || activeTab === 'MODEL' || activeTab === 'SCREENERS') return;
+
         const st = await dataManager.fetchState(stateManager.get('timeframe'), activeTab, true);
         if (st?.lastUpdated && st.lastUpdated !== lastUpdatedTs) {
           lastUpdatedTs = st.lastUpdated;
@@ -300,7 +314,7 @@ async function pollStatus() {
             window.renderIntraday(st);
           } else if (activeTab === 'SECTORS') {
             window.renderSectors(st);
-          } else if (activeTab !== 'PORTFOLIO' && activeTab !== 'MODEL') {
+          } else {
             renderStocks(st);
           }
           updateBadges(st);
@@ -318,7 +332,9 @@ async function pollStatus() {
       lastUpdatedTs = null;
       const timeframe = stateManager.get('timeframe');
       const activeTab = stateManager.get('activeTab');
-      if (activeTab !== 'MODEL') {
+      if (activeTab === 'CRITICAL') {
+        window.criticalManager?.fetchAndRender();
+      } else if (activeTab !== 'MODEL' && activeTab !== 'PORTFOLIO' && activeTab !== 'SCREENERS') {
         const data = await dataManager.fetchState(timeframe, activeTab, true);
         if (data) {
           renderStocks(data);
@@ -491,6 +507,10 @@ async function manualLoad() {
   if (activeTab === 'MODEL') {
     const data = await dataManager.fetchLearningOverview();
     window.renderModel(data);
+    return;
+  }
+  if (activeTab === 'CRITICAL') {
+    await window.criticalManager?.fetchAndRender();
     return;
   }
   const timeframe = stateManager.get('timeframe');

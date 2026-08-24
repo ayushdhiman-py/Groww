@@ -657,7 +657,12 @@ function renderRegimeBanner(regime) {
 const SCREENER_SECTIONS = [
   { key: 'gainers', title: 'Top Gainers', icon: '📈', color: '#22c55e', meta: r => ({ label: 'Chg', value: `${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(2)}%`, cls: r.chgPct >= 0 ? 'up' : 'dn' }) },
   { key: 'losers', title: 'Top Losers', icon: '📉', color: '#ef4444', meta: r => ({ label: 'Chg', value: `${r.chgPct.toFixed(2)}%`, cls: 'dn' }) },
-  { key: 'volumeShockers', title: 'Volume Shockers', icon: '⚡', color: '#f59e0b', meta: r => ({ label: 'Vol', value: formatVolume(r.volume), cls: '' }) },
+  // Ranked by |volumeChange| (the latest-candle-vs-previous-candle volume
+  // jump — the actual "shock"), not raw cumulative volume — a heavily
+  // traded large-cap can have huge raw volume with nothing unusual
+  // happening. Must SHOW that same number, not raw volume, or the list
+  // looks visibly out of order against whatever's actually displayed.
+  { key: 'volumeShockers', title: 'Volume Shockers', icon: '⚡', color: '#f59e0b', meta: r => ({ label: 'Vol Δ', value: `${r.volumeChange >= 0 ? '+' : ''}${formatVolume(r.volumeChange)}`, cls: r.volumeChange >= 0 ? 'up' : 'dn' }) },
   { key: 'high52w', title: '52-Week High', icon: '🚀', color: '#22c55e', meta: r => ({ label: '52W H', value: `₹${(r.w52H || 0).toFixed(1)}`, cls: 'up' }) },
   { key: 'low52w', title: '52-Week Low', icon: '🔻', color: '#ef4444', meta: r => ({ label: '52W L', value: `₹${(r.w52L || 0).toFixed(1)}`, cls: 'dn' }) },
   { key: 'bullishCrossover', title: 'Bullish Crossover', icon: '✦', color: '#a78bfa', meta: r => ({ label: 'EMA Gap', value: `${(r.emaGap || 0).toFixed(2)}%`, cls: 'up' }) },
