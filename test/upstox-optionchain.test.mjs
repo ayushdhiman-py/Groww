@@ -54,3 +54,48 @@ test("normalizeOptionChain tolerates a strike with only one side present", () =>
     assert.ok(result.strikes["25000"].CE);
     assert.equal(result.strikes["25000"].PE, undefined);
 });
+
+test("normalizeOptionChain reports a field Upstox genuinely omitted as null, never as a look-like-real 0", () => {
+    const rows = [
+        {
+            expiry: "2025-02-13",
+            strike_price: 25000,
+            underlying_spot_price: 22976.2,
+            // oi/volume/prev_oi absent from market_data; option_greeks entirely empty —
+            // every one of these must surface as null, not a fabricated 0.
+            call_options: { instrument_key: "NSE_FO|1", market_data: { ltp: 1 }, option_greeks: {} },
+        },
+    ];
+    const CE = normalizeOptionChain("NIFTY", rows).strikes["25000"].CE;
+    assert.equal(CE.open_interest, null);
+    assert.equal(CE.oi, null);
+    assert.equal(CE.changeInOI, null); // no prev_oi to diff against — "unknown," not "unchanged"
+    assert.equal(CE.volume, null);
+    assert.equal(CE.impliedVolatility, null);
+    assert.equal(CE.delta, null);
+    assert.equal(CE.gamma, null);
+    assert.equal(CE.theta, null);
+    assert.equal(CE.vega, null);
+    assert.equal(CE.lastPrice, 1); // a genuinely-present field is untouched
+});
+
+test("normalizeOptionChain preserves a genuine zero value (e.g. delta on a deep OTM option) rather than treating it as missing", () => {
+    const rows = [
+        {
+            expiry: "2025-02-13",
+            strike_price: 30000,
+            underlying_spot_price: 22976.2,
+            call_options: {
+                instrument_key: "NSE_FO|2",
+                market_data: { ltp: 0.05, oi: 0, volume: 0, prev_oi: 0 },
+                option_greeks: { delta: 0, gamma: 0, theta: 0, vega: 0, iv: 0 },
+            },
+        },
+    ];
+    const CE = normalizeOptionChain("NIFTY", rows).strikes["30000"].CE;
+    assert.equal(CE.open_interest, 0);
+    assert.equal(CE.volume, 0);
+    assert.equal(CE.changeInOI, 0); // 0 - 0
+    assert.equal(CE.delta, 0);
+    assert.equal(CE.impliedVolatility, 0);
+});

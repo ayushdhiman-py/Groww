@@ -184,9 +184,20 @@ function startBackgroundTasks() {
 
 // ── Market Status ────────────────────────────────────────────
 function updateMarketStatus() {
-  const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-  const h = ist.getHours(), m = ist.getMinutes(), d = ist.getDay();
-  const isOpen = d > 0 && d < 6 && (h > 9 || (h === 9 && m >= 15)) && (h < 15 || (h === 15 && m <= 30));
+  // Prefer the server's own isMarketOpen() (same function every freshness
+  // classification in the backend already uses) over recomputing
+  // independently from the browser's clock — a wrong client clock could
+  // otherwise silently disagree with what the backend actually treats as
+  // open/closed. Only falls back to a local estimate in the brief window
+  // before the first status poll completes.
+  let isOpen, dataAsOf, lastUpdated;
+  if (serverMarketStatus) {
+    ({ marketOpen: isOpen, dataAsOf, lastUpdated } = serverMarketStatus);
+  } else {
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const h = ist.getHours(), m = ist.getMinutes(), d = ist.getDay();
+    isOpen = d > 0 && d < 6 && (h > 9 || (h === 9 && m >= 15)) && (h < 15 || (h === 15 && m <= 30));
+  }
 
   stateManager.set('marketOpen', isOpen);
 
@@ -198,7 +209,26 @@ function updateMarketStatus() {
     brand.className = isOpen ? 'brand market-open' : 'brand market-closed';
   }
   if (capsule) capsule.className = isOpen ? 'market-capsule open' : 'market-capsule';
-  if (txt) txt.textContent = isOpen ? 'Open' : 'Closed';
+  if (txt) {
+    if (isOpen) {
+      txt.textContent = 'Open';
+      capsule?.removeAttribute('title');
+    } else {
+      // dataAsOf (oldest price actually behind the current data) is a more
+      // honest "last real trading timestamp" than lastUpdated (which is
+      // just "last time a scan cycle finished," and could tick forward
+      // even after close on nothing but re-computed/cached candles).
+      const lastTs = dataAsOf ?? lastUpdated ?? null;
+      if (lastTs) {
+        const lastTimeStr = new Date(lastTs).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' });
+        txt.textContent = `Closed · last data ${lastTimeStr}`;
+        if (capsule) capsule.title = `Market closed. Last trading data as of ${new Date(lastTs).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST.`;
+      } else {
+        txt.textContent = 'Closed';
+        capsule?.removeAttribute('title');
+      }
+    }
+  }
 
   // Refresh button always enabled
 }
@@ -241,10 +271,17 @@ function syncDividendToggleAvailability(available) {
 let lastScanState = false;
 let lastUpdatedTs = null;
 let scanDataInterval = null;
+// Server-truth market status, refreshed every 2s poll below. null only
+// before the very first successful poll — updateMarketStatus() falls back
+// to a client-clock estimate for that brief window, and otherwise always
+// prefers this over recomputing independently in the browser.
+let serverMarketStatus = null;
 
 async function pollStatus() {
   try {
     const status = await dataManager.fetchStatus();
+    serverMarketStatus = { marketOpen: status.marketOpen, dataAsOf: status.dataAsOf, lastUpdated: status.lastUpdated };
+    updateMarketStatus();
     syncDividendToggleAvailability(status.dividendAvailable !== false);
     window.updateScanProgressBadge?.(status);
 

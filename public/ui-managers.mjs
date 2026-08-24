@@ -167,12 +167,37 @@ export class PortfolioManager {
         let changed = false;
 
         holdings.forEach(h => {
-          const freshPrice = ltpData[h.trading_symbol] || ltpData[`NSE_${h.trading_symbol}`];
-          if (freshPrice && freshPrice !== h.current_price) {
-            h.current_price = +freshPrice.toFixed(2);
-            h.current_value = +(freshPrice * h.quantity).toFixed(2);
-            h.pnl = +(h.current_value - h.average_price * h.quantity).toFixed(2);
-            h.pnl_percent = h.average_price > 0 ? +((h.pnl / (h.average_price * h.quantity)) * 100).toFixed(2) : 0;
+          const key = h.trading_symbol in ltpData ? h.trading_symbol : `NSE_${h.trading_symbol}`;
+          const freshPrice = ltpData[key];
+          const meta = ltpData.meta?.[key];
+
+          if (freshPrice != null) {
+            if (freshPrice !== h.current_price) {
+              h.current_price = +freshPrice.toFixed(2);
+              h.current_value = +(freshPrice * h.quantity).toFixed(2);
+              h.pnl = +(h.current_value - h.average_price * h.quantity).toFixed(2);
+              h.pnl_percent = h.average_price > 0 ? +((h.pnl / (h.average_price * h.quantity)) * 100).toFixed(2) : 0;
+              changed = true;
+            }
+            // Freshness must be re-derived every tick regardless of whether
+            // the price itself moved — the backend re-classifies LIVE vs.
+            // DELAYED by age on every /api/ltp call, so a holding sitting at
+            // an unchanged-but-aging price must still visibly downgrade.
+            const newSource = meta?.source || 'UNAVAILABLE';
+            const newTs = meta?.ts ?? h.price_ts ?? null;
+            if (h.price_source !== newSource || h.price_ts !== newTs) {
+              h.price_source = newSource;
+              h.price_ts = newTs;
+              changed = true;
+            }
+          } else if (h.price_source !== 'DELAYED') {
+            // Not in the WS feed at all this tick (outside the subscribed
+            // universe, or the feed has never ticked for it) — the only
+            // honest value left is the one-time REST snapshot from the
+            // initial portfolio fetch, which must NOT keep reading "LIVE"
+            // forever. price_ts stays whatever it already was so the
+            // tooltip's age keeps counting up from that real last-known point.
+            h.price_source = 'DELAYED';
             changed = true;
           }
         });

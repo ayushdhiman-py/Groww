@@ -17,6 +17,7 @@ import path from "path";
 import { recordSectorSnapshot, getSectorMomentum } from "./sector_history.mjs";
 import { __dirname } from "./config.mjs";
 import { getProductionWeights, DEFAULT_WEIGHTS } from "./model_registry.mjs";
+import { getLatestFullUniverseSnapshot } from "./stage1_filter.mjs";
 
 const INTRADAY_TFS = ["5m", "15m", "30m"];
 
@@ -85,17 +86,42 @@ function istHourDecimal() {
 }
 
 // ── Cross-sectional context: NIFTY's row + per-sector aggregates ──────────────
+// NIFTY's own row comes from the per-tf `_ALL` bucket — safe, because
+// INDEX-sector symbols are always in the always-include set (see
+// stage1_filter.mjs's selectStage2Symbols), so NIFTY is Stage-2-refreshed
+// every single cycle regardless of timeframe. Sector aggregates are a
+// different story: they're cross-sectional over the WHOLE universe, most of
+// which only gets Stage-2-refreshed periodically under the two-stage scan
+// (see scanner.mjs's persistent `_ALL` buckets) — computing them from `rows`
+// would mean a candidate's sector-strength context could be several scan
+// cycles stale for sectors that haven't recently ranked. Instead this
+// sources sector stats from stage1_filter.mjs's `computeFullUniverseSnapshot`
+// — the SAME full-universe-every-cycle, near-zero-cost snapshot
+// market_regime.mjs already relies on for the identical reason (see that
+// file's header comment). Falls back to the old per-tf-bucket approach only
+// in the narrow window before the very first scan cycle has completed.
 export function buildMarketContext(dataBuckets, tf) {
     const rows = dataBuckets[`${tf}_ALL`] || [];
     const niftyRow = rows.find(r => r.symbol === "NIFTY") || null;
 
+    const stage1Snapshot = getLatestFullUniverseSnapshot();
     const bySector = {};
-    for (const r of rows) {
-        if (r.sector === "INDEX" || r.pctFromOpen == null) continue;
-        const s = bySector[r.sector] || (bySector[r.sector] = { sum: 0, count: 0, positive: 0 });
-        s.sum += r.pctFromOpen;
-        s.count += 1;
-        if (r.pctFromOpen > 0) s.positive += 1;
+    if (stage1Snapshot) {
+        for (const r of stage1Snapshot.values()) {
+            if (r.sector === "INDEX" || r.pctFromOpenCheap == null) continue;
+            const s = bySector[r.sector] || (bySector[r.sector] = { sum: 0, count: 0, positive: 0 });
+            s.sum += r.pctFromOpenCheap;
+            s.count += 1;
+            if (r.pctFromOpenCheap > 0) s.positive += 1;
+        }
+    } else {
+        for (const r of rows) {
+            if (r.sector === "INDEX" || r.pctFromOpen == null) continue;
+            const s = bySector[r.sector] || (bySector[r.sector] = { sum: 0, count: 0, positive: 0 });
+            s.sum += r.pctFromOpen;
+            s.count += 1;
+            if (r.pctFromOpen > 0) s.positive += 1;
+        }
     }
     const sectorStats = {};
     for (const [sector, s] of Object.entries(bySector)) {

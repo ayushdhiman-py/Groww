@@ -432,5 +432,64 @@ Part 3: DONE — all 6 phases complete. 0-3, 5, and 6 are fully unit-tested;
         all against the real server, all cleaned back out of the real DB
         afterward.
 
+================================================================================
+STALE-DATA RE-AUDIT (2026-08-24) — after Parts 1-3 were built on top of the
+original stale-data audit
+================================================================================
+The original stale-data audit (SOURCE taxonomy in data_quality.mjs,
+isMarketOpen()) predates all of Part 1/2/3. This re-audit specifically
+checked the NEW surface those three parts added, using 3 parallel audits
+covering (a) ingestion/feed/cache, (b) scanner/scoring/learning-layer, and
+(c) API/frontend rendering. Found and fixed:
+
+  [FIXED] optionsCache read directly (bypassing its own staleness check) in
+          scanner.mjs's row builder and operator_scanner.mjs's
+          buildFoDataMap/transformScannerData — a symbol whose option
+          polling had silently stalled could show old OI/PCR/greeks as
+          current. Now routed through getOptionsCacheWithFreshness()
+          everywhere; stale reads return null instead of a stale number.
+  [FIXED] Option-chain fields Upstox didn't return (OI, volume, greeks, IV,
+          spot) defaulted to `0` in two places (upstox.mjs's
+          normalizeOptionChain, scanner_testing.mjs's live option-chain
+          route) — indistinguishable from a genuine zero reading. Now `null`.
+  [FIXED] entry_score.mjs's sector/relative-strength context was computed
+          from the persistent per-timeframe bucket, which under the Part 2
+          two-stage scan can be several cycles stale for sectors that
+          haven't recently ranked. Now sourced from the same full-universe-
+          every-cycle snapshot Market Regime already uses for the identical
+          reason.
+  [FIXED] classifyExhaustionRisk() defaulted to the reassuring-looking
+          "LOW" (not "UNKNOWN") when its inputs were genuinely missing.
+  [FIXED] Portfolio holdings' price_source/age never updated after the
+          initial fetch — a holding whose WS price silently stopped
+          updating showed a permanently "LIVE" dot forever, with no age
+          shown. Now re-derived every 5s refresh tick from real feed
+          metadata, downgrading to DELAYED when the feed has no data at all
+          for that holding.
+  [FIXED] Market open/closed was computed only from the browser's own
+          clock, with no last-trading-timestamp shown when closed. Now
+          reads the server's own isMarketOpen() via /api/status, and shows
+          "Closed · last data HH:MM" when the market isn't open.
+  [FIXED] SECTORS tab was the one tab that didn't force a fresh /api/state
+          fetch on entry (could silently serve pre-existing client cache).
+  [FIXED] equity_scanner.mjs passed a bare number (260/120) where
+          fetchCandles expects a {from,to} range object — silently fell
+          through to a 365-day window instead of the intended one. A
+          correctness bug, not staleness (candles were still genuinely
+          timestamped), fixed for accuracy.
+  [DISCLOSED, NOT A SEPARATE FIX] A row's live price can legitimately be
+          seconds old while its indicators/Opportunity Score are several
+          minutes old (only Stage-2-refreshed symbols get new indicators
+          each cycle) — this was already honestly timestamped internally
+          (candleTs) but not surfaced. The price freshness dot's tooltip now
+          discloses the indicator/score age too, rather than inventing a
+          new color-coded staleness threshold.
+  9 new/updated automated tests added for these specific fixes (segment
+  freshness fallback, optionsCache staleness bypass, option-chain null-vs-
+  zero, exhaustion-risk unknown default) on top of the original audit's
+  existing freshness-guarantee tests (feed.test.mjs, data_quality.test.mjs,
+  options_feed.test.mjs). Full suite: 142 passing. Live-verified against a
+  real server boot through 55/80 symbols with zero errors/crashes.
+
 This file is updated in place as each item is completed.
 ================================================================================

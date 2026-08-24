@@ -396,22 +396,28 @@ export function normalizeOptionChain(symbol, rows) {
         const strikeKey = String(row.strike_price);
         const entry = strikes[strikeKey] || {};
 
+        // `??` (not `||`) — a field Upstox genuinely omitted must surface as
+        // null ("unavailable"), never as a look-like-real 0; a genuinely
+        // zero value (e.g. delta on a deep OTM option) must not be discarded
+        // by a falsy-0 check either. changeInOI is null (not 0) when either
+        // side of the subtraction is missing — "no change data" and "change
+        // is exactly zero" are different facts.
         if (row.call_options) {
             const md = row.call_options.market_data || {};
             const gk = row.call_options.option_greeks || {};
             entry.CE = {
                 instrument_key: row.call_options.instrument_key,
-                lastPrice: md.ltp || 0,
-                ltp: md.ltp || 0,
-                open_interest: md.oi || 0,
-                oi: md.oi || 0,
-                changeInOI: md.oi != null && md.prev_oi != null ? md.oi - md.prev_oi : 0,
-                volume: md.volume || 0,
-                impliedVolatility: gk.iv || 0,
-                delta: gk.delta || 0,
-                gamma: gk.gamma || 0,
-                theta: gk.theta || 0,
-                vega: gk.vega || 0,
+                lastPrice: md.ltp ?? null,
+                ltp: md.ltp ?? null,
+                open_interest: md.oi ?? null,
+                oi: md.oi ?? null,
+                changeInOI: md.oi != null && md.prev_oi != null ? md.oi - md.prev_oi : null,
+                volume: md.volume ?? null,
+                impliedVolatility: gk.iv ?? null,
+                delta: gk.delta ?? null,
+                gamma: gk.gamma ?? null,
+                theta: gk.theta ?? null,
+                vega: gk.vega ?? null,
             };
         }
         if (row.put_options) {
@@ -419,17 +425,17 @@ export function normalizeOptionChain(symbol, rows) {
             const gk = row.put_options.option_greeks || {};
             entry.PE = {
                 instrument_key: row.put_options.instrument_key,
-                lastPrice: md.ltp || 0,
-                ltp: md.ltp || 0,
-                open_interest: md.oi || 0,
-                oi: md.oi || 0,
-                changeInOI: md.oi != null && md.prev_oi != null ? md.oi - md.prev_oi : 0,
-                volume: md.volume || 0,
-                impliedVolatility: gk.iv || 0,
-                delta: gk.delta || 0,
-                gamma: gk.gamma || 0,
-                theta: gk.theta || 0,
-                vega: gk.vega || 0,
+                lastPrice: md.ltp ?? null,
+                ltp: md.ltp ?? null,
+                open_interest: md.oi ?? null,
+                oi: md.oi ?? null,
+                changeInOI: md.oi != null && md.prev_oi != null ? md.oi - md.prev_oi : null,
+                volume: md.volume ?? null,
+                impliedVolatility: gk.iv ?? null,
+                delta: gk.delta ?? null,
+                gamma: gk.gamma ?? null,
+                theta: gk.theta ?? null,
+                vega: gk.vega ?? null,
             };
         }
         strikes[strikeKey] = entry;

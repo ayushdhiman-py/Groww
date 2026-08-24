@@ -34,8 +34,8 @@ test("classifyExhaustionRisk thresholds match the documented breakpoints", () =>
     assert.equal(classifyExhaustionRisk({ pctFromOpen: 1, atrPct: 2 }).level, "MEDIUM"); // 0.5
     assert.equal(classifyExhaustionRisk({ pctFromOpen: 3, atrPct: 2 }).level, "HIGH");   // 1.5
     assert.equal(classifyExhaustionRisk({ pctFromOpen: 0.5, atrPct: 2 }).level, "LOW");  // 0.25
-    assert.equal(classifyExhaustionRisk({ pctFromOpen: null, atrPct: 2 }).level, "LOW");
-    assert.equal(classifyExhaustionRisk({ pctFromOpen: 1, atrPct: null }).level, "LOW");
+    assert.equal(classifyExhaustionRisk({ pctFromOpen: null, atrPct: 2 }).level, "UNKNOWN");
+    assert.equal(classifyExhaustionRisk({ pctFromOpen: 1, atrPct: null }).level, "UNKNOWN");
 });
 
 test("istTimeBucket maps to one of the 5 spec-defined windows", () => {

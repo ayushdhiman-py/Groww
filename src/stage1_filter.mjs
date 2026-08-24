@@ -44,6 +44,26 @@ function clamp(v, lo, hi) {
  * cheapScore of 0, not an error — it'll get picked up by the fairness
  * rotation in selectStage2Symbols() and warm up naturally.
  */
+let latestSnapshot = null;
+
+/**
+ * The most recent computeFullUniverseSnapshot() result — full-universe,
+ * every cycle. Lets other modules (entry_score.mjs's sector/RS context) use
+ * this SAME cheap-but-genuinely-full-universe-fresh source instead of
+ * whatever subset the persistent Stage-2 buckets happen to carry forward
+ * from previous cycles, without needing every caller to thread the
+ * snapshot through as a parameter. Null only before the very first cycle
+ * completes.
+ */
+export function getLatestFullUniverseSnapshot() {
+    return latestSnapshot;
+}
+
+/** Test-only hook — lets tests inject a deterministic snapshot without depending on live feed/candle-cache state. */
+export function _setLatestSnapshotForTesting(snapshot) {
+    latestSnapshot = snapshot;
+}
+
 export function computeFullUniverseSnapshot(universe = UNIVERSE) {
     const snapshot = new Map();
     for (const symbol of universe) {
@@ -95,6 +115,7 @@ export function computeFullUniverseSnapshot(universe = UNIVERSE) {
             lastDeepScanAt: getLastDeepScanAt(symbol),
         });
     }
+    latestSnapshot = snapshot;
     return snapshot; // Map<symbol, cheapRow> — ALL universe.length symbols, always
 }
 

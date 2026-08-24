@@ -6,7 +6,7 @@ import { __dirname as srcDirname } from "./src/config.mjs";
 import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow } from "./src/scanner.mjs";
 import { cacheStats } from "./src/candle_cache.mjs";
-import { startOptionsFeed, optionsCache, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
+import { startOptionsFeed, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
 import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick } from "./src/feed.mjs";
 import { isInstrumentMasterLoaded, isInstrumentMasterStale } from "./src/instruments.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
@@ -90,6 +90,12 @@ app.get("/api/status", (_, res) => {
         scanning,
         scanProgress,
         nextCycleEtaMs,
+        // Server truth, not the client's own clock — the frontend's market-
+        // open/closed badge previously recomputed this independently from
+        // `new Date()` in the browser, which could silently disagree with
+        // what the backend (and every freshness classification it makes)
+        // actually uses if the client's clock is wrong.
+        marketOpen: isMarketOpen(),
         lastUpdated: state.lastUpdated,
         dataAsOf: state.dataAsOf ?? null,
         errors: state.errors.length,
@@ -355,19 +361,23 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
             // percentage (Upstox convention), not a 0-1 fraction.
             for (const [strikePrice, optionsData] of Object.entries(rawChain.strikes)) {
                 const strike = parseFloat(strikePrice);
+                // `??` (not `||`) — a field Upstox genuinely omitted must
+                // surface as null ("unavailable"), never as a look-like-real
+                // 0; a genuinely-zero value (e.g. delta on a deep OTM option)
+                // must also not be discarded by a falsy-0 check.
                 if (optionsData.CE) {
                     calls.push({
                         strikePrice: strike,
-                        ltp: optionsData.CE.lastPrice || 0,
-                        openInterest: optionsData.CE.open_interest || 0,
-                        oiChange: optionsData.CE.changeInOI || 0,
-                        volume: optionsData.CE.volume || 0,
+                        ltp: optionsData.CE.lastPrice ?? null,
+                        openInterest: optionsData.CE.open_interest ?? null,
+                        oiChange: optionsData.CE.changeInOI ?? null,
+                        volume: optionsData.CE.volume ?? null,
                         greeks: {
-                            delta: optionsData.CE.delta || 0,
-                            gamma: optionsData.CE.gamma || 0,
-                            theta: optionsData.CE.theta || 0,
-                            vega: optionsData.CE.vega || 0,
-                            iv: optionsData.CE.impliedVolatility || 0,
+                            delta: optionsData.CE.delta ?? null,
+                            gamma: optionsData.CE.gamma ?? null,
+                            theta: optionsData.CE.theta ?? null,
+                            vega: optionsData.CE.vega ?? null,
+                            iv: optionsData.CE.impliedVolatility ?? null,
                         },
                         type: "CE",
                     });
@@ -375,16 +385,16 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
                 if (optionsData.PE) {
                     puts.push({
                         strikePrice: strike,
-                        ltp: optionsData.PE.lastPrice || 0,
-                        openInterest: optionsData.PE.open_interest || 0,
-                        oiChange: optionsData.PE.changeInOI || 0,
-                        volume: optionsData.PE.volume || 0,
+                        ltp: optionsData.PE.lastPrice ?? null,
+                        openInterest: optionsData.PE.open_interest ?? null,
+                        oiChange: optionsData.PE.changeInOI ?? null,
+                        volume: optionsData.PE.volume ?? null,
                         greeks: {
-                            delta: optionsData.PE.delta || 0,
-                            gamma: optionsData.PE.gamma || 0,
-                            theta: optionsData.PE.theta || 0,
-                            vega: optionsData.PE.vega || 0,
-                            iv: optionsData.PE.impliedVolatility || 0,
+                            delta: optionsData.PE.delta ?? null,
+                            gamma: optionsData.PE.gamma ?? null,
+                            theta: optionsData.PE.theta ?? null,
+                            vega: optionsData.PE.vega ?? null,
+                            iv: optionsData.PE.impliedVolatility ?? null,
                         },
                         type: "PE",
                     });
@@ -397,7 +407,7 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
 
             const result = {
                 symbol: sym,
-                spot: rawChain.underlying_ltp || 0,
+                spot: rawChain.underlying_ltp ?? null,
                 expiry: rawChain.expiryDate,
                 topCalls,
                 topPuts,
@@ -567,6 +577,11 @@ app.get("/api/portfolio", async (req, res) => {
             // position whose real current price we simply don't have.
             const currentPrice = h.last_price ?? null;
             const priceSource = currentPrice != null ? "LIVE" : "UNAVAILABLE";
+            // Genuinely "now" — this IS a fresh Upstox REST call every time
+            // this route is hit, not a cached value, so this timestamp is an
+            // honest baseline for the frontend's 5s WS-refresh loop to age
+            // against for holdings the WS feed never actually covers.
+            const priceTs = currentPrice != null ? Date.now() : null;
             const investedValue = (h.average_price || 0) * (h.quantity || 0);
             const currentValue = currentPrice != null ? currentPrice * (h.quantity || 0) : null;
             const pnl = currentValue != null ? (h.pnl ?? (currentValue - investedValue)) : null;
@@ -576,6 +591,7 @@ app.get("/api/portfolio", async (req, res) => {
                 ...h,
                 current_price: currentPrice != null ? +currentPrice.toFixed(2) : null,
                 price_source: priceSource,
+                price_ts: priceTs,
                 current_value: currentValue != null ? +currentValue.toFixed(2) : null,
                 invested_value: +investedValue.toFixed(2),
                 pnl: pnl != null ? +pnl.toFixed(2) : null,
@@ -661,7 +677,7 @@ app.post("/api/operator/scan", async (req, res) => {
     const marketContext = req.body.marketContext || {};
 
     // Transform scanner data
-    const transformedData = transformScannerData(state, optionsCache);
+    const transformedData = transformScannerData(state);
 
     // Run operator scan
     const result = await runOperatorScan(transformedData, marketContext);

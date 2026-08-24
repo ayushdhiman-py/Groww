@@ -136,7 +136,11 @@ export function detectConsolidation(candles, lookback = 10, maxRangePct = 1.5) {
  * real outcome data exists to check against.
  */
 export function classifyExhaustionRisk(row) {
-    if (row?.pctFromOpen == null || !row?.atrPct) return { level: "LOW", consumedFraction: null };
+    // "UNKNOWN", not "LOW" — a reassuring-looking real value would be
+    // fabricated if pctFromOpen/atrPct are genuinely missing; the caller
+    // must be able to tell "confirmed low exhaustion risk" apart from
+    // "we don't actually know."
+    if (row?.pctFromOpen == null || !row?.atrPct) return { level: "UNKNOWN", consumedFraction: null };
     const consumedFraction = row.pctFromOpen / row.atrPct;
     const level = consumedFraction > 0.7 ? "HIGH" : consumedFraction > 0.4 ? "MEDIUM" : "LOW";
     return { level, consumedFraction: +consumedFraction.toFixed(2) };

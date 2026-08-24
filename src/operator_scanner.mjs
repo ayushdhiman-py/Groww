@@ -9,7 +9,7 @@ import { scanOvernightFO } from "./overnight_scanner.mjs";
 import { scanEquityCalls } from "./equity_scanner.mjs";
 import { fetchIndiaVix, getVixState, getVixMode, formatVixStatus } from "./vix_manager.mjs";
 import { fetchAllMarketData, getFIIDIIFlow, getGiftNifty, getEarningsCalendar } from "./data_fetcher.mjs";
-import { optionsCache } from "./options_feed.mjs";
+import { optionsCache, getOptionsCacheWithFreshness } from "./options_feed.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 
 /** Real per-symbol delivery % (from data_fetcher.mjs's NSE delivery report) -> equity_scanner's fundamentalDataMap shape. */
@@ -26,15 +26,24 @@ function buildFundamentalDataMap(deliveryMap) {
  * an entry when Upstox actually returned strikes for it. `pcrFalling` is
  * left unset (not fabricated): no PCR history is tracked anywhere, only OI
  * deltas, so there's no honest basis to compute a trend.
+ *
+ * Routed through getOptionsCacheWithFreshness() (not a raw Map read) so a
+ * symbol whose option polling has silently stalled (delisted/expired/
+ * consistently erroring — see OPTIONS_STALE_AFTER_MS) reports null OI/PCR
+ * instead of a stale-but-current-looking number; every downstream consumer
+ * already treats a null oiChangePercent as "OI data unavailable".
  */
-function buildFoDataMap() {
+export function buildFoDataMap() {
   const map = {};
-  for (const [symbol, data] of optionsCache) {
+  for (const symbol of optionsCache.keys()) {
+    const { data, stale } = getOptionsCacheWithFreshness(symbol);
+    if (!data) continue;
     map[symbol] = {
       isFoStock: true,
-      oiChangePercent: data.oiChange ?? null,
-      pcr: data.pcr ?? null,
-      ceOiBuilding: data.callOIDelta != null && data.callOIDelta > 0,
+      oiChangePercent: stale ? null : (data.oiChange ?? null),
+      pcr: stale ? null : (data.pcr ?? null),
+      ceOiBuilding: !stale && data.callOIDelta != null && data.callOIDelta > 0,
+      oiDataStale: stale,
     };
   }
   return map;
@@ -404,7 +413,7 @@ function enrichScannerData(scannerData, marketData) {
  * Transform scanner data from main scanner to operator scanner format
  * Enriches with options cache, FII/DII, block deals data
  */
-export function transformScannerData(mainScannerState, optionsCache = {}) {
+export function transformScannerData(mainScannerState) {
   const transformed = [];
 
   // Get data from 1d timeframe (most reliable for daily analysis)
@@ -416,7 +425,10 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
 
   for (const stock of allStocks) {
     const isFO = isFOStock(stock.symbol);
-    const optionsData = optionsCache.get(stock.symbol) || stock.options || null;
+    // getOptionsCacheWithFreshness (not a raw Map read) so a symbol whose
+    // option polling has silently stalled reports null OI/IV/PCR instead of
+    // a stale-but-current-looking number.
+    const { data: optionsData, stale: optionsStale } = getOptionsCacheWithFreshness(stock.symbol);
 
     // Parse options data for OI, IV, PCR from enriched cache
     let oiChange = null;
@@ -427,7 +439,7 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
     let totalCallOI = null;
     let totalPutOI = null;
 
-    if (optionsData) {
+    if (optionsData && !optionsStale) {
       oiChange = optionsData.oiChange || null;
       iv = optionsData.iv || null;
       pcr = optionsData.pcr || null;
@@ -475,7 +487,8 @@ export function transformScannerData(mainScannerState, optionsCache = {}) {
       // F&O specific (enriched with OI delta tracking)
       isFO,
       isFOBanned: false, // Will be set by enrichScannerData
-      options: optionsData,
+      options: optionsStale ? null : optionsData,
+      optionsDataStale: optionsStale,
       oiChange,
       oiChangePercent: oiChange,
       deliveryPercent,

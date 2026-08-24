@@ -30,10 +30,26 @@ function captureScroll() {
  * unavailable one. `source` is one of the data_quality.mjs SOURCE values;
  * `ts` (epoch ms, may be null) is shown in the tooltip as the real age.
  */
-function freshnessDot(source, ts) {
+function freshnessDot(source, ts, extraTitle = '') {
   const cls = (source || 'UNAVAILABLE').toLowerCase();
   const ageTxt = ts ? ` · ${Math.round((Date.now() - ts) / 1000)}s ago` : '';
-  return `<span class="freshness-dot freshness-${cls}" title="${source || 'UNAVAILABLE'}${ageTxt}"></span>`;
+  return `<span class="freshness-dot freshness-${cls}" title="${source || 'UNAVAILABLE'}${ageTxt}${extraTitle}"></span>`;
+}
+
+/**
+ * A row's `price`/`priceTs` refresh on a fast WS-driven cadence, but its
+ * technical fields (EMA/MACD/RSI/VWAP/day-high-low/Opportunity Score — every
+ * scoreXxx() input in entry_score.mjs) only refresh when that symbol is
+ * actually Stage-2-analyzed this cycle (see scanner.mjs's persistent `_ALL`
+ * buckets under the two-stage scan). A row can legitimately show a 2-second-
+ * old price next to several-minutes-old indicators with no visible sign of
+ * it — this makes that honestly visible in the price dot's own tooltip
+ * rather than inventing a separate color-coded staleness threshold.
+ */
+function candleFreshnessTitle(r) {
+  if (r.candleTs == null) return '';
+  const ageS = Math.round((Date.now() - r.candleTs) / 1000);
+  return ` · indicators/score as of ${ageS}s ago`;
 }
 
 function formatVolume(v) {
@@ -307,7 +323,7 @@ function renderStocks(data) {
       </td>
       <td>
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-          <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs)}</span>
+          <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessTitle(r))}</span>
           <span class="muted-xl">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
         </div>
       </td>
@@ -656,7 +672,7 @@ function screenerCardHtml(section, rows) {
         const m = section.meta(r);
         return `<div style="display:grid; grid-template-columns:1fr 70px 55px auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
           <a href="${nseUrl(r.symbol)}" target="_blank" rel="noopener noreferrer" style="color:var(--text); text-decoration:none; font-weight:600; font-size:11px; font-family:var(--mono);">${r.symbol}</a>
-          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${freshnessDot(r.priceSource, r.priceTs)}</span>
+          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${freshnessDot(r.priceSource, r.priceTs, candleFreshnessTitle(r))}</span>
           <div style="cursor:pointer;" onclick="window.openModalChart('${r.symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>
           <span class="${m.cls}" style="font-family:var(--mono); font-size:10px; text-align:right; white-space:nowrap;">${m.value}</span>
         </div>`;
@@ -905,7 +921,7 @@ function renderPortfolio(data) {
           <div style="display:flex; gap:12px; margin-top:3px; font-size:9px; color:var(--muted);">
             <span>Qty: <b style="color:var(--text);">${h.quantity}</b></span>
             <span>Avg: <b style="color:var(--text);">₹${(h.average_price || 0).toFixed(2)}</b></span>
-            <span>LTP: <b style="color:var(--text);">${ltpTxt}</b>${freshnessDot(h.price_source, null)}</span>
+            <span>LTP: <b style="color:var(--text);">${ltpTxt}</b>${freshnessDot(h.price_source, h.price_ts ?? null)}</span>
           </div>
         </div>
         <div style="text-align:right;">

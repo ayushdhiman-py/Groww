@@ -749,10 +749,18 @@ export async function scanEquityCalls(options = {}) {
 
     const results = [];
 
+    // fetchCandles' 3rd param is a {from, to} range object, not a day count
+    // — a bare number silently falls through to its 365-day 1d default
+    // (range?.to ?? new Date() / range?.from ?? ...TF_DAYS["1d"]) instead of
+    // the intended 260/120-day window. Not a staleness bug (candles are
+    // still genuinely timestamped), but a real "not the data actually
+    // requested" bug.
+    const daysAgo = n => new Date(Date.now() - n * 86400000);
+
     // Fetch Nifty candles once for RS calculation
     let niftyCandles = [];
     try {
-        niftyCandles = await fetchCandles("NIFTY", "1d", 260);
+        niftyCandles = await fetchCandles("NIFTY", "1d", { from: daysAgo(260) });
     } catch (e) {
         console.log(`[Equity Scanner] Nifty candles fetch failed: ${e.message}`);
     }
@@ -760,13 +768,13 @@ export async function scanEquityCalls(options = {}) {
     for (const symbol of symbols) {
         try {
             // Fetch daily candles
-            const dailyCandles = await fetchCandles(symbol, "1d", 260);
+            const dailyCandles = await fetchCandles(symbol, "1d", { from: daysAgo(260) });
             if (!dailyCandles || dailyCandles.length < 60) continue;
 
             // Fetch weekly candles
             let weeklyCandles = [];
             try {
-                weeklyCandles = await fetchCandles(symbol, "1d", 120); // Weekly approximation
+                weeklyCandles = await fetchCandles(symbol, "1d", { from: daysAgo(120) }); // Weekly approximation
             } catch (e) {
                 // Skip weekly if not available
             }

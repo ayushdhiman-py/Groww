@@ -469,8 +469,10 @@ export class TabManager {
     if (tab === 'PORTFOLIO') {
       await window.portfolioManager?.loadAndRender();
     } else if (tab === 'SECTORS') {
-      // Sectors always use daily data (1d_ALL)
-      const data = await this.data.fetchState('1d', 'ALL');
+      // Sectors always use daily data (1d_ALL) — force a real fetch like
+      // every other tab, so switching here can't silently serve up to 30s
+      // of stale cached /api/state data on tab entry.
+      const data = await this.data.fetchState('1d', 'ALL', true);
       if (data) {
         window.renderSectors(data);
       } else {

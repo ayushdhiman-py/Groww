@@ -5,7 +5,6 @@ import { ema, macd, rsi, vwap, vwapSeries, historicalVolatility, atr, emaSlopePc
 import { analyzeStructure, detectBreakout, detectRetest, detectRejection, detectConsolidation } from "./price_action.mjs";
 import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
-import { optionsCache } from "./options_feed.mjs";
 import { getLtpWithFreshness } from "./feed.mjs";
 import { historical, UNAVAILABLE, isMarketOpen as _isMarketOpen } from "./data_quality.mjs";
 
@@ -287,7 +286,11 @@ export function buildSignal(candles, tf, symbol, ltpFresh = UNAVAILABLE("no ltp 
         rejection,
         consolidation,
         isNew: false, isNewGolden: false,
-        options: optionsCache.get(symbol) || null,
+        // No `options` field here — the raw optionsCache Map has no
+        // freshness guarantee (see OPTIONS_STALE_AFTER_MS). Consumers must
+        // call getOptionsCacheWithFreshness(symbol) themselves rather than
+        // read a copy stashed on this row, which could go stale between
+        // when this row was built and when it's actually read.
         w52H: h52w, w52L: l52w,
         priceChange: +priceChange.toFixed(2),
         dividend: null,
