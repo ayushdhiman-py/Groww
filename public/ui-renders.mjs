@@ -544,6 +544,50 @@ function bandColor(band) {
   return '#ef4444';
 }
 
+// ── TOP PICKS (Intraday tab highlight) ─────────────────────────
+// The top 5 (already ranked by Opportunity Score in entry_score.mjs) as
+// prominent cards: entry price NOW, an estimated target ZONE (never a
+// single fixed number — that implies false precision), and either a real
+// historical win rate from the learning layer once enough data exists, or
+// an explicit "not enough data yet" — never a fabricated confidence
+// number. This is explicitly an estimate, not a guarantee (see disclaimer).
+function renderTopPicks(picks) {
+  const el = document.getElementById('topPicksBanner');
+  if (!el) return;
+  if (!picks || !picks.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+
+  const top5 = picks.slice(0, 5);
+  const cards = top5.map(p => {
+    const upside = p.upside || {};
+    const targetTxt = upside.zoneLow != null ? `₹${upside.zoneLow}–₹${upside.zoneHigh}` : 'Insufficient data';
+    const prob = p.calibratedProbability;
+    const probHtml = prob?.available
+      ? `<div class="tp-prob available">📊 Historically reached +1% in ${Math.round((prob.probReach1pct ?? 0) * 100)}% of ${prob.sampleCount} similar past setups</div>`
+      : `<div class="tp-prob unavailable">📊 Not enough historical data yet — rule-based confidence: ${upside.confidence || '—'}</div>`;
+    return `<div class="top-pick-card">
+      <div><span class="tp-sym">${p.symbol}</span><span class="tp-score" style="background:${bandColor(p.opportunityBand)}22;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span></div>
+      <div class="tp-row"><span>Buy near</span><b>₹${(p.price || 0).toFixed(2)}</b></div>
+      <div class="tp-row"><span>Target zone</span><b>${targetTxt}</b></div>
+      <div class="tp-row"><span>Remaining upside</span><b>${upside.remainingPct != null ? '+' + upside.remainingPct + '%' : '—'}</b></div>
+      ${probHtml}
+    </div>`;
+  }).join('');
+
+  el.style.display = 'block';
+  el.innerHTML = `<div class="top-picks-wrap">
+    <div class="top-picks-header">
+      <h3>🎯 Top 5 Right Now</h3>
+      <span class="disclaimer">Estimates from current setup strength — not guarantees. Past performance ≠ future results.</span>
+    </div>
+    <div class="top-picks-grid">${cards}</div>
+  </div>`;
+}
+
+function hideTopPicks() {
+  const el = document.getElementById('topPicksBanner');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
 function renderIntraday(data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
@@ -577,6 +621,7 @@ function renderIntraday(data) {
   renderRegimeBanner(data.marketRegime);
 
   const picks = computeIntradayCandidates(data);
+  renderTopPicks(picks);
   const rcEl = document.getElementById('rowCount');
   const marketOpen = window.stateManager?.get('marketOpen');
   if (rcEl) {
@@ -1518,6 +1563,7 @@ function renderCritNotifBanner(trades) {
 window.renderStocks = renderStocks;
 window.renderSectors = renderSectors;
 window.renderIntraday = renderIntraday;
+window.hideTopPicks = hideTopPicks;
 window.renderScreeners = renderScreeners;
 window.renderPortfolio = renderPortfolio;
 window.renderCritical = renderCritical;

@@ -9,6 +9,7 @@
 // thin segment can never masquerade as a confident number.
 // ─────────────────────────────────────────────────────────────────────────────
 import { getDb } from "./learning_db.mjs";
+import { istTimeBucket, orbStateOf, priceActionStateOf } from "./learning_capture.mjs";
 
 export const MIN_SAMPLE_SIZE = 30;          // gate for trusting a rolling_stats row, and for unlocking the signal-combo level
 export const MIN_SAMPLE_SIZE_DRIFT = 15;    // lower bar for even comparing a segment's drift (comparison, not a standalone probability)
@@ -235,6 +236,37 @@ export function getCalibratedProbability({ regime, timeBucket, signalCombo, asOf
         }
     }
     return { available: false, reason: "no segment at any specificity level has sufficient sample size", asOfDate: latestDate };
+}
+
+/**
+ * Attaches a `calibratedProbability` field to each live Intraday Opportunity
+ * row, looked up from the SAME segment classification learning_capture.mjs
+ * uses when storing snapshots (regime + time-of-day bucket + orb/price-
+ * action signal combo) — so a live row's lookup lands on exactly the
+ * segment its own eventual snapshot would be filed under. This is what
+ * turns "Opportunity Score 83" into an honest "historically reached +1% in
+ * 62% of 45 similar past cases" — or, before enough history exists,
+ * `{available:false}` rather than a fabricated number.
+ *
+ * Mutates each row in place. Never throws — a DB problem here must
+ * degrade to `{available:false}` for that row, never break the live scan.
+ */
+export function attachCalibratedProbabilities(opportunities, marketRegime) {
+    const regime = marketRegime?.regime ?? null;
+    for (const p of opportunities || []) {
+        try {
+            if (p.priceTs == null) {
+                p.calibratedProbability = { available: false, reason: "no capture timestamp" };
+                continue;
+            }
+            const timeBucket = istTimeBucket(p.priceTs);
+            const signalCombo = `${orbStateOf(p.orb)}+${priceActionStateOf(p.structure)}`;
+            p.calibratedProbability = getCalibratedProbability({ regime, timeBucket, signalCombo });
+        } catch (e) {
+            p.calibratedProbability = { available: false, reason: "lookup failed" };
+        }
+    }
+    return opportunities;
 }
 
 export { signalComboOf };

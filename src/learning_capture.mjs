@@ -41,7 +41,7 @@ export function istTimeBucket(ts) {
     return "13:30-15:00";
 }
 
-function orbStateOf(orb) {
+export function orbStateOf(orb) {
     if (!orb || orb.high == null) return "NO_DATA";
     if (orb.retestFailed) return "RETEST_FAILED";
     if (orb.retested && orb.retestHeld) return "RETEST_HELD";
@@ -50,7 +50,7 @@ function orbStateOf(orb) {
     return "INSIDE_RANGE";
 }
 
-function priceActionStateOf(structure) {
+export function priceActionStateOf(structure) {
     if (!structure || structure.insufficientData) return "INSUFFICIENT_DATA";
     if (structure.brokeStructure) return "BROKEN";
     if (structure.bullishStructure) return "BULLISH";

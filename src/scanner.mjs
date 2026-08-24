@@ -14,6 +14,7 @@ import { computeMarketRegime, regimeMinOpportunityScore } from "./market_regime.
 import { listCriticalTrades } from "./critical_trades.mjs";
 import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } from "./stage1_filter.mjs";
 import { captureQualifyingSnapshots } from "./learning_capture.mjs";
+import { attachCalibratedProbabilities } from "./learning_stats.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -594,6 +595,11 @@ export async function scanAll() {
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
             next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
             annotateSpread(next.intradayOpportunities);
+            // Real historical win-rate per candidate, once enough learning-
+            // layer history exists — additive display data, never a hard
+            // scan dependency (see attachCalibratedProbabilities' own
+            // per-row try/catch).
+            attachCalibratedProbabilities(next.intradayOpportunities, next.marketRegime);
 
             // Learning-layer snapshot capture — stores EVERY qualifying
             // candidate (not just ones you act on), so the statistical

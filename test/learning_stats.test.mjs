@@ -2,7 +2,7 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { getDb } from "../src/learning_db.mjs";
 import {
-    runDailyStatsRollup, detectDrift, getCalibratedProbability,
+    runDailyStatsRollup, detectDrift, getCalibratedProbability, attachCalibratedProbabilities,
     MIN_SAMPLE_SIZE, MIN_SAMPLE_SIZE_DRIFT, DRIFT_THRESHOLD_PP,
 } from "../src/learning_stats.mjs";
 
@@ -133,4 +133,41 @@ test("getCalibratedProbability falls back from combo to bucket to regime, and re
 
     const noRegime = getCalibratedProbability({ regime: `${PREFIX}_NOTHING`, timeBucket: "11:00-12:00", asOfDate: "2026-05-01" });
     assert.equal(noRegime.available, false);
+});
+
+test("attachCalibratedProbabilities attaches a real win rate to a live row whose regime+bucket+signal-combo segment has enough history", () => {
+    const regime = `${PREFIX}_LIVE`;
+    const asOfDate = "2026-12-01"; // ahead of every other test's date in this file — guaranteed to be MAX(as_of_date)
+    for (let i = 0; i < MIN_SAMPLE_SIZE; i++) {
+        insertPair({
+            tradeDate: asOfDate, regime, timeBucket: "10:00-11:00",
+            orbState: "BROKEN_CONFIRMED", priceActionState: "BULLISH",
+            reached1: i < 20 ? 1 : 0,
+        });
+    }
+    runDailyStatsRollup(asOfDate);
+
+    const priceTs = Date.parse(`${asOfDate}T10:15:00+05:30`); // falls in the 10:00-11:00 IST bucket
+    const opportunities = [{
+        symbol: "LIVEROW", priceTs,
+        orb: { high: 100, brokenAbove: true, volConfirmed: true },     // -> orbStateOf: BROKEN_CONFIRMED
+        structure: { bullishStructure: true },                          // -> priceActionStateOf: BULLISH
+    }];
+    attachCalibratedProbabilities(opportunities, { regime });
+
+    const prob = opportunities[0].calibratedProbability;
+    assert.equal(prob.available, true);
+    assert.equal(prob.sampleCount, MIN_SAMPLE_SIZE);
+    assert.equal(prob.probReach1pct, 0.6667); // 20/30
+});
+
+test("attachCalibratedProbabilities never fabricates a probability — unavailable for a row with no priceTs, and for a regime with no history", () => {
+    const noTsRow = { symbol: "NOTS", priceTs: null, orb: {}, structure: {} };
+    attachCalibratedProbabilities([noTsRow], { regime: `${PREFIX}_LIVE` });
+    assert.equal(noTsRow.calibratedProbability.available, false);
+    assert.equal(noTsRow.calibratedProbability.reason, "no capture timestamp");
+
+    const unknownRegimeRow = { symbol: "NOHIST", priceTs: Date.now(), orb: {}, structure: {} };
+    attachCalibratedProbabilities([unknownRegimeRow], { regime: `${PREFIX}_NEVERSEEN` });
+    assert.equal(unknownRegimeRow.calibratedProbability.available, false);
 });

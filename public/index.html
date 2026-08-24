@@ -1122,6 +1122,27 @@
     .model-drift-row.flagged { color: var(--yellow); }
     .model-empty { color: var(--muted); font-size: 12px; padding: 12px 4px; }
 
+    /* Top Picks (Intraday tab highlight) */
+    .top-picks-wrap { margin-bottom: 12px; }
+    .top-picks-header { display:flex; align-items:baseline; gap:8px; margin-bottom:8px; }
+    .top-picks-header h3 { margin:0; font-size:13px; color:var(--text); }
+    .top-picks-header .disclaimer { font-size:10px; color:var(--muted); }
+    .top-picks-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:10px; }
+    .top-pick-card {
+      background: var(--panel2, rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 12px 14px;
+      border-left: 3px solid var(--accent, #22c55e);
+    }
+    .top-pick-card .tp-sym { font-weight:700; font-size:14px; }
+    .top-pick-card .tp-score { float:right; font-size:11px; font-weight:700; padding:2px 8px; border-radius:10px; }
+    .top-pick-card .tp-row { display:flex; justify-content:space-between; font-size:11px; margin-top:6px; color:var(--muted); }
+    .top-pick-card .tp-row b { color:var(--text); font-family:var(--mono); }
+    .top-pick-card .tp-prob { margin-top:8px; font-size:10px; padding:4px 6px; border-radius:6px; background:rgba(255,255,255,0.04); }
+    .top-pick-card .tp-prob.available { color:#4ade80; }
+    .top-pick-card .tp-prob.unavailable { color:var(--muted); }
+
     /* Market regime banner */
     .regime-banner {
       display: flex;
@@ -2436,6 +2457,7 @@
       <div class="stats" id="indexCardsContainer" style="margin-top: -6px; margin-bottom: 14px;"></div>
 
       <div id="regimeBanner" class="regime-banner" style="display:none;"></div>
+      <div id="topPicksBanner" style="display:none;"></div>
       <div id="critNotifBanner" style="margin-bottom:10px;"></div>
 
       <details class="guide-details">

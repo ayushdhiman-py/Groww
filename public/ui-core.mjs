@@ -448,6 +448,10 @@ export class TabManager {
       if (summaryEl) summaryEl.style.display = 'none';
     }
 
+    if (tab === 'INTRADAY') {
+      window.hideTopPicks?.();
+    }
+
     if (tab === 'FO') {
       // Clear expanded F&O row
       window.foManager?.collapseAll();
