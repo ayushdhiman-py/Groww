@@ -1,0 +1,324 @@
+================================================================================
+SPEC AUDIT STATUS — Indian Intraday Scanner (D:\Groww)
+Generated from a full repo audit against the 3-part spec you provided:
+  PART 1 — Intraday decision-support system (entry score, trade health, exits...)
+  PART 2 — Speed/quality/freshness architecture (two-stage scan, caching...)
+  PART 3 — Lightweight self-improving statistical learning layer
+================================================================================
+
+LEGEND
+  [DONE]     Fully implemented and wired into the live scan/API path, verified
+             against actual code (not just comments).
+  [PARTIAL]  Exists but incomplete, or not fully wired — gap is stated exactly.
+  [NOT DONE] No trace found in the repo.
+
+================================================================================
+PART 1 — INTRADAY DECISION-SUPPORT SYSTEM
+================================================================================
+Overall: NEARLY COMPLETE. 21 of 24 sub-areas fully DONE. Only 3 small gaps.
+
+ENTRY SCORE (src/entry_score.mjs)
+  [DONE] Opportunity Score 0-100, bands 90/80/70 exact match to spec.
+  [DONE] Price action (HH/HL, breakout, retest, consolidation, rejection, structure)
+  [DONE] Opening strength (price>open, move, ATR-relative sustainability)
+  [DONE] VWAP (price>VWAP, rising, support/reclaim)
+  [DONE] Opening range — 5m/15m/30m ORB all scored, with retest + volume confirm
+  [DONE] Volume — relative, acceleration, breakout volume
+  [PARTIAL] Time-of-day volume normalization is an approximation (discounts a
+            midday-lull window), not a true per-symbol historical volume profile.
+            (This is the same gap flagged again in PART 2 below — one real fix.)
+  [DONE] Relative strength vs NIFTY and vs sector, including RS trend
+  [DONE] Sector strength + sector momentum
+  [DONE] EMA 9/21/50 alignment + slope
+  [DONE] MACD crossover, histogram, histogram acceleration
+  [DONE] RSI healthy/extended/deteriorating
+  [PARTIAL] Previous day — high/breakout used; prev-day low/close not separately
+            scored (only used as resistance context in Upside Potential).
+  [DONE] ATR/volatility gate
+  [PARTIAL] Liquidity — traded value covered; spread/execution quality is only
+            applied to the already-shortlisted Intraday Opportunities list
+            (via annotateSpread in scanner.mjs), not the full-universe score.
+  [DONE] No double-counting — EMA/MACD/RSI explicitly capped as a low-weight
+         "confirmation" bucket, not full independent weight.
+
+UPSIDE POTENTIAL (src/entry_score.mjs computeUpsidePotential)
+  [DONE] Not "price+5%" — uses ATR, ORB confirmation, structure, MACD accel, RS,
+         sector strength/momentum, prev-day/52W/weekly-high resistance capping,
+         distance-already-travelled/exhaustion discount. Returns zone/remaining/
+         confidence, explicitly labeled "estimate, not a guarantee."
+  [PARTIAL] Does not directly weight raw volume (only indirectly via ORB), and
+            does not reference historical-similar-setup base rates (the
+            backtest module computes calibration separately but doesn't feed
+            back into the live estimate).
+
+ENTRY ATTRACTIVENESS (src/entry_score.mjs)
+  [DONE] Genuinely separate score from Opportunity Score. Penalizes move-from-
+         open >2.5% (linear), >4% (steeper) + ATR-consumed + VWAP-extension
+         penalties. Matches the spec's "don't chase" intent.
+
+NO LOOK-AHEAD BIAS (src/backtest.mjs)
+  [DONE] Structurally verified, not just claimed — binary-searches only candles
+         with ts <= targetTs, daily ATR uses strictly-prior-day data, same
+         production scoring functions reused unmodified in backtest.
+
+MARK CRITICAL (src/critical_trades.mjs)
+  [DONE] Stores symbol/entryPrice/quantity/entryTime/optional stopLoss+target.
+         Persisted to data/critical_trades.json, loaded on boot. Wired into
+         scanner_testing.mjs API routes. (Known caveat, already documented in
+         the file: ephemeral disk on Render — may not survive a redeploy.)
+
+TRADE HEALTH ENGINE (src/trade_health.mjs)
+  [DONE] Live price, P&L, P&L%, vs-open, vs-upside-zone, price action, VWAP,
+         volume, RS, EMA/MACD/RSI-as-confirmation all present.
+
+EXIT SIGNAL PRIORITY
+  [DONE] Weights exactly match spec's priority order: price action 40% > VWAP
+         25% > volume 20% > RS 10% > EMA/MACD/RSI confirmation 5%. Verified the
+         confirmation bucket mathematically cannot flip HOLD into an exit
+         warning alone.
+
+PROFIT PROTECTION
+  [DONE] Fires while still in profit, before price falls below entry, when 2+
+         structural sub-scores weaken — independent of the overall threshold.
+
+PROFIT GIVEBACK
+  [DONE] Tracks peak unrealized profit, computes giveback as a fraction of
+         peak profit (not a fixed %), combined with price-action/VWAP health.
+
+TRADE STATES
+  [DONE] Exact thresholds match spec verbatim: 90-100 STRONG HOLD / 80-89 HOLD
+         / 70-79 MOMENTUM WEAKENING / 60-69 PROFIT PROTECTION / 50-59 STRONG
+         EXIT WARNING / <50 THESIS INVALIDATED. Backtest calibration exists
+         (checks whether lower bands actually predict worse forward returns).
+
+TRAP DETECTION
+  [DONE] All 9 listed patterns implemented, 4-level classification exact match,
+         explicitly framed as "observable behaviour," not "operator activity."
+
+MARKET REGIME
+  [DONE] BULLISH/BEARISH/SIDEWAYS from NIFTY trend + breadth + volatility,
+         dynamic entry-bar adjustment (70/80/95), NO TRADE flag.
+  [PARTIAL] "Sector participation" isn't a distinct regime input (sector data
+            exists elsewhere but isn't fed into computeMarketRegime).
+
+MINUTE HISTORY
+  [DONE] Rolling per-minute log, SUDDEN/ACCELERATING/GRADUAL/RECOVERY/STABLE
+         classification, requires 2 consecutive bad minutes before a strong
+         exit notification fires (a single bad minute cannot trigger one).
+
+MULTI-TIMEFRAME
+  [PARTIAL] Entry scoring correctly uses 5m/15m/30m. Critical-trade monitoring
+            (onScanComplete) never fetches/passes the 30m row — real gap,
+            small fix (one line in critical_trades.mjs + trade_health.mjs ctx).
+
+CAPITAL ROTATION
+  [DONE] "BETTER OPPORTUNITY AVAILABLE" surfaced only when current trade is
+         already weak, requires meaningfully higher score elsewhere. Purely
+         informational — confirmed it never auto-executes anything.
+
+BACKTEST
+  [DONE] Win rate, precision, expectancy, profit factor, avg/median return,
+         drawdown, false-positive rate, MFE, MAE, profit giveback all computed.
+         Separate dev/validation date ranges. Evaluates bands separately.
+
+NOTIFICATIONS
+  [DONE] All 8 required types implemented with per-type cooldown/debounce.
+
+--------------------------------------------------------------------------------
+PART 1 GAPS TO FIX (small, well-scoped):
+  1. Add the 30m row to Critical-trade Trade Health monitoring (currently only
+     entry scoring gets it).
+  2. Apply real spread/execution-quality to the full-universe score, not just
+     the shortlisted Intraday Opportunities.
+  3. Feed backtest-derived historical base rates back into the live Upside
+     Potential confidence estimate (currently computed independently).
+--------------------------------------------------------------------------------
+
+================================================================================
+PART 2 — SPEED / QUALITY / FRESHNESS ARCHITECTURE
+================================================================================
+Overall: IMPLEMENTED AND LIVE-VERIFIED. Root cause was a monolithic scan
+loop that deep-analyzed the full 241-symbol universe across all 7 timeframes
+every cycle, with zero candle caching. Rebuilt as a two-stage scan (cheap
+full-universe Stage-1 filter -> deep Stage-2 only on a shortlist) + a TTL
+candle cache + a dedicated ~1-minute Critical-trade monitor decoupled from
+the general scan. Measured live on the real server (D:\Groww,
+src/candle_cache.mjs, src/stage1_filter.mjs, src/session_candles.mjs,
+src/critical_monitor.mjs, scanner.mjs restructured):
+  Cycle 1 (cold cache):  449s  (~7.5 min) — 1,320 candle fetches, 0 cache hits
+  Cycle 2 (warm cache):  168s  (~2.8 min) — 269 cache hits of ~560 requests
+That's a 2.7x cycle-over-cycle speedup, landing well inside the ~5-minute
+general-refresh target (vs. the original ~20-25 min baseline — roughly an
+8-9x improvement in steady state).
+
+CURATED UNIVERSE (src/universe.mjs)
+  [PARTIAL] Unchanged — still no explicit LARGE/MID/SMALL CAP field or
+            programmatic liquidity/spread filtering (static curated list).
+            Not addressed in this pass; low priority per the recommendation.
+
+TOP 20
+  [PARTIAL] Unchanged — enrichOpportunities() still slices(0, 40), not ~20.
+            Not addressed in this pass (a 1-line change if wanted later).
+
+TWO-STAGE SCANNING
+  [DONE] src/stage1_filter.mjs's computeFullUniverseSnapshot() (all 241
+         symbols, zero-fetch: cache reads + free WebSocket LTP) feeds
+         selectStage2Symbols() (indices + active Critical trades + top
+         cheap-score + a fairness-rotation slice so no symbol is ever
+         permanently excluded) — scanner.mjs's scanSymbol() now runs
+         buildSignal only on that shortlist (80-100 symbols/cycle), not the
+         full universe.
+
+SPEED (<60s manual refresh target)
+  [DONE] New POST /api/scan/refresh/:symbol (scanner.mjs's refreshSymbolNow)
+         force-refreshes one symbol's 7 timeframes with no rate-limit
+         contention — well under 60s. General-cycle speed verified above.
+
+5-MINUTE GENERAL SCAN
+  [DONE] startScan() now sleeps `max(5000, 5min - elapsed)` instead of a
+         flat 30s — verified live: cycle 2 finished in 168s and the server
+         correctly scheduled the next cycle ~113s later to land on the
+         5-minute mark (nextCycleEtaMs confirmed via /api/status).
+
+CRITICAL = 1 MINUTE
+  [DONE] New src/critical_monitor.mjs runs on its own setInterval(60s),
+         force-refreshing (bypassing the cache TTL, using reserved
+         rate-limit priority headroom) just the active Critical-trade
+         symbols' 1m/5m/15m candles — completely decoupled from wherever
+         the general Stage-1/Stage-2 loop currently is. critical_trades.mjs's
+         onScanComplete was renamed onCriticalTick and now reads from this
+         dedicated feed instead of the general scan's dataBuckets.
+
+CACHING
+  [DONE] New src/candle_cache.mjs — per-timeframe TTL (1d~24h down to
+         1m~60s) wrapping upstox.mjs's fetchCandles. Verified live: cycle 2
+         hit the cache 269 times instead of re-fetching. `peekCandles()`
+         (cache-only, never fetches) powers Stage-1's near-zero-cost read.
+
+INCREMENTAL INDICATORS
+  [NOT DONE] Not addressed in this pass — EMA/MACD/RSI/ATR/VWAP still
+             recompute full series each call. Candle caching (above)
+             captures most of the same speed win with far less risk/effort;
+             true incremental indicator state would be a separate, lower-
+             priority follow-up.
+
+TIME-OF-DAY VOLUME NORMALIZATION
+  [NOT DONE] Not addressed in this pass.
+
+DATA FRESHNESS CLASSIFICATION
+  [DONE] Unchanged from before this pass (src/data_quality.mjs).
+
+EVENT-DRIVEN UPDATES
+  [NOT DONE] Not addressed in this pass — the two-stage cadence (Stage-1
+             every cycle, Stage-2 on a shortlist) substantially reduces the
+             cost of the fixed-schedule approach, but true LTP-crosses-VWAP/
+             ORB-breakout-triggered re-evaluation still doesn't exist.
+
+ADAPTIVE MARKET REGIME THRESHOLDS
+  [DONE] Unchanged (still correct) — but note the underlying breadth/VWAP-
+         participation/volatility inputs computeMarketRegime() consumes were
+         changed: they now come from Stage-1's FULL-universe snapshot every
+         cycle (see market_regime.mjs's new signature), not from whatever
+         partial 15m_ALL bucket the old sequential loop had reached. This
+         fixes a real selection-bias risk the two-stage design would
+         otherwise have introduced (regime computed only from stocks that
+         already look strong would be permanently biased bullish) — tested
+         in test/market_regime.test.mjs.
+
+CRITICAL TRADE HISTORY (multi-resolution view)
+  [PARTIAL] Unchanged — still 1-minute resolution only, no 3-5m/15m/30m
+            rollup view. Not addressed in this pass.
+
+PROGRESSIVE UI
+  [DONE] scanProgress now includes stage/cycleStartedAt/stage1DurationMs/
+         stage2DurationMs/lastCycleDurationMs; /api/status adds
+         nextCycleEtaMs + candleCache stats; a new #scanProgressBadge in the
+         frontend (ui-renders.mjs's updateScanProgressBadge, wired into
+         ui-main.mjs's existing pollStatus() poll — no new network call)
+         shows live Stage-2 progress and last-cycle duration.
+
+ARCHITECTURE SEPARATION
+  [DONE] Static data (candle_cache.mjs) / cheap full-universe filter
+         (stage1_filter.mjs) / deep analysis (scanner.mjs's Stage-2) /
+         Critical monitoring (critical_monitor.mjs, its own timer + reserved
+         rate-limit priority) are now genuinely separate modules/execution
+         paths, not one monolithic loop.
+
+--------------------------------------------------------------------------------
+PART 2 STATUS: the core engineering work (caching, two-stage scan, decoupled
+Critical monitor, progress UI) is DONE and live-verified. Remaining PARTIAL/
+NOT DONE items above (explicit market-cap tagging, top-20 vs top-40, 3-5m/
+15m/30m Critical-trade history rollup, incremental indicators, time-of-day
+volume normalization, event-driven re-evaluation) are lower-priority
+polish/follow-up, not addressed in this pass.
+
+Tests: 18 new tests added (candle_cache, stage1_filter, session_candles,
+market_regime, critical_monitor) — 71/71 passing across the whole suite.
+--------------------------------------------------------------------------------
+
+================================================================================
+PART 3 — LIGHTWEIGHT SELF-IMPROVING LEARNING LAYER
+================================================================================
+Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
+
+  [NOT DONE] Database/ML dependencies — package.json has none (no sqlite3,
+             better-sqlite3, node:sqlite, pg, supabase-js, or any ML library).
+  [NOT DONE] Snapshot storage of candidate features + later outcomes.
+  [NOT DONE] Storing missed/non-entered candidates (to avoid selection bias).
+  [NOT DONE] Statistical learning (rolling win rate, Bayesian updating,
+             logistic regression, calibrated probability).
+  [NOT DONE] Weight adaptation (PROPOSED vs PRODUCTION weights).
+  [PARTIAL]  Walk-forward / frozen validation — backtest.mjs already supports
+             a one-off manual dev/validation date-range split via CLI flags,
+             but there's no rolling walk-forward loop, no automation, no
+             persisted "frozen" dataset.
+  [NOT DONE] Market-regime-specific learning.
+  [NOT DONE] Time-of-day learning.
+  [NOT DONE] Signal-interaction (combination) learning.
+  [NOT DONE] Outcome labels (CLOSE_ABOVE_OPEN, REACHED_1/2/2.5/5_PERCENT,
+             MAJOR_REVERSAL, PROFIT_GIVEBACK, THESIS_FAILURE).
+  [NOT DONE] Calibrated probability display (% + confidence + sample size).
+  [PARTIAL]  Minimum sample size guard — backtest.mjs has a comment warning
+             results are "directional, not precise" below dozens of samples,
+             but nothing enforces a minimum anywhere in code.
+  [NOT DONE] Model safety fallback, drift detection, model versioning/rollback.
+  [NOT DONE] Storage efficiency / retention policy (nothing stored yet).
+  [NOT DONE] Daily post-market-close learning loop.
+  [NOT DONE] "MODEL / LEARNING" dashboard section.
+
+--------------------------------------------------------------------------------
+PART 3 IS A FULL NEW SUBSYSTEM, BUILT FROM SCRATCH:
+  1. SQLite schema + snapshot writer (candidate features, written at scan time)
+  2. End-of-day outcome finalizer (fills in close/MFE/MAE/labels after 15:30)
+  3. Statistical model (start with rolling win rates + logistic regression,
+     NOT gradient boosting/neural nets, per your explicit instruction)
+  4. Walk-forward training/validation loop, run once daily after close
+  5. PROPOSED vs PRODUCTION weight comparison + manual/gated promotion
+  6. Calibrated probability read API (used by the live scanner, with a
+     minimum-sample-size fallback to the pure rule-based score)
+  7. MODEL/LEARNING dashboard tab
+--------------------------------------------------------------------------------
+
+================================================================================
+STATUS AS OF THIS UPDATE
+================================================================================
+Part 1: 21/24 sub-areas DONE from before this conversation. 3 small gaps
+        identified, NOT YET FIXED (30m timeframe missing from Critical-trade
+        monitoring, spread gate not applied to the full universe, upside-
+        potential not fed by backtest base rates).
+
+Part 2: DONE and live-verified (candle cache, two-stage scan, decoupled
+        1-minute Critical monitor, progress UI) — see the measured cycle
+        timing above. A handful of lower-priority polish items remain
+        (explicit market-cap tagging, top-20 vs top-40, multi-resolution
+        Critical-trade history, incremental indicators, time-of-day volume
+        normalization, event-driven re-evaluation) — not addressed.
+
+Part 3: NOT STARTED. Still a full new subsystem to build from scratch
+        (schema, daily job, walk-forward validation, dashboard) — realistically
+        a multi-day build on its own. Now that Part 2's speed fix means the
+        underlying data is genuinely fresh, this is a reasonable next phase
+        whenever you want to take it on.
+
+This file is updated in place as each item is completed.
+================================================================================

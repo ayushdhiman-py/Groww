@@ -37,12 +37,20 @@ const rateLimitState = {
     lastRequestTime: 0,
     minGap: 125, // ~8 req/sec burst max
     maxPerMinute: 250,
+    reservedForPriority: 30, // headroom kept free for priority callers (Critical-trade monitor)
     backoffuntil: 0
 };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-export async function rateLimit() {
+/**
+ * @param {{priority?: boolean}} [opts] — `priority: true` (the Critical-trade
+ *   monitor) is allowed to use the FULL per-minute budget; ordinary (general
+ *   scan) callers are capped at `maxPerMinute - reservedForPriority` so a
+ *   Critical trade's ~1-minute refresh is never queued behind a general-scan
+ *   burst.
+ */
+export async function rateLimit({ priority = false } = {}) {
     while (true) {
         const now = Date.now();
 
@@ -53,7 +61,8 @@ export async function rateLimit() {
 
         rateLimitState.requestsInWindow = rateLimitState.requestsInWindow.filter(t => now - t < 60000);
 
-        if (rateLimitState.requestsInWindow.length >= rateLimitState.maxPerMinute) {
+        const cap = priority ? rateLimitState.maxPerMinute : rateLimitState.maxPerMinute - rateLimitState.reservedForPriority;
+        if (rateLimitState.requestsInWindow.length >= cap) {
             await sleep(1000);
             continue;
         }
@@ -156,7 +165,7 @@ function toDateStr(d) {
 // Kept conservative since the exact boundary may vary slightly by interval.
 const INTRADAY_CHUNK_DAYS = 24;
 
-async function fetchCandlesChunk(instrumentKey, unitInterval, from, to) {
+async function fetchCandlesChunk(instrumentKey, unitInterval, from, to, priority = false) {
     const url = [
         HISTORICAL_CANDLE_BASE,
         encodeURIComponent(instrumentKey),
@@ -166,7 +175,7 @@ async function fetchCandlesChunk(instrumentKey, unitInterval, from, to) {
         toDateStr(from),
     ].join("/");
 
-    await rateLimit();
+    await rateLimit({ priority });
     try {
         const res = await axios.get(url, { headers: authHeaders(), timeout: 20000 });
         const candles = res.data?.data?.candles || [];
@@ -188,8 +197,9 @@ async function fetchCandlesChunk(instrumentKey, unitInterval, from, to) {
  * @param {{to?: Date, from?: Date}} [range] — override the default "last
  *   TF_DAYS[tf] days up to now" window. Used by backtest.mjs to pull a
  *   specific historical window; live scanning never passes this.
+ * @param {{priority?: boolean}} [opts] — see rateLimit()'s `priority` doc.
  */
-export async function fetchCandles(symbol, tf, range = null) {
+export async function fetchCandles(symbol, tf, range = null, { priority = false } = {}) {
     if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
     const instrumentKey = resolveInstrumentKey(symbol);
     if (!instrumentKey) {
@@ -207,13 +217,13 @@ export async function fetchCandles(symbol, tf, range = null) {
 
     let all;
     if (!needsChunking) {
-        all = await fetchCandlesChunk(instrumentKey, unitInterval, from, to);
+        all = await fetchCandlesChunk(instrumentKey, unitInterval, from, to, priority);
     } else {
         all = [];
         let chunkTo = to;
         while (chunkTo > from) {
             const chunkFrom = new Date(Math.max(from.getTime(), chunkTo.getTime() - INTRADAY_CHUNK_DAYS * 86400000));
-            const part = await fetchCandlesChunk(instrumentKey, unitInterval, chunkFrom, chunkTo);
+            const part = await fetchCandlesChunk(instrumentKey, unitInterval, chunkFrom, chunkTo, priority);
             all.push(...part);
             chunkTo = new Date(chunkFrom.getTime() - 86400000); // step back a day to avoid re-requesting the same boundary day
         }

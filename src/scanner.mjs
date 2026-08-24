@@ -1,4 +1,6 @@
-import { fetchCandles, fetchBulkLtp, fetchBulkQuotes, rateLimit } from "./upstox.mjs";
+import { fetchBulkLtp, fetchBulkQuotes } from "./upstox.mjs";
+import { getOrFetchCandles } from "./candle_cache.mjs";
+import { isolateTodaySession } from "./session_candles.mjs";
 import { ema, macd, rsi, vwap, vwapSeries, historicalVolatility, atr, emaSlopePct } from "./indicators.mjs";
 import { analyzeStructure, detectBreakout, detectRetest, detectRejection, detectConsolidation } from "./price_action.mjs";
 import { TF_MAP } from "./config.mjs";
@@ -10,7 +12,8 @@ import { historical, UNAVAILABLE, isMarketOpen as _isMarketOpen } from "./data_q
 import { fetchDividend, formatDividendInfo } from "./dividend.mjs";
 import { enrichOpportunities } from "./entry_score.mjs";
 import { computeMarketRegime, regimeMinOpportunityScore } from "./market_regime.mjs";
-import { onScanComplete } from "./critical_trades.mjs";
+import { listCriticalTrades } from "./critical_trades.mjs";
+import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } from "./stage1_filter.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -50,6 +53,39 @@ function computeDataAsOf(data) {
         }
     }
     return Number.isFinite(min) ? min : null;
+}
+
+/** Replace-or-insert by symbol — buckets are persistent, never rebuilt empty. */
+function upsertRow(bucketArray, row) {
+    const i = bucketArray.findIndex(r => r.symbol === row.symbol);
+    if (i >= 0) bucketArray[i] = row;
+    else bucketArray.push(row);
+}
+
+/**
+ * Cheap, zero-fetch price refresh applied to EVERY row in every bucket after
+ * each sync — not just the symbols Stage-2 deep-analyzed this cycle. Keeps
+ * `price`/`chgPct`/`priceSource`/`priceTs` honestly current even for a
+ * symbol whose indicators (VWAP/EMA/structure/etc, tagged via `candleTs`)
+ * weren't refreshed this cycle — those two ages are already exposed
+ * separately on every row, so this never hides staleness, it only prevents
+ * an already-fresh, free (WebSocket) price signal from being ignored.
+ */
+function applyLivePriceOverlay(data) {
+    for (const tf of Object.keys(TF_MAP)) {
+        for (const row of data[`${tf}_ALL`] || []) {
+            const fresh = getLtpWithFreshness(row.symbol);
+            if (fresh.value == null) continue; // no live tick yet — leave the row at its last known price
+            row.price = +fresh.value.toFixed(2);
+            row.priceSource = fresh.source;
+            row.priceTs = fresh.ts;
+            if (row.prevClose) {
+                row.priceChange = +(row.price - row.prevClose).toFixed(2);
+                row.chgPct = +(((row.price - row.prevClose) / row.prevClose) * 100).toFixed(2);
+            }
+            if (row.vwap != null) row.aboveVwap = row.price > row.vwap;
+        }
+    }
 }
 
 // Local rateLimit removed in favor of global one in upstox.mjs
@@ -104,69 +140,7 @@ export function buildSignal(candles, tf, symbol, ltpFresh = UNAVAILABLE("no ltp 
     const livePrice = priceSource.value;
     const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
 
-    // IST calendar-day bucket as a plain integer instead of
-    // toLocaleDateString(..., {timeZone}) — Intl-based timezone formatting
-    // is expensive enough that calling it per-candle in the loop below (run
-    // once per bar by the backtester, on an array that can run into the
-    // thousands of candles) dominates runtime. India has no DST, so a fixed
-    // +5:30 offset is exact, not an approximation.
-    const IST_OFFSET_MS = 5.5 * 3600000;
-    const istDay = ts => Math.floor((ts + IST_OFFSET_MS) / 86400000);
-    const todayIdx = istDay(lastTs);
-
-    // Day High/Low
-    let dayH = -Infinity, dayL = Infinity;
-    // Weekly High/Low (last 7 days)
-    let weekH = -Infinity, weekL = Infinity;
-    // 52-Week High/Low (only calculated correctly on 1d TF)
-    let h52w = -Infinity, l52w = Infinity;
-
-    let prevClose = null;
-    let prevDayIdx = null;
-    let prevDayH = -Infinity, prevDayL = Infinity;
-    const todayCandlesRev = []; // filled newest-first, reversed below
-    const weekThresh = lastTs - (7 * 86400000);
-    const yearThresh = lastTs - (365 * 86400000);
-
-    for (let i = n - 1; i >= 0; i--) {
-        const c = candles[i];
-        const ts = normalizeTs(c.ts);
-
-        // 52-Week logic (only if 1d timeframe)
-        if (tf === "1d" && ts >= yearThresh) {
-            h52w = Math.max(h52w, c.high);
-            l52w = Math.min(l52w, c.low);
-        }
-
-        // Weekly logic
-        if (ts >= weekThresh) {
-            weekH = Math.max(weekH, c.high);
-            weekL = Math.min(weekL, c.low);
-        }
-
-        const cIdx = istDay(ts);
-        if (cIdx === todayIdx) {
-            dayH = Math.max(dayH, c.high);
-            dayL = Math.min(dayL, c.low);
-            todayCandlesRev.push(c);
-        } else if (prevDayIdx === null) {
-            // First non-today candle encountered scanning backward from the
-            // most recent bar — this is the previous trading day's LAST bar,
-            // so its close is the exact previous close.
-            prevDayIdx = cIdx;
-            prevClose = c.close;
-            prevDayH = c.high;
-            prevDayL = c.low;
-        } else if (cIdx === prevDayIdx) {
-            prevDayH = Math.max(prevDayH, c.high);
-            prevDayL = Math.min(prevDayL, c.low);
-        }
-        // else: an earlier day — only relevant to the week/year windows above.
-    }
-
-    const todayCandles = todayCandlesRev.slice().reverse(); // chronological order, today's session only
-    if (prevDayH === -Infinity) prevDayH = null;
-    if (prevDayL === Infinity) prevDayL = null;
+    let { todayCandles, dayH, dayL, weekH, weekL, h52w, l52w, prevClose, prevDayH, prevDayL } = isolateTodaySession(candles, tf);
 
     // Fallbacks and incorporating livePrice
     if (dayH === -Infinity) { dayH = Math.max(last.high, livePrice); dayL = Math.min(last.low, livePrice); }
@@ -174,9 +148,6 @@ export function buildSignal(candles, tf, symbol, ltpFresh = UNAVAILABLE("no ltp 
 
     if (weekH === -Infinity) { weekH = dayH; weekL = dayL; }
     if (h52w === -Infinity && tf === "1d") { h52w = dayH; l52w = dayL; }
-
-    if (prevClose === null && n > 1) prevClose = candles[n - 2].close;
-    if (prevClose === null) prevClose = last.open;
 
     const priceChange = livePrice - prevClose;
     const chgPct = (priceChange / prevClose) * 100;
@@ -333,7 +304,21 @@ const CACHE_MAX_AGE_MS = 26 * 3600 * 1000; // one missed daily refresh — beyon
 const symbolErrorCount = new Map(); // Track consecutive errors per symbol
 const MAX_CONSECUTIVE_ERRORS = 3; // Skip symbol after this many consecutive errors
 
-async function scanSymbol(symbol, buckets, errors, progressInfo, ltpFresh) {
+/**
+ * Full-universe ATR% snapshot for Market Regime's volatility input — reads
+ * atrCache directly rather than the (possibly Stage-2-partial) `_ALL`
+ * buckets, so regime volatility isn't subject to the same selection-bias
+ * risk breadth/VWAP-participation are (see market_regime.mjs).
+ */
+export function getAtrPctSnapshot() {
+    const out = {};
+    for (const [symbol, c] of atrCache) {
+        if (Date.now() - c.wroteAt < CACHE_MAX_AGE_MS) out[symbol] = c.atrPct;
+    }
+    return out;
+}
+
+async function scanSymbol(symbol, buckets, errors, progressInfo, ltpFresh, { forceRefresh = false } = {}) {
     // Skip symbols with too many consecutive errors (likely invalid symbols)
     const consecutiveErrors = symbolErrorCount.get(symbol) || 0;
     if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
@@ -348,10 +333,12 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltpFresh) {
 
     for (const tf of tfs) {
         try {
-            // Scanner has lower priority, so we wait longer if needed
-            await rateLimit();
+            // getOrFetchCandles rate-limits internally (upstox.mjs) ONLY on an
+            // actual cache miss — an explicit rateLimit() call here would
+            // needlessly gate even cache HITS, wasting rate-limit budget for
+            // no request at all.
             process.stdout.write(`\r\x1b[K⏳ ${progressInfo} ${symbol}: [${okCount}/${tfs.length}] Scanning ${tf}...`);
-            const candles = await fetchCandles(symbol, tf);
+            const candles = await getOrFetchCandles(symbol, tf, { forceRefresh });
 
             // Reset error count on successful fetch
             symbolErrorCount.set(symbol, 0);
@@ -394,10 +381,15 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltpFresh) {
             row.isNewGolden = row.goldenCross && row.isNew;
             prevSigs.set(key, row.signal);
 
-            buckets[`${tf}_ALL`].push(row);
-            if (row.signal === "BUY") buckets[`${tf}_BUY`].push(row);
-            if (row.signal === "SELL") buckets[`${tf}_SELL`].push(row);
-            if (row.goldenCross) buckets[`${tf}_GOLDEN`].push(row);
+            // Buckets are now PERSISTENT (carried forward across cycles, not
+            // rebuilt from empty each time — see scanAll()), so this must
+            // upsert-by-symbol rather than push, or a symbol scanned in a
+            // prior cycle would end up duplicated once re-scanned. `_BUY`/
+            // `_SELL`/`_GOLDEN` are derived from `_ALL` in scanAll()'s sync
+            // step instead of being pushed to directly here, so a symbol
+            // whose signal changed (or dropped out of BUY/SELL) never lingers
+            // stale in a derived bucket.
+            upsertRow(buckets[`${tf}_ALL`], row);
             okCount++;
         } catch (e) {
             let errMsg = e.response?.data?.message || e.response?.data?.error || e.message;
@@ -466,12 +458,44 @@ async function annotateSpread(opportunities) {
     }
 }
 
+/**
+ * Two-stage scan cycle:
+ *  Stage 1 — computeFullUniverseSnapshot() (stage1_filter.mjs): ALL 241
+ *    symbols, near-zero REST cost (cache reads + free WebSocket LTP).
+ *  Stage 2 — deep buildSignal() analysis, but ONLY on selectStage2Symbols()'s
+ *    output (indices + active Critical trades + top cheap-score + a fairness
+ *    rotation slice) instead of the whole universe — this is what brings a
+ *    cycle down from ~20-25 minutes to roughly ~5 minutes.
+ * `state.data` buckets are PERSISTENT across cycles (this cycle's `next`
+ * starts as a clone of the current `state`, not an empty shell) — a symbol
+ * not Stage-2'd this cycle simply keeps its last-known row, already tagged
+ * with its real age via `priceTs`/`candleTs`.
+ */
 export async function scanAll() {
     if (!isAuthenticated || scanning) return;
     scanning = true;
-    scanProgress = { done: 0, total: UNIVERSE.length };
     console.log("Scan started:", new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }));
-    const next = emptyState();
+
+    const cycleStartedAt = Date.now();
+    const stage1StartedAt = Date.now();
+
+    // Stage 1 breadth/participation is deliberately computed from ALL 241
+    // symbols here, never from the Stage-2 shortlist below — otherwise Market
+    // Regime would be biased toward stocks that already look strong (a
+    // regime "confirmed" only by cherry-picked survivors is not a regime
+    // reading at all).
+    const snapshot = computeFullUniverseSnapshot(UNIVERSE);
+    const activeCriticalSymbols = listCriticalTrades().map(t => t.symbol);
+    const stage2Symbols = selectStage2Symbols(snapshot, { activeCriticalSymbols });
+    const stage1DurationMs = Date.now() - stage1StartedAt;
+
+    scanProgress = {
+        done: 0, total: stage2Symbols.length, stage: "stage2", cycleStartedAt,
+        stage1DurationMs, stage2DurationMs: null,
+        lastCycleDurationMs: scanProgress?.lastCycleDurationMs ?? null,
+    };
+
+    const next = { ...emptyState(), data: JSON.parse(JSON.stringify(state.data)) };
 
     try {
         const sortFn = (a, b) => {
@@ -490,36 +514,45 @@ export async function scanAll() {
         // once more on the final symbol.
         const SYNC_INTERVAL_MS = 2000;
         let lastSyncTs = 0;
+        const stage2StartedAt = Date.now();
 
-        for (let scanIdx = 0; scanIdx < UNIVERSE.length; scanIdx++) {
-            const sym = UNIVERSE[scanIdx];
-            const pInfo = `[${scanProgress.done + 1}/${UNIVERSE.length}]`;
+        for (let scanIdx = 0; scanIdx < stage2Symbols.length; scanIdx++) {
+            const sym = stage2Symbols[scanIdx];
+            const pInfo = `[${scanProgress.done + 1}/${stage2Symbols.length}]`;
             try {
                 await scanSymbol(sym, next.data, next.errors, pInfo, getLtpWithFreshness(sym));
+                markDeepScanned(sym);
             } catch (e) {
                 console.error(`\n❌ Critical error scanning ${sym}:`, e.message);
             }
             scanProgress.done++;
 
             const now = Date.now();
-            const isLast = scanIdx === UNIVERSE.length - 1;
+            const isLast = scanIdx === stage2Symbols.length - 1;
             if (!isLast && now - lastSyncTs < SYNC_INTERVAL_MS) continue;
             lastSyncTs = now;
 
-            // Periodically sync progress to global state (so UI updates)
+            // BUY/SELL/GOLDEN are derived fresh from ALL every sync (ALL is
+            // the only bucket scanSymbol writes to now, via upsertRow) — a
+            // symbol whose signal changed, or that dropped out of BUY/SELL
+            // entirely, is never left stale in a derived bucket.
             for (const tf of Object.keys(TF_MAP)) {
-                next.data[`${tf}_BUY`].sort(sortFn);
-                next.data[`${tf}_GOLDEN`].sort(sortFn);
-                next.data[`${tf}_ALL`].sort((a, b) => b.techScore - a.techScore);
+                const all = next.data[`${tf}_ALL`];
+                next.data[`${tf}_BUY`] = all.filter(r => r.signal === "BUY").sort(sortFn);
+                next.data[`${tf}_SELL`] = all.filter(r => r.signal === "SELL").sort(sortFn);
+                next.data[`${tf}_GOLDEN`] = all.filter(r => r.goldenCross).sort(sortFn);
+                all.sort((a, b) => b.techScore - a.techScore);
             }
+
+            // Free (WebSocket-only) price refresh across EVERY row, not just
+            // this cycle's Stage-2 subset — see applyLivePriceOverlay's doc.
+            applyLivePriceOverlay(next.data);
 
             // Cross-sectional passes (need every symbol scanned SO FAR, not
             // the whole universe) run on every periodic sync, not just once
-            // at the very end — a full 241-symbol scan can take minutes, and
-            // both the Intraday tab and Critical-trade monitoring should
-            // update progressively rather than sit blank/stale until the
-            // entire universe finishes.
-            next.marketRegime = computeMarketRegime(next.data);
+            // at the very end — both the Intraday tab and Critical-trade
+            // monitoring should update progressively.
+            next.marketRegime = computeMarketRegime(next.data, snapshot, getAtrPctSnapshot());
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
             next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
             await annotateSpread(next.intradayOpportunities);
@@ -528,13 +561,39 @@ export async function scanAll() {
             next.dataAsOf = computeDataAsOf(next.data);    // the actual oldest price timestamp behind what synced
             state = JSON.parse(JSON.stringify(next));
 
-            onScanComplete(next).catch(e => console.error("[CriticalTrades] onScanComplete error:", e.message));
+            scanProgress = { ...scanProgress, stage2DurationMs: Date.now() - stage2StartedAt };
+
+            // Critical trades' structural health no longer updates here —
+            // critical_monitor.mjs's dedicated ~60s loop is now sole
+            // authority for that (see critical_trades.mjs's onCriticalTick).
+            // Stage-2 still includes active-critical symbols in its
+            // always-include set (stage1_filter.mjs) so their full 7-
+            // timeframe `_ALL`-bucket rows stay populated for entry_score/
+            // screener — additive, not a second source of truth for health.
         }
-        process.stdout.write(`\r\x1b[K✅ Scan complete | Time: ${new Date().toLocaleTimeString()} | Total Errors: ${state.errors.length} | Regime: ${next.marketRegime?.regime}\n`);
+        const lastCycleDurationMs = Date.now() - cycleStartedAt;
+        scanProgress = { ...scanProgress, stage: "idle", lastCycleDurationMs };
+        process.stdout.write(`\r\x1b[K✅ Scan complete | Time: ${new Date().toLocaleTimeString()} | Total Errors: ${state.errors.length} | Regime: ${next.marketRegime?.regime} | Cycle: ${(lastCycleDurationMs / 1000).toFixed(1)}s | Stage-2: ${stage2Symbols.length} symbols\n`);
 
         // Fetch dividend data in background after scan completes
         fetchDividendsInBackground(next.data);
     } finally { scanning = false; }
+}
+
+/**
+ * On-demand single-symbol refresh — force-bypasses the candle cache so the
+ * result is genuinely current, not whatever happened to be cached. Mutates
+ * the live `state.data` buckets directly (a single symbol × 7 timeframes is
+ * fast enough that the atomic-snapshot concern the main cycle's clone-and-
+ * swap pattern exists for doesn't meaningfully apply here). Meets the
+ * "<60s manual refresh" target: 7 sequential force-refreshed fetches with no
+ * rate-limit contention from the general scan.
+ */
+export async function refreshSymbolNow(symbol) {
+    const errors = [];
+    await scanSymbol(symbol, state.data, errors, `[manual/${symbol}]`, getLtpWithFreshness(symbol), { forceRefresh: true });
+    markDeepScanned(symbol);
+    return { symbol, errors };
 }
 
 // Fetch dividend data for all stocks in background
@@ -572,8 +631,15 @@ async function fetchDividendsInBackground(data) {
     }
 }
 
+// Real ~5-minute general-scan cadence (was "back-to-back forever" — with the
+// pre-two-stage full-241-symbol deep scan taking ~20-25 minutes on its own,
+// a fixed 30s post-cycle sleep never produced anything close to a 5-minute
+// refresh; now that a cycle is ~3-6 minutes, this actually holds).
+const CYCLE_INTERVAL_MS = 5 * 60 * 1000;
+
 export async function startScan() {
     while (true) {
+        const cycleStart = Date.now();
         try {
             if (isMarketOpen() || state.lastUpdated === null) {
                 await scanAll();
@@ -582,6 +648,7 @@ export async function startScan() {
             console.error("Critical error in startScan background loop:", e.message);
         }
 
-        await sleep(30000);
+        const elapsed = Date.now() - cycleStart;
+        await sleep(Math.max(5000, CYCLE_INTERVAL_MS - elapsed));
     }
 }

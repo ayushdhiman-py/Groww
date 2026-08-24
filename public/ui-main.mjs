@@ -244,6 +244,7 @@ async function pollStatus() {
   try {
     const status = await dataManager.fetchStatus();
     syncDividendToggleAvailability(status.dividendAvailable !== false);
+    window.updateScanProgressBadge?.(status);
 
     // If scanning, poll /api/state every 3s to show progress. This MUST force
     // a real fetch — DataManager's 30s cache TTL would otherwise silently

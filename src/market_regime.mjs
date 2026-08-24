@@ -1,25 +1,35 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// market_regime.mjs — BULLISH / BEARISH / SIDEWAYS classification from data
-// already computed by the main scan (NIFTY's own row + breadth across the
-// scanned universe). No separate API calls — reuses the 15m_ALL bucket.
+// market_regime.mjs — BULLISH / BEARISH / SIDEWAYS classification.
+//
+// Breadth/VWAP-participation/volatility MUST be computed from the full
+// curated universe every cycle, never from just the symbols the (now
+// two-stage) scanner happened to deep-analyze this cycle — a "regime"
+// computed only from stocks that already look strong would be permanently
+// biased bullish. `stage1Snapshot` (stage1_filter.mjs's
+// computeFullUniverseSnapshot output) and `atrPctBySymbol`
+// (scanner.mjs's getAtrPctSnapshot output) both cover all 241 symbols
+// regardless of which subset Stage-2 refreshed this cycle. NIFTY's own row
+// still comes from the 15m_ALL bucket — NIFTY is always Stage-2'd every
+// cycle (it's in the always-include set), so it's always fresh.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function computeMarketRegime(dataBuckets) {
+export function computeMarketRegime(dataBuckets, stage1Snapshot, atrPctBySymbol = {}) {
     const rows = dataBuckets["15m_ALL"] || [];
     const nifty = rows.find(r => r.symbol === "NIFTY") || null;
-    const stockRows = rows.filter(r => r.sector !== "INDEX");
-    const total = stockRows.length;
 
-    const advancing = stockRows.filter(r => (r.chgPct ?? 0) > 0).length;
+    const cheapRows = stage1Snapshot ? [...stage1Snapshot.values()].filter(r => r.sector !== "INDEX") : [];
+    const total = cheapRows.length;
+
+    const advancing = cheapRows.filter(r => (r.chgPctCheap ?? 0) > 0).length;
     const breadthPct = total ? +((advancing / total) * 100).toFixed(1) : null;
 
-    const aboveVwapCount = stockRows.filter(r => r.aboveSessionVwap === true).length;
+    const aboveVwapCount = cheapRows.filter(r => r.aboveVwapCheap === true).length;
     const aboveVwapPct = total ? +((aboveVwapCount / total) * 100).toFixed(1) : null;
 
-    // Volatility proxy: average ATR% across the scanned universe, computed
-    // from real Upstox daily candles (no dependency on India VIX, which NSE
+    // Volatility proxy: average ATR% across the full universe, computed from
+    // real Upstox daily candles (no dependency on India VIX, which NSE
     // routinely blocks server-side fetches for).
-    const atrValues = stockRows.map(r => r.atrPct).filter(v => v != null && Number.isFinite(v));
+    const atrValues = Object.values(atrPctBySymbol).filter(v => v != null && Number.isFinite(v));
     const avgAtrPct = atrValues.length ? +(atrValues.reduce((s, v) => s + v, 0) / atrValues.length).toFixed(2) : null;
 
     let niftyTrend = "UNKNOWN";
@@ -42,12 +52,15 @@ export function computeMarketRegime(dataBuckets) {
     if (avgAtrPct != null) notes.push(`Avg ATR ${avgAtrPct}% across the universe${highVol ? " — elevated volatility" : ""}`);
     if (noTrade) notes.push("NO TRADE — conditions unfavorable for fresh intraday longs");
 
-    // `updatedAt` reflects the actual data behind this regime call (the
-    // oldest priceTs among the rows used), not wall-clock "now" — if the
-    // scan silently reused stale rows upstream, this must show that instead
-    // of claiming freshness it doesn't have.
-    const priceTimes = rows.map(r => r.priceTs).filter(ts => ts != null);
-    const dataAsOf = priceTimes.length ? Math.min(...priceTimes) : null;
+    // `dataAsOf` reflects the actual data behind THIS regime call — the
+    // oldest cached-candle age feeding the full-universe breadth/VWAP-
+    // participation calc above, not wall-clock "now". Since breadth now
+    // covers the whole universe every cycle (not just Stage-2 survivors),
+    // some of that data may be cache-aged rather than this-cycle-fresh —
+    // this must show that honestly instead of claiming freshness it doesn't
+    // have.
+    const candleAges = cheapRows.map(r => r.candleAgeMs).filter(ms => ms != null);
+    const dataAsOf = candleAges.length ? Date.now() - Math.max(...candleAges) : null;
 
     return { regime, niftyTrend, breadthPct, aboveVwapPct, avgAtrPct, noTrade, notes, dataAsOf, updatedAt: new Date().toISOString() };
 }

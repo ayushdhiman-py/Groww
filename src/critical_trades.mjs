@@ -18,6 +18,12 @@ import { computeTradeHealth, classifyDeteriorationPattern, classifyTrapRisk } fr
 import { buildMarketContext } from "./entry_score.mjs";
 import { maybeNotify } from "./notifications.mjs";
 import { findBetterOpportunity } from "./capital_rotation.mjs";
+// Cross-sectional MARKET context only (NIFTY's row, sector stats, the
+// capital-rotation candidate list) — allowed to be up to one general-cycle
+// old (~5min), unlike each trade's OWN structural data below, which the
+// dedicated critical_monitor.mjs now guarantees fresh every ~60s regardless
+// of where the general scan cycle currently is.
+import { state as scannerState } from "./scanner.mjs";
 
 const DATA_DIR = path.join(__dirname, "..", "data");
 const STORE_FILE = path.join(DATA_DIR, "critical_trades.json");
@@ -147,30 +153,32 @@ export function deleteCriticalTrade(id) {
     return trades.length !== before;
 }
 
-function findRow(dataBuckets, symbol, tf) {
-    return (dataBuckets[`${tf}_ALL`] || []).find(r => r.symbol === symbol) || null;
-}
-
 /**
- * Called once per full scan cycle (~30s) from scanner.mjs's scanAll(), right
- * after enrichOpportunities() has run. Uses the data that scan just fetched
- * from Upstox for everything except spread, which is a small, separately
- * throttled bulk quote call scoped to just the active trades' symbols.
- * @param {object} scanResult — the freshly-built `next` state object: { data, intradayOpportunities, marketRegime }
+ * Called every ~60s by critical_monitor.mjs's dedicated Critical-trade loop
+ * — completely decoupled from the general 5-minute scan cycle, so a Critical
+ * trade's structural data (VWAP/volume/price-action) is never held hostage
+ * to wherever the general scan's Stage-2 pass currently is.
+ * @param {Object<string, {1m?:object, 5m?:object, 15m?:object}>} rowsBySymbol
+ *   Fresh buildSignal() rows for each active trade's symbol, keyed by symbol
+ *   then timeframe — produced by critical_monitor.mjs from force-refreshed
+ *   candles (bypassing the general candle cache's TTL).
  */
-export async function onScanComplete(scanResult) {
+export async function onCriticalTick(rowsBySymbol) {
     const active = trades.filter(t => t.status === "ACTIVE");
     if (active.length === 0) return;
 
-    const dataBuckets = scanResult.data;
-    const ctx5m = buildMarketContext(dataBuckets, "5m");
+    // Cross-sectional MARKET context (not this trade's own data) — see the
+    // import comment above for why sourcing this from the general scanner's
+    // state (up to ~5min old) is fine here.
+    const ctx5m = buildMarketContext(scannerState.data, "5m");
     const nowMinuteKey = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
     const spreadMap = await getSpreadMap([...new Set(active.map(t => t.symbol))]);
 
     for (const trade of active) {
-        const row1m = findRow(dataBuckets, trade.symbol, "1m");
-        const row5m = findRow(dataBuckets, trade.symbol, "5m");
-        const row15m = findRow(dataBuckets, trade.symbol, "15m");
+        const rows = rowsBySymbol[trade.symbol] || {};
+        const row1m = rows["1m"] || null;
+        const row5m = rows["5m"] || null;
+        const row15m = rows["15m"] || null;
         const priceFresh = getLtpWithFreshness(trade.symbol);
         const livePrice = priceFresh.value ?? row5m?.price ?? null;
 
@@ -261,7 +269,7 @@ export async function onScanComplete(scanResult) {
             maybeNotify(trade, "MOMENTUM RECOVERED", `${trade.symbol}: health recovering, now ${health.score}.`, "info");
         }
 
-        const better = findBetterOpportunity(trade, health, scanResult.intradayOpportunities);
+        const better = findBetterOpportunity(trade, health, scannerState.intradayOpportunities);
         trade.betterOpportunity = better;
         if (better) {
             maybeNotify(trade, "BETTER OPPORTUNITY", `${better.symbol} looks stronger right now than ${trade.symbol} — ${better.reason}`, "info");

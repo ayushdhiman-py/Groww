@@ -11,7 +11,7 @@
 // don't need second-by-second freshness, and to keep total load on the
 // shared rate limiter reasonable.
 // ─────────────────────────────────────────────────────────────────────────────
-import { fetchCandles, rateLimit } from "./upstox.mjs";
+import { getOrFetchCandles } from "./candle_cache.mjs";
 import { buildSignal, state as mainState, isMarketOpen } from "./scanner.mjs";
 import { SCREENER_UNIVERSE } from "./screener_universe.mjs";
 import { UNIVERSE } from "./universe.mjs";
@@ -39,8 +39,9 @@ export function isScreenerScanning() { return scanning; }
 async function scanNewSymbol(symbol, rowsByTf) {
     for (const tf of SCREENER_TFS) {
         try {
-            await rateLimit();
-            const candles = await fetchCandles(symbol, tf);
+            // getOrFetchCandles rate-limits internally only on an actual
+            // cache miss — see the same note in scanner.mjs's scanSymbol().
+            const candles = await getOrFetchCandles(symbol, tf);
             const row = buildSignal(candles, tf, symbol, getLtpWithFreshness(symbol));
             if (row) rowsByTf[tf].push(row);
         } catch (e) {

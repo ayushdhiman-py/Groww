@@ -1188,6 +1188,25 @@ function updateLastUpdatedBadge(data) {
   }
 }
 
+// ── HELPER: Scan progress/duration badge (from /api/status, already polled
+// every cycle by ui-main.mjs's pollStatus() — no extra network call here) ──
+function updateScanProgressBadge(status) {
+  const el = document.getElementById('scanProgressBadge');
+  if (!el || !status) return;
+  const p = status.scanProgress;
+  if (!p) { el.textContent = ''; return; }
+
+  if (status.scanning && p.stage === 'stage2') {
+    el.textContent = `Stage 2: ${p.done}/${p.total} symbols`;
+  } else if (p.lastCycleDurationMs != null) {
+    const secs = (p.lastCycleDurationMs / 1000).toFixed(0);
+    const etaMin = status.nextCycleEtaMs != null ? Math.max(0, Math.round(status.nextCycleEtaMs / 60000)) : null;
+    el.textContent = `Last cycle ${secs}s${etaMin != null ? ` · next in ~${etaMin}m` : ''}`;
+  } else {
+    el.textContent = '';
+  }
+}
+
 // ── HELPER: Render current view ──────────────────────────────
 function renderCurrentView() {
   const activeTab = window.stateManager.get('activeTab');
@@ -1358,4 +1377,5 @@ window.closeModalChart = closeModalChart;
 window.updateBadges = updateBadges;
 window.updateStatCards = updateStatCards;
 window.updateLastUpdatedBadge = updateLastUpdatedBadge;
+window.updateScanProgressBadge = updateScanProgressBadge;
 window.renderCurrentView = renderCurrentView;

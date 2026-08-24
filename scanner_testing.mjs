@@ -4,7 +4,8 @@ import { fileURLToPath } from "url";
 import { createHash } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
 import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
-import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
+import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow } from "./src/scanner.mjs";
+import { cacheStats } from "./src/candle_cache.mjs";
 import { startOptionsFeed, optionsCache, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
 import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick } from "./src/feed.mjs";
 import { isInstrumentMasterLoaded, isInstrumentMasterStale } from "./src/instruments.mjs";
@@ -18,6 +19,7 @@ import {
     markCritical, listCriticalTrades,
     updateCriticalTrade, closeCriticalTrade, deleteCriticalTrade,
 } from "./src/critical_trades.mjs";
+import { startCriticalMonitor } from "./src/critical_monitor.mjs";
 
 // Fix __dirname for root directory (scanner_testing.mjs is in root)
 const __filename = fileURLToPath(import.meta.url);
@@ -76,18 +78,39 @@ app.get("/api/state", (req, res) => {
     res.json(state);
 });
 
-app.get("/api/status", (_, res) => res.json({
-    authenticated: isAuthenticated,
-    scanning,
-    scanProgress,
-    lastUpdated: state.lastUpdated,
-    dataAsOf: state.dataAsOf ?? null,
-    errors: state.errors.length,
-    universe: UNIVERSE.length,
-    dividendAvailable: isDividendServiceAvailable(),
-    feed: { connected: isConnected(), msSinceLastTick: msSinceLastTick() },
-    instrumentMaster: { loaded: isInstrumentMasterLoaded(), stale: isInstrumentMasterStale() },
-}));
+app.get("/api/status", (_, res) => {
+    const nextCycleEtaMs = scanProgress?.lastCycleDurationMs != null && scanProgress?.cycleStartedAt != null
+        ? Math.max(0, scanProgress.cycleStartedAt + Math.max(scanProgress.lastCycleDurationMs, 5 * 60 * 1000) - Date.now())
+        : null;
+    res.json({
+        authenticated: isAuthenticated,
+        scanning,
+        scanProgress,
+        nextCycleEtaMs,
+        lastUpdated: state.lastUpdated,
+        dataAsOf: state.dataAsOf ?? null,
+        errors: state.errors.length,
+        universe: UNIVERSE.length,
+        dividendAvailable: isDividendServiceAvailable(),
+        feed: { connected: isConnected(), msSinceLastTick: msSinceLastTick() },
+        instrumentMaster: { loaded: isInstrumentMasterLoaded(), stale: isInstrumentMasterStale() },
+        candleCache: cacheStats(),
+    });
+});
+
+// Manual on-demand refresh of a single symbol — force-bypasses the candle
+// cache so the result is genuinely current. Meets the "<60s manual refresh"
+// target (7 sequential timeframe fetches, no rate-limit contention from the
+// general scan).
+app.post("/api/scan/refresh/:symbol", async (req, res) => {
+    if (!isAuthenticated) return res.status(401).json({ ok: false, error: "Not authenticated" });
+    try {
+        const result = await refreshSymbolNow(req.params.symbol.toUpperCase());
+        res.json({ ok: true, ...result });
+    } catch (e) {
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
 
 // Market-wide screeners (Nifty 500) — Top Gainers/Losers, Volume Shockers,
 // 52-Week breakouts, and pattern scans. Refreshes on its own ~15min cadence
@@ -142,6 +165,7 @@ function activateMarketData() {
     startFeed(() => {});
     startOptionsFeed();
     startScreenerScan();
+    startCriticalMonitor();
 }
 
 app.post("/api/login", async (req, res) => {
