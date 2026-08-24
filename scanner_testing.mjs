@@ -5,8 +5,9 @@ import { createHash } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
 import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress } from "./src/scanner.mjs";
-import { startOptionsFeed, optionsCache } from "./src/options_feed.mjs";
-import { startFeed, livePrices, getLtp } from "./src/feed.mjs";
+import { startOptionsFeed, optionsCache, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
+import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick } from "./src/feed.mjs";
+import { isInstrumentMasterLoaded, isInstrumentMasterStale } from "./src/instruments.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
 import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
@@ -50,9 +51,17 @@ function setCachedOptionChain(symbol, data) {
 
 // ── Routes ─────────────────────────────────────────────────────────────────────
 
-// Lightweight LTP endpoint - returns only live prices (tiny payload ~2KB)
+// Lightweight LTP endpoint - returns only live prices (tiny payload ~2KB).
+// `meta` is additive — old clients reading the flat map keep working;
+// clients that need to know how fresh each price actually is read `meta`.
 app.get("/api/ltp", (_, res) => {
-    res.json(Object.fromEntries(livePrices));
+    const prices = Object.fromEntries(livePrices);
+    const meta = {};
+    for (const symbol of livePrices.keys()) {
+        const f = getLtpWithFreshness(symbol);
+        meta[symbol] = { ts: f.ts, ageMs: f.ageMs, source: f.source };
+    }
+    res.json({ ...prices, meta });
 });
 
 // ETag support for /api/state - skip if unchanged
@@ -72,9 +81,12 @@ app.get("/api/status", (_, res) => res.json({
     scanning,
     scanProgress,
     lastUpdated: state.lastUpdated,
+    dataAsOf: state.dataAsOf ?? null,
     errors: state.errors.length,
     universe: UNIVERSE.length,
     dividendAvailable: isDividendServiceAvailable(),
+    feed: { connected: isConnected(), msSinceLastTick: msSinceLastTick() },
+    instrumentMaster: { loaded: isInstrumentMasterLoaded(), stale: isInstrumentMasterStale() },
 }));
 
 // Market-wide screeners (Nifty 500) — Top Gainers/Losers, Volume Shockers,
@@ -150,10 +162,13 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         return res.json(ttlCached);
     }
 
-    // 2. Check shared cache (populated by background feed)
-    const cached = optionsCache.get(sym);
-    if (cached) {
-        const result = { ...cached, source: "cache", fetchedAt: cached.updatedAt };
+    // 2. Check shared cache (populated by background feed) — but only trust
+    // it as current if it hasn't outlived the round-robin poller's own
+    // refresh cadence; past that, the poller has stalled for this symbol,
+    // so fall through and try a live fetch instead of serving it unlabeled.
+    const cachedWithFreshness = getOptionsCacheWithFreshness(sym);
+    if (cachedWithFreshness.data && !cachedWithFreshness.stale) {
+        const result = { ...cachedWithFreshness.data, source: "cache", fetchedAt: cachedWithFreshness.data.updatedAt, ageMs: cachedWithFreshness.ageMs };
         setCachedOptionChain(sym, result);
         return res.json(result);
     }
@@ -233,7 +248,15 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         console.error(`[OptionChain] Upstox API error for ${sym}:`, err.message);
     }
 
-    // 4. Fallback: Generate theoretical option chain from scanner data (Black-Scholes)
+    // 4. Live fetch failed — a stale-but-real snapshot is still more
+    // informative than a purely synthetic model, as long as it's clearly
+    // labeled as stale rather than presented as current.
+    if (cachedWithFreshness.data) {
+        const result = { ...cachedWithFreshness.data, source: "cache-stale", fetchedAt: cachedWithFreshness.data.updatedAt, ageMs: cachedWithFreshness.ageMs };
+        return res.json(result);
+    }
+
+    // 5. Fallback: Generate theoretical option chain from scanner data (Black-Scholes)
     let rowData = null;
     for (const tf of ["5m", "15m", "1h", "1d"]) {
         const found = (state.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
@@ -245,13 +268,20 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         const day = now.getDay();
         const daysToThursday = ((4 - day + 7) % 7) || 7;
 
-        const chain = theoreticalOptionChain(rowData.price, rowData.hv || 0.25, daysToThursday, sym);
+        // rowData.hv is nullish only for a row shape that never went through
+        // buildSignal()'s HV computation at all — hvEstimated:true in that
+        // case flags the 0.25 fallback honestly rather than implying a real
+        // computed HV backs this theoretical chain.
+        const chain = theoreticalOptionChain(rowData.price, rowData.hv ?? 0.25, daysToThursday, sym);
         const fetchedAt = new Date().toISOString();
 
         const result = {
             symbol: sym,
             spot: rowData.price,
+            spotSource: rowData.priceSource || "UNKNOWN", // the spot this model is built on may itself be HISTORICAL, not live
+            spotTs: rowData.priceTs ?? null,
             hv: chain.hv,
+            hvEstimated: rowData.hvEstimated ?? (rowData.hv == null),
             daysToExpiry: chain.daysToExpiry,
             topCalls: chain.calls,
             topPuts: chain.puts,
@@ -266,7 +296,7 @@ app.get("/api/option-chain/:symbol", async (req, res) => {
         return res.json(result);
     }
 
-    // 5. Nothing available
+    // 6. Nothing available
     return res.status(404).json({ error: "no_data", message: `Option chain not available for ${sym}.` });
 });
 
@@ -282,23 +312,38 @@ app.get("/api/indices", async (_, res) => {
 
         // Prefer the live WebSocket feed (already subscribed to the whole
         // UNIVERSE, indices included); fall back to a one-off REST call for
-        // any index not yet warmed up in the feed.
-        const missing = INDEX_LABELS.filter(label => getLtp(label) == null);
+        // any index not yet warmed up in the feed. Both branches are
+        // freshness-tagged — a REST fallback is DELAYED, never presented as
+        // indistinguishable from a fresh WS tick.
+        const missing = INDEX_LABELS.filter(label => getLtpWithFreshness(label).value == null);
         const restPrices = missing.length > 0 ? await fetchBulkLtp(missing) : {};
+        const restFetchedAt = Date.now();
 
         const result = INDEX_LABELS.map(label => {
-            const ltp = getLtp(label) ?? restPrices[label] ?? null;
+            const wsFresh = getLtpWithFreshness(label);
+            let ltp, ltpSource, ltpTs;
+            if (wsFresh.value != null) {
+                ltp = wsFresh.value; ltpSource = wsFresh.source; ltpTs = wsFresh.ts;
+            } else if (restPrices[label] != null) {
+                ltp = restPrices[label]; ltpSource = "DELAYED"; ltpTs = restFetchedAt;
+            } else {
+                ltp = null; ltpSource = "UNAVAILABLE"; ltpTs = null;
+            }
 
-            // Try to find scanned data for accurate change info
-            let priceChange = null, chgPct = null;
+            // Scan-derived change% comes from a DIFFERENT, possibly older
+            // snapshot than the LTP above — expose its own source/age
+            // explicitly rather than implying it's as fresh as `ltp`.
+            let priceChange = null, chgPct = null, chgSource = "UNAVAILABLE", chgTs = null;
             const scanned = (state.data["15m_ALL"] || []).find(r => r.symbol === label) ||
                           (state.data["1d_ALL"] || []).find(r => r.symbol === label);
             if (scanned) {
                 priceChange = scanned.priceChange;
                 chgPct = scanned.chgPct;
+                chgSource = scanned.priceSource || "UNKNOWN";
+                chgTs = scanned.priceTs ?? null;
             }
 
-            return { symbol: label, ltp, priceChange, chgPct };
+            return { symbol: label, ltp, ltpSource, ltpTs, priceChange, chgPct, chgSource, chgTs };
         });
 
         indexCache = { ts: Date.now(), data: result };
@@ -325,11 +370,14 @@ app.get("/api/theoretical-chain/:symbol", (req, res) => {
     const day = now.getDay(); // 0=Sun, 4=Thu
     const daysToThursday = ((4 - day + 7) % 7) || 7;
 
-    const chain = theoreticalOptionChain(rowData.price, rowData.hv || 0.25, daysToThursday);
+    const chain = theoreticalOptionChain(rowData.price, rowData.hv ?? 0.25, daysToThursday);
     res.json({
         symbol: sym,
         spot: rowData.price,
+        spotSource: rowData.priceSource || "UNKNOWN",
+        spotTs: rowData.priceTs ?? null,
         hv: chain.hv,
+        hvEstimated: rowData.hvEstimated ?? (rowData.hv == null),
         daysToExpiry: chain.daysToExpiry,
         callOptions: chain.calls,
         putOptions: chain.puts,
@@ -346,19 +394,24 @@ app.get("/api/portfolio", async (req, res) => {
         const [holdings, positions] = await Promise.all([fetchHoldings(), fetchPositions()]);
 
         const holdingsWithPnL = holdings.map(h => {
-            const currentPrice = h.last_price ?? h.average_price ?? 0;
-            const currentValue = currentPrice * (h.quantity || 0);
+            // NEVER substitute average_price (cost basis) for a missing
+            // current price — that fabricates a ~0% "flat" P&L for a
+            // position whose real current price we simply don't have.
+            const currentPrice = h.last_price ?? null;
+            const priceSource = currentPrice != null ? "LIVE" : "UNAVAILABLE";
             const investedValue = (h.average_price || 0) * (h.quantity || 0);
-            const pnl = h.pnl ?? (currentValue - investedValue);
-            const pnlPercent = investedValue !== 0 ? (pnl / investedValue) * 100 : 0;
+            const currentValue = currentPrice != null ? currentPrice * (h.quantity || 0) : null;
+            const pnl = currentValue != null ? (h.pnl ?? (currentValue - investedValue)) : null;
+            const pnlPercent = pnl != null && investedValue !== 0 ? (pnl / investedValue) * 100 : null;
 
             return {
                 ...h,
-                current_price: +currentPrice.toFixed(2),
-                current_value: +currentValue.toFixed(2),
+                current_price: currentPrice != null ? +currentPrice.toFixed(2) : null,
+                price_source: priceSource,
+                current_value: currentValue != null ? +currentValue.toFixed(2) : null,
                 invested_value: +investedValue.toFixed(2),
-                pnl: +pnl.toFixed(2),
-                pnl_percent: +pnlPercent.toFixed(2),
+                pnl: pnl != null ? +pnl.toFixed(2) : null,
+                pnl_percent: pnlPercent != null ? +pnlPercent.toFixed(2) : null,
                 type: "holding"
             };
         });
@@ -372,25 +425,32 @@ app.get("/api/portfolio", async (req, res) => {
 
         const allPositions = positions.map(p => {
             const qty = p.quantity || 0;
-            const currentPrice = p.last_price ?? p.average_price ?? 0;
-            const pnl = p.pnl ?? ((p.realised || 0) + (p.unrealised || 0));
+            const currentPrice = p.last_price ?? null;
+            const priceSource = currentPrice != null ? "LIVE" : "UNAVAILABLE";
+            const pnl = currentPrice != null ? (p.pnl ?? ((p.realised || 0) + (p.unrealised || 0))) : null;
 
             return {
                 ...p,
-                current_price: +currentPrice.toFixed(2),
+                current_price: currentPrice != null ? +currentPrice.toFixed(2) : null,
+                price_source: priceSource,
                 entry_price: +(p.average_price || 0).toFixed(2),
-                pnl: +pnl.toFixed(2),
+                pnl: pnl != null ? +pnl.toFixed(2) : null,
                 is_closed: qty === 0,
                 type: "position",
                 segment: segmentForExchange(p.exchange)
             };
         });
 
-        // Calculate totals
-        const totalInvested = holdingsWithPnL.reduce((sum, h) => sum + h.invested_value, 0);
-        const totalCurrent = holdingsWithPnL.reduce((sum, h) => sum + h.current_value, 0);
+        // Totals only sum holdings/positions whose current price is actually
+        // known — a missing price is excluded, never treated as 0, so the
+        // total doesn't silently understate real exposure.
+        const pricedHoldings = holdingsWithPnL.filter(h => h.current_value != null);
+        const pricedPositions = allPositions.filter(p => p.pnl != null);
+        const totalInvested = pricedHoldings.reduce((sum, h) => sum + h.invested_value, 0);
+        const totalCurrent = pricedHoldings.reduce((sum, h) => sum + h.current_value, 0);
         const totalHoldingsPnL = totalCurrent - totalInvested;
-        const totalPositionsPnL = allPositions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+        const totalPositionsPnL = pricedPositions.reduce((sum, p) => sum + p.pnl, 0);
+        const pricingIncomplete = pricedHoldings.length < holdingsWithPnL.length || pricedPositions.length < allPositions.length;
 
         res.json({
             holdings: holdingsWithPnL,
@@ -402,7 +462,10 @@ app.get("/api/portfolio", async (req, res) => {
                 total_positions_pnl: +totalPositionsPnL.toFixed(2),
                 total_portfolio_pnl: +(totalHoldingsPnL + totalPositionsPnL).toFixed(2),
                 holdings_count: holdingsWithPnL.length,
-                positions_count: allPositions.length
+                positions_count: allPositions.length,
+                // true if any total above excludes a holding/position whose
+                // current price was unavailable — the total is real but partial.
+                pricing_incomplete: pricingIncomplete,
             },
             // Non-null here means Upstox rejected the request for an account/
             // infra reason (e.g. static IP not configured) rather than there

@@ -78,6 +78,10 @@ const VIX_MODES = {
  * Get VIX mode from value
  */
 export function getVixMode(vixValue) {
+  // An unknown VIX must default to the MOST conservative mode, never the
+  // least — `null < 15` is true in JS, which would otherwise silently hand
+  // back GREEN (full aggression) for a VIX we don't actually know.
+  if (vixValue == null || !Number.isFinite(vixValue)) return VIX_MODES.DANGER;
   if (vixValue < 15) return VIX_MODES.GREEN;
   if (vixValue < 17) return VIX_MODES.STANDARD;
   if (vixValue < 20) return VIX_MODES.CAUTION;
@@ -90,7 +94,8 @@ export function getVixMode(vixValue) {
  */
 export function formatVixStatus(vixValue) {
   const mode = getVixMode(vixValue);
-  return `VIX: ${vixValue.toFixed(2)} — ${mode.name} — ${mode.implication}`;
+  const valueLabel = Number.isFinite(vixValue) ? vixValue.toFixed(2) : "UNAVAILABLE";
+  return `VIX: ${valueLabel} — ${mode.name} — ${mode.implication}`;
 }
 
 /**
@@ -98,11 +103,12 @@ export function formatVixStatus(vixValue) {
  */
 export function getVixStatusLine(vixValue) {
   const mode = getVixMode(vixValue);
+  const valueLabel = Number.isFinite(vixValue) ? vixValue.toFixed(2) : "UNAVAILABLE";
   return {
-    value: vixValue,
+    value: Number.isFinite(vixValue) ? vixValue : null,
     mode: mode.name,
     implication: mode.implication,
-    statusLine: `VIX: ${vixValue.toFixed(2)} — ${mode.name} — ${mode.implication}`,
+    statusLine: `VIX: ${valueLabel} — ${mode.name} — ${mode.implication}`,
     positionSizeMultiplier: mode.positionSizeMultiplier,
     maxOvernightCalls: mode.maxOvernightCalls,
     allowOTM: mode.allowOTM,
@@ -201,14 +207,18 @@ async function estimateVIX() {
     console.log(`[VIX] Estimation failed: ${e.message}`);
   }
 
-  // Last resort: Use default VIX value
-  const defaultVix = 14.5;
-  const mode = getVixMode(defaultVix);
+  // All sources failed — do NOT substitute a hardcoded "default" VIX. A
+  // fabricated 14.5 previously masked total VIX-fetch failure as a real
+  // calm-market reading, and VIX governs position sizing/risk mode
+  // downstream, so an unknown VIX must never look like a known low one.
+  // Callers must treat value:null as "assume the worst" (DANGER mode), not
+  // "assume calm."
   vixState = {
-    value: defaultVix,
-    mode: mode.name,
+    value: null,
+    mode: "UNKNOWN",
     lastUpdated: new Date().toISOString(),
-    implication: mode.implication + " [DEFAULT VALUE]"
+    implication: "VIX unavailable — all sources (NSE direct, option-IV estimate) failed this cycle. Treat as maximum risk until a real reading returns.",
+    source: "unavailable",
   };
   return vixState;
 }
@@ -224,8 +234,11 @@ export function getVixState() {
  * Check if task is allowed based on VIX mode
  */
 export function isTaskAllowed(taskNumber, vixValue) {
-  const mode = getVixMode(vixValue);
-  
+  // An unknown VIX ("null <= 25" is true in JS) must NOT silently allow F&O
+  // tasks that are supposed to be VIX-gated — treat unknown as DANGER.
+  if (vixValue == null || !Number.isFinite(vixValue)) {
+    return taskNumber === 3; // only equity (not VIX-gated) stays allowed
+  }
   if (taskNumber === 1) {
     // Intraday F&O
     return vixValue <= 25; // Allowed up to VIX 25 (defensive mode)
@@ -273,6 +286,9 @@ export function allowNakedOptions(vixValue) {
  * Get risk flag message for VIX mode
  */
 export function getVixRiskFlag(vixValue) {
+  // "null > 25" is false in JS, which would otherwise fall through to
+  // "✅ Normal risk" for a VIX we don't actually know — the opposite of safe.
+  if (vixValue == null || !Number.isFinite(vixValue)) return "❓ VIX UNAVAILABLE — treat as maximum risk";
   if (vixValue > 25) return "🔴 EXTREME RISK - VIX DANGER";
   if (vixValue > 20) return "⚠️ HIGH VIX WARNING";
   if (vixValue > 17) return "⚡ ELEVATED RISK";

@@ -269,7 +269,11 @@ export async function fetchBulkLtp(symbols) {
     for (const data of results) {
         for (const entry of Object.values(data)) {
             const sym = symbolForInstrumentKey(entry.instrument_token);
-            if (sym) prices[sym] = entry.last_price ?? 0;
+            // Omit the symbol entirely when Upstox didn't return a price —
+            // defaulting to 0 would be indistinguishable from a real (and
+            // for equities, impossible) ₹0 quote, corrupting every caller
+            // that reads restPrices[symbol].
+            if (sym && entry.last_price != null) prices[sym] = entry.last_price;
         }
     }
     return prices;

@@ -984,7 +984,7 @@ Nifty vs VWAP: ${ms.nifty_vwap}
 Operator Activity: ${ms.operator_activity}
 FII Today: ${ms.fii_today} — ${ms.fii_amount}
 DII Today: ${ms.dii_today} — ${ms.dii_amount}
-Gift Nifty: ${ms.gift_nifty > 0 ? '+' : ''}${ms.gift_nifty} pts
+Gift Nifty: ${ms.gift_nifty == null ? 'N/A (unavailable)' : `${ms.gift_nifty > 0 ? '+' : ''}${ms.gift_nifty} pts`}
 Sector Rotating INTO: ${ms.sector_rotating_into}
 Sector Rotating OUT OF: ${ms.sector_rotating_out}
 Key Level: ${ms.key_level}
@@ -997,7 +997,7 @@ Task 2: ${ms.task2_count} calls | Discarded: ${ms.task2_discarded}
 Task 3: ${ms.task3_count} calls | Discarded: ${ms.task3_discarded}
 
 Aggression: ${ms.aggression_level}
-
+${(ms.data_quality_warnings && ms.data_quality_warnings.length) ? `\n⚠️ DATA QUALITY THIS CYCLE:\n${ms.data_quality_warnings.map(w => `  • ${w}`).join('\n')}\n` : ''}
 ⚠️ Verify all [EST-PREMIUM] values on broker terminal before trading.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
 

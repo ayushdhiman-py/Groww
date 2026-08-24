@@ -393,7 +393,8 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
 
         opportunities.push({
             symbol: r5.symbol, sector: r5.sector, tf: r5.tf,
-            price: r5.price, dayOpen: r5.dayOpen, pctFromOpen: r5.pctFromOpen,
+            price: r5.price, priceSource: r5.priceSource, priceTs: r5.priceTs,
+            dayOpen: r5.dayOpen, pctFromOpen: r5.pctFromOpen,
             opportunityScore: combinedOpportunity,
             opportunityBand: combinedOpportunity >= 90 ? "VERY STRONG" : combinedOpportunity >= 80 ? "STRONG" : "WATCH",
             entryAttractiveness: combinedAttractiveness,

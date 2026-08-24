@@ -12,7 +12,7 @@
 import fs from "fs";
 import path from "path";
 import { __dirname } from "./config.mjs";
-import { getLtp } from "./feed.mjs";
+import { getLtpWithFreshness } from "./feed.mjs";
 import { fetchBulkQuotes } from "./upstox.mjs";
 import { computeTradeHealth, classifyDeteriorationPattern, classifyTrapRisk } from "./trade_health.mjs";
 import { buildMarketContext } from "./entry_score.mjs";
@@ -25,20 +25,26 @@ const MAX_MINUTE_HISTORY = 240; // ~4 hours at 1 entry/minute — covers a full 
 
 // Real bid/ask spread for active Critical trades only (a handful of
 // symbols at most) — throttled the same way as the Intraday shortlist.
-let lastQuoteFetchTs = 0;
+let lastQuoteAttemptTs = 0;
+let lastQuoteSuccessTs = 0;
 let lastQuoteMap = {};
 const QUOTE_FETCH_INTERVAL_MS = 20000;
+const QUOTE_STALE_AFTER_MS = QUOTE_FETCH_INTERVAL_MS * 3; // 3 missed refresh cycles — stop trusting it
 
 async function getSpreadMap(symbols) {
     const now = Date.now();
-    if (now - lastQuoteFetchTs >= QUOTE_FETCH_INTERVAL_MS) {
-        lastQuoteFetchTs = now;
+    if (now - lastQuoteAttemptTs >= QUOTE_FETCH_INTERVAL_MS) {
+        lastQuoteAttemptTs = now;
         try {
             lastQuoteMap = await fetchBulkQuotes(symbols);
+            lastQuoteSuccessTs = now;
         } catch (e) {
             console.error("[CriticalTrades] Spread fetch failed:", e.message);
+            // lastQuoteSuccessTs intentionally untouched — a failing fetch
+            // must not reset the staleness clock.
         }
     }
+    if (now - lastQuoteSuccessTs > QUOTE_STALE_AFTER_MS) return {};
     return lastQuoteMap;
 }
 
@@ -165,7 +171,18 @@ export async function onScanComplete(scanResult) {
         const row1m = findRow(dataBuckets, trade.symbol, "1m");
         const row5m = findRow(dataBuckets, trade.symbol, "5m");
         const row15m = findRow(dataBuckets, trade.symbol, "15m");
-        const livePrice = getLtp(trade.symbol) ?? row5m?.price ?? trade.entryPrice;
+        const priceFresh = getLtpWithFreshness(trade.symbol);
+        const livePrice = priceFresh.value ?? row5m?.price ?? null;
+
+        // NEVER fall back to trade.entryPrice — that would fabricate a false
+        // "flat, 0% P&L" reading for a trade that could actually be in real
+        // trouble, silently suppressing the warnings/notifications below.
+        // Skip this trade's health update for this cycle instead; its
+        // lastHealth simply stays at its last genuinely-known value.
+        if (livePrice == null) {
+            console.warn(`[CriticalTrades] ${trade.symbol}: no live price or 5m row available this cycle — health not updated (data unavailable, not fabricated)`);
+            continue;
+        }
 
         if (livePrice > trade.peakPrice) trade.peakPrice = livePrice;
 

@@ -440,6 +440,10 @@ export function analyzeEquityStock(
 
     const closes = dailyCandles.map(c => c.close).filter(Number.isFinite);
     if (closes.length < 60) return null;
+    // No live LTP available for this stock — fall back to the daily candle
+    // close, but tag it HISTORICAL so callers never mistake it for a live
+    // entry price (this feeds "BUY EQUITY" calls, so the distinction matters).
+    const priceSource = ltp?.price != null ? "LIVE" : "HISTORICAL";
     const currentPrice = ltp?.price ?? closes[closes.length - 1];
     if (!Number.isFinite(currentPrice)) return null;
 
@@ -549,10 +553,19 @@ export function analyzeEquityStock(
     const supertrendGreen = isSupertrendGreen(dailyCandles);
 
     // ── 14. Debt/Equity < 1 ──
-    const dePass = fundamentalData.debtToEquity === null || fundamentalData.debtToEquity < MAX_DEBT_TO_EQUITY;
+    // `== null` (not `===`) — fundamentalData.debtToEquity is `undefined`
+    // whenever we simply have no D/E data for this symbol (the default, no
+    // fundamentals source is wired for most stocks), and `undefined ===
+    // null` is false in JS, so `undefined < MAX_DEBT_TO_EQUITY` silently
+    // evaluated to `false` — meaning "no data" was previously scored
+    // identically to "this stock genuinely fails the check," penalizing
+    // every stock without fundamentals data instead of correctly treating
+    // it as unknown/not-penalized (which missing_data_flags already
+    // reports separately).
+    const dePass = fundamentalData.debtToEquity == null || fundamentalData.debtToEquity < MAX_DEBT_TO_EQUITY;
 
     // ── 15. Revenue growth positive last 2 quarters ──
-    const revPass = fundamentalData.revenueGrowthQoQ === null || fundamentalData.revenueGrowthQoQ > 0;
+    const revPass = fundamentalData.revenueGrowthQoQ == null || fundamentalData.revenueGrowthQoQ > 0;
 
     // ── 16. No insider selling last 30 days ──
     const noInsiderSelling = !fundamentalData.insiderSelling30d;
@@ -670,6 +683,7 @@ export function analyzeEquityStock(
         operator_footprint: operatorFootprint,
         trade: "BUY EQUITY",
         entry_price: currentPrice,
+        price_source: priceSource,
         entry_type: entryType,
         target_1: `${EQUITY_TARGET_1_PCT}% -- Rs.${target1Price}`,
         target_2: `${EQUITY_TARGET_2_PCT}% -- Rs.${target2Price}`,
@@ -757,13 +771,16 @@ export async function scanEquityCalls(options = {}) {
                 // Skip weekly if not available
             }
 
-            // Fetch LTP
+            // Fetch LTP — on failure, leave it null rather than fabricating a
+            // {price: dailyClose} object indistinguishable from a real live
+            // quote; analyzeEquityStock() falls back to the daily close
+            // itself and tags the result price_source: "HISTORICAL".
             let ltp = null;
             try {
                 const ltps = await fetchBulkLtp([symbol]);
-                ltp = ltps?.[symbol] || null;
+                ltp = ltps?.[symbol] != null ? { price: ltps[symbol] } : null;
             } catch (e) {
-                ltp = { price: dailyCandles[dailyCandles.length - 1].close };
+                ltp = null;
             }
 
             const fundamentalData = fundamentalDataMap[symbol] || {};

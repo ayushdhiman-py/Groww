@@ -27,6 +27,7 @@ let symbolToKey = new Map();   // SYMBOL (upper) -> instrument_key
 let keyToSymbol = new Map();   // instrument_key -> SYMBOL (as used by our UNIVERSE)
 let loaded = false;
 let loadingPromise = null;
+let masterStale = false; // true once we're serving a fallback that failed to refresh
 
 // Our UNIVERSE symbol -> Upstox trading_symbol, only where they differ.
 // Several of these reflect completed corporate actions where Upstox's
@@ -107,12 +108,17 @@ export async function loadInstrumentMaster(forceRefresh = false) {
             try {
                 raw = await downloadInstrumentMaster();
                 fs.writeFileSync(CACHE_FILE, raw);
+                masterStale = false;
                 console.log("[Instruments] ✅ Downloaded fresh Upstox instrument master");
             } catch (e) {
                 console.error("[Instruments] Download failed:", e.message);
                 if (fs.existsSync(CACHE_FILE)) {
                     console.warn("[Instruments] Falling back to stale cached instrument master");
                     raw = fs.readFileSync(CACHE_FILE, "utf8");
+                    // A corporate action / rename / new listing since this
+                    // cache was written could now silently fail to resolve —
+                    // this flag is the only signal callers get of that risk.
+                    masterStale = true;
                 } else {
                     throw new Error(`Unable to load Upstox instrument master and no cache available: ${e.message}`);
                 }
@@ -136,6 +142,11 @@ export async function loadInstrumentMaster(forceRefresh = false) {
 
 export function isInstrumentMasterLoaded() {
     return loaded;
+}
+
+/** True if we're currently serving a fallback master that failed to refresh. */
+export function isInstrumentMasterStale() {
+    return masterStale;
 }
 
 /**

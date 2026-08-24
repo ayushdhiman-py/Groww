@@ -147,7 +147,20 @@ export function classifyDeteriorationPattern(minuteHistory) {
  */
 export function computeTradeHealth(trade, ctx) {
     const { row1m, row5m, row15m, niftyRow5m, sectorStats5m, livePrice } = ctx;
-    const price = livePrice ?? row5m?.price ?? trade.entryPrice;
+    // Callers must resolve a real price before calling this — never fall
+    // back to trade.entryPrice here either, or a genuinely unavailable price
+    // would silently compute as a fabricated flat/0%-P&L reading.
+    if (livePrice == null) {
+        return {
+            price: null, pnl: null, pnlPct: null,
+            vsOpenPct: null, vsUpsideZonePct: null,
+            score: null, state: "DATA_UNAVAILABLE",
+            warnings: ["Live price unavailable this cycle — health not recomputed"],
+            breakdown: null, profitProtectionWarning: false, remainingUpside: null,
+            ts: new Date().toISOString(),
+        };
+    }
+    const price = livePrice;
     const pnl = (price - trade.entryPrice) * trade.quantity;
     const pnlPct = ((price - trade.entryPrice) / trade.entryPrice) * 100;
 

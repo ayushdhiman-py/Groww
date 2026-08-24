@@ -42,7 +42,14 @@ export function computeMarketRegime(dataBuckets) {
     if (avgAtrPct != null) notes.push(`Avg ATR ${avgAtrPct}% across the universe${highVol ? " — elevated volatility" : ""}`);
     if (noTrade) notes.push("NO TRADE — conditions unfavorable for fresh intraday longs");
 
-    return { regime, niftyTrend, breadthPct, aboveVwapPct, avgAtrPct, noTrade, notes, updatedAt: new Date().toISOString() };
+    // `updatedAt` reflects the actual data behind this regime call (the
+    // oldest priceTs among the rows used), not wall-clock "now" — if the
+    // scan silently reused stale rows upstream, this must show that instead
+    // of claiming freshness it doesn't have.
+    const priceTimes = rows.map(r => r.priceTs).filter(ts => ts != null);
+    const dataAsOf = priceTimes.length ? Math.min(...priceTimes) : null;
+
+    return { regime, niftyTrend, breadthPct, aboveVwapPct, avgAtrPct, noTrade, notes, dataAsOf, updatedAt: new Date().toISOString() };
 }
 
 /**

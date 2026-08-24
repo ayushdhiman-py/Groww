@@ -4,9 +4,30 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { fetchOptionChain } from "./upstox.mjs";
 import { UNIVERSE } from "./universe.mjs";
+import { UNAVAILABLE } from "./data_quality.mjs";
 
 // symbol -> { topCalls, topPuts, spot, oiDelta, iv, pcr, updatedAt }
 export const optionsCache = new Map();
+
+// The round-robin poller (below) visits one symbol every ~2s, so a full
+// sweep of the universe takes UNIVERSE.length * 2s — a single symbol's
+// entry can legitimately be that old between its own polls. Anything older
+// than 3 full sweeps means polling itself has stalled for that symbol
+// (delisted/expired/consistently erroring), not just "hasn't come up yet."
+const OPTIONS_STALE_AFTER_MS = () => UNIVERSE.length * 2000 * 3;
+
+/**
+ * Read the options cache for a symbol WITH an explicit staleness verdict —
+ * never returns a silently-ancient snapshot as if it were current.
+ */
+export function getOptionsCacheWithFreshness(symbol) {
+    const cached = optionsCache.get(symbol);
+    if (!cached) return { ...UNAVAILABLE("never polled"), data: null };
+    const ts = Date.parse(cached.updatedAt);
+    const ageMs = Date.now() - ts;
+    const stale = !Number.isFinite(ageMs) || ageMs > OPTIONS_STALE_AFTER_MS();
+    return { data: cached, ts, ageMs, stale, source: stale ? "cache-stale" : "cache" };
+}
 
 // OI tracking: symbol -> { totalCallOI, totalPutOI, timestamp }
 const oiHistory = new Map();
@@ -21,13 +42,15 @@ let currentIndex = 0;
 function calculateOIDelta(symbol, currentCallOI, currentPutOI) {
   const prev = oiHistory.get(symbol);
   if (!prev) {
-    // First poll — store baseline
+    // First poll — store baseline. callOIDelta/putOIDelta are null (not 0)
+    // here: there is no real "no change" reading yet, only a starting
+    // point, and 0 would be indistinguishable from a genuine unchanged OI.
     oiHistory.set(symbol, {
       totalCallOI: currentCallOI,
       totalPutOI: currentPutOI,
       timestamp: Date.now()
     });
-    return { callOIDelta: 0, putOIDelta: 0, pcr: null };
+    return { callOIDelta: null, putOIDelta: null, pcr: null, baseline: true };
   }
 
   const callDelta = currentCallOI - prev.totalCallOI;
@@ -93,9 +116,11 @@ export async function processOptionChain(symbol) {
     const topPuts = puts.slice(0, 5);
 
     // Calculate OI delta and PCR
-    const { callOIDelta, putOIDelta, pcr } = calculateOIDelta(symbol, totalCallOI, totalPutOI);
+    const { callOIDelta, putOIDelta, pcr, baseline } = calculateOIDelta(symbol, totalCallOI, totalPutOI);
     const avgIV = ivCount > 0 ? ivSum / ivCount : null;
-    const oiChangePercent = totalCallOI > 0 ? (callOIDelta / (totalCallOI - callOIDelta)) * 100 : null;
+    const oiChangePercent = (!baseline && callOIDelta != null && totalCallOI > 0)
+        ? (callOIDelta / (totalCallOI - callOIDelta)) * 100
+        : null;
 
     optionsCache.set(symbol, {
         spot: data.underlying_ltp,
@@ -108,6 +133,7 @@ export async function processOptionChain(symbol) {
         oiChange: oiChangePercent,
         callOIDelta,
         putOIDelta,
+        oiBaseline: !!baseline,
         pcr,
         iv: avgIV
     });
@@ -139,7 +165,11 @@ async function pollNext() {
     let successful = false;
     try {
         successful = await processOptionChain(symbol);
-    } catch (e) { }
+    } catch (e) {
+        // Was completely silent — a genuinely broken symbol and a transient
+        // API blip looked identical with no trace at all.
+        console.error(`[OptionsFeed] ${symbol} poll failed: ${e.message}`);
+    }
 
     // Polling 1 option chain every 2000ms = 30 req/min.
     _timer = setTimeout(pollNext, 2000);

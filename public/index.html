@@ -1723,6 +1723,16 @@
     .tf-purple { color: #a78bfa !important; font-weight: 600; font-size: 11px; margin-left: 2px; }
     .muted-xl { font-size: 10px; color: var(--muted); letter-spacing: 0.02em; }
     .price-bold { font-weight: 700; font-size: 14px; font-family: var(--mono); color: var(--text); }
+    /* Freshness indicator — a small dot next to any live-data value, so a
+       genuinely live price is never visually indistinguishable from a
+       delayed/historical/unavailable one. */
+    .freshness-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-left: 5px; vertical-align: middle; cursor: help; }
+    .freshness-live { background: var(--green, #22c55e); }
+    .freshness-delayed { background: var(--yellow, #eab308); }
+    .freshness-historical { background: var(--muted, #888); }
+    .freshness-estimated { background: #7dd3fc; }
+    .freshness-unavailable { background: var(--red, #ef4444); }
+    .price-na { color: var(--muted); font-weight: 700; font-size: 14px; font-family: var(--mono); }
     .vwap-muted { font-size: 10px; color: var(--muted); margin-left: 4px; }
     .vol-large { font-size: 13px; font-weight: 700; font-family: var(--mono); }
     .vol-spike-⚡ { color: var(--yellow); }

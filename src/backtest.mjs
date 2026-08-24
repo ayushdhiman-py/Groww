@@ -30,6 +30,7 @@ import { atr } from "./indicators.mjs";
 import { computeOpportunityScore, computeEntryAttractiveness, computeUpsidePotential } from "./entry_score.mjs";
 import { computeTradeHealth, classifyDeteriorationPattern } from "./trade_health.mjs";
 import { UNIVERSE } from "./universe.mjs";
+import { historical } from "./data_quality.mjs";
 
 const ENTRY_MIN_SCORE = 70; // WATCH+ on both 5m and 15m, same bar as live confluence gate
 const EXIT_RULE = "Two consecutive evaluated bars both showing Trade Health < 60 (mirrors the live 'confirmed, not a single blip' notification rule).";
@@ -98,9 +99,13 @@ function simulateSymbol(symbol, series, niftySeries, fromDate, toDate) {
             const slice5 = c5.slice(0, idx5 + 1);
             const slice15 = c15.slice(0, idx15 + 1);
             const price = slice5[slice5.length - 1].close;
+            // Backtest replay over real historical candles is HISTORICAL by
+            // definition, never LIVE — buildSignal's freshness field must
+            // reflect that even though the numeric price used is real.
+            const priceFresh = historical(price, t);
 
-            const row5 = buildSignal(slice5, "5m", symbol, price);
-            const row15 = buildSignal(slice15, "15m", symbol, price);
+            const row5 = buildSignal(slice5, "5m", symbol, priceFresh);
+            const row15 = buildSignal(slice15, "15m", symbol, priceFresh);
             if (!row5 || !row15) continue;
 
             // Attach ATR the same way scanSymbol() does live, from strictly
@@ -115,7 +120,8 @@ function simulateSymbol(symbol, series, niftySeries, fromDate, toDate) {
             let niftyRow5 = null;
             if (niftyIdx5 >= 55) {
                 const niftySlice5 = niftySeries.c5.slice(0, niftyIdx5 + 1);
-                niftyRow5 = buildSignal(niftySlice5, "5m", "NIFTY", niftySlice5[niftySlice5.length - 1].close);
+                const niftyClose = niftySlice5[niftySlice5.length - 1].close;
+                niftyRow5 = buildSignal(niftySlice5, "5m", "NIFTY", historical(niftyClose, t));
             }
             const ctx = { niftyRow: niftyRow5, sectorStats: {} };
 

@@ -9,7 +9,36 @@ import { scanOvernightFO } from "./overnight_scanner.mjs";
 import { scanEquityCalls } from "./equity_scanner.mjs";
 import { fetchIndiaVix, getVixState, getVixMode, formatVixStatus } from "./vix_manager.mjs";
 import { fetchAllMarketData, getFIIDIIFlow, getGiftNifty, getEarningsCalendar } from "./data_fetcher.mjs";
+import { optionsCache } from "./options_feed.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
+
+/** Real per-symbol delivery % (from data_fetcher.mjs's NSE delivery report) -> equity_scanner's fundamentalDataMap shape. */
+function buildFundamentalDataMap(deliveryMap) {
+  const map = {};
+  for (const [symbol, pct] of deliveryMap || []) map[symbol] = { deliveryPct: pct };
+  return map;
+}
+
+/**
+ * Real per-symbol F&O/OI data (from options_feed.mjs's live-polled cache) ->
+ * equity_scanner's foDataMap shape. `optionsCache.has(symbol)` is itself the
+ * real "is this stock F&O-eligible" signal — fetchOptionChain() only caches
+ * an entry when Upstox actually returned strikes for it. `pcrFalling` is
+ * left unset (not fabricated): no PCR history is tracked anywhere, only OI
+ * deltas, so there's no honest basis to compute a trend.
+ */
+function buildFoDataMap() {
+  const map = {};
+  for (const [symbol, data] of optionsCache) {
+    map[symbol] = {
+      isFoStock: true,
+      oiChangePercent: data.oiChange ?? null,
+      pcr: data.pcr ?? null,
+      ceOiBuilding: data.callOIDelta != null && data.callOIDelta > 0,
+    };
+  }
+  return map;
+}
 
 // Scanner state
 let operatorState = {
@@ -54,17 +83,19 @@ export async function runOperatorScan(scannerData, marketContext = {}) {
     }
     const vixValue = vixState.value;
 
-    console.log(`[OperatorScanner] VIX: ${vixValue.toFixed(2)} — ${vixState.mode} (source: ${vixState.source || "fallback"})`);
+    console.log(`[OperatorScanner] VIX: ${Number.isFinite(vixValue) ? vixValue.toFixed(2) : "UNAVAILABLE"} — ${vixState.mode} (source: ${vixState.source || "fallback"})`);
 
-    // Build enriched market context
+    // Build enriched market context. `??` (not `||`) below — a genuine 0 net
+    // flow or 0-point Gift Nifty must not be conflated with "unavailable."
     const enrichedContext = {
       ...marketContext,
       foBanList: marketData.foBanList || new Set(),
       deliveryMap: marketData.deliveryMap || new Map(),
       earnings: marketData.earnings || [],
-      fiiFlow: marketData.fiiDii?.fii || 0,
-      diiFlow: marketData.fiiDii?.dii || 0,
-      giftNifty: marketData.giftNifty || 0,
+      fiiFlow: marketData.fiiDii?.fii ?? null,
+      diiFlow: marketData.fiiDii?.dii ?? null,
+      giftNifty: marketData.giftNifty ?? null,
+      dataQuality: marketData.dataQuality || null,
       vixState
     };
 
@@ -88,7 +119,21 @@ export async function runOperatorScan(scannerData, marketContext = {}) {
 
     // Task 3: Equity
     console.log("[OperatorScanner] Task 3: Scanning equity calls...");
-    const equityResults = await scanEquityCalls(scannerData, vixValue, enrichedContext);
+    // scanEquityCalls takes a single options object, not positional args —
+    // the previous call passed (scannerData, vixValue, enrichedContext)
+    // positionally, so `vixValue` was silently discarded and every equity
+    // call was scored against a hardcoded default VIX of 14 regardless of
+    // the real market VIX (or its unavailability). Also wire through the
+    // per-symbol data that genuinely exists (delivery % from the NSE report,
+    // F&O/OI data from the live options poller) — previously these maps
+    // were never populated at all (not even by the broken call), so every
+    // equity call silently scored as if delivery/F&O data were completely
+    // unavailable for every stock, even when real data existed.
+    const equityResults = await scanEquityCalls({
+      vixValue,
+      fundamentalDataMap: buildFundamentalDataMap(marketData.deliveryMap),
+      foDataMap: buildFoDataMap(),
+    });
     // Normalize: scanEquityCalls returns a plain array, wrap it
     operatorState.task3 = {
       calls: Array.isArray(equityResults) ? equityResults : [],
@@ -205,23 +250,41 @@ export function buildMarketSummary() {
   const t1ScoreBelow40 = t1.summary?.scoreBelow40 || 0;
   const t2ScoreBelow70 = t2.summary?.scoreBelow70 || 0;
 
-  // Get FII/DII flow from enriched context
-  const fiiFlow = context.fiiFlow || marketData.fiiDii?.fii || 0;
-  const diiFlow = context.diiFlow || marketData.fiiDii?.dii || 0;
-  const giftNifty = context.giftNifty || marketData.giftNifty || 0;
+  // Get FII/DII flow from enriched context — `??` preserves a genuine
+  // unavailable (null) distinctly from a real 0 net flow; `??` chains
+  // rather than `||` so a real 0 from the first source isn't overridden by
+  // marketData's own value.
+  const fiiFlow = context.fiiFlow ?? marketData.fiiDii?.fii ?? null;
+  const diiFlow = context.diiFlow ?? marketData.fiiDii?.dii ?? null;
+  const giftNifty = context.giftNifty ?? marketData.giftNifty ?? null;
+
+  // Never hide an upstream data failure behind a fake fallback — surface
+  // exactly which sources are degraded this cycle so a human can see it,
+  // since intraday_scanner.mjs/overnight_scanner.mjs cannot safely turn "F&O
+  // ban status unknown" into an automatic block without disabling the whole
+  // scanner over one degraded low-priority source.
+  const dq = marketData.dataQuality || {};
+  const dataQualityWarnings = [];
+  if (dq.foBanList && !dq.foBanList.available) dataQualityWarnings.push("F&O ban list unavailable this cycle — Task 1/2 calls below are NOT verified against exchange bans, check manually before trading");
+  else if (dq.foBanList?.stale) dataQualityWarnings.push(`F&O ban list is stale (${Math.round(dq.foBanList.ageMs / 60000)}min old) — may not reflect today's bans`);
+  if (dq.fiiDii && !dq.fiiDii.available) dataQualityWarnings.push("FII/DII flow unavailable this cycle");
+  if (dq.deliveryMap && !dq.deliveryMap.available) dataQualityWarnings.push("Delivery % data unavailable this cycle");
+  if (dq.earnings && !dq.earnings.available) dataQualityWarnings.push("Earnings calendar unavailable this cycle");
+  if (vixState?.value == null) dataQualityWarnings.push("VIX unavailable this cycle — all tasks running in maximum-caution (DANGER mode) risk sizing");
 
   return {
-    vix: vixState?.value || null,
+    vix: vixState?.value ?? null,
     vix_mode: vixState?.mode || "UNKNOWN",
-    vix_status_line: formatVixStatus(vixState?.value || 14.5),
+    vix_status_line: formatVixStatus(vixState?.value ?? null),
     nifty_bias: context.niftyBias || "NEUTRAL",
     nifty_vwap: context.niftyBelowVWAP ? "Below" : "Above",
     operator_activity: context.operatorActivity || "Analyzing",
-    fii_today: fiiFlow > 0 ? "Buying" : "Selling",
-    fii_amount: `₹${Math.abs(fiiFlow).toFixed(0)} Cr net`,
-    dii_today: diiFlow > 0 ? "Buying" : "Selling",
-    dii_amount: `₹${Math.abs(diiFlow).toFixed(0)} Cr net`,
+    fii_today: fiiFlow == null ? "N/A" : (fiiFlow > 0 ? "Buying" : "Selling"),
+    fii_amount: fiiFlow == null ? "unavailable" : `₹${Math.abs(fiiFlow).toFixed(0)} Cr net`,
+    dii_today: diiFlow == null ? "N/A" : (diiFlow > 0 ? "Buying" : "Selling"),
+    dii_amount: diiFlow == null ? "unavailable" : `₹${Math.abs(diiFlow).toFixed(0)} Cr net`,
     gift_nifty: giftNifty,
+    data_quality_warnings: dataQualityWarnings,
     sector_rotating_into: context.sectorRotation?.into || "N/A",
     sector_rotating_out: context.sectorRotation?.outOf || "N/A",
     key_level: context.keyLevel || "Watch Nifty VWAP",
@@ -240,14 +303,17 @@ export function buildMarketSummary() {
     est_values_used: estCount,
     liquidity_warnings: liquidityWarnings,
     fo_ban_stocks_skipped: foBanSkipped,
-    aggression_level: vixState ? getAggressionLevel(vixState.value) : "MEDIUM"
+    aggression_level: getAggressionLevel(vixState?.value)
   };
 }
 
 /**
- * Get aggression level from VIX
+ * Get aggression level from VIX. An unknown VIX must map to the MOST
+ * conservative ("CASH") level, never "MEDIUM" — a bare `vixValue < 15`
+ * would otherwise treat `null`/`undefined` as if VIX were near zero.
  */
 function getAggressionLevel(vixValue) {
+  if (vixValue == null || !Number.isFinite(vixValue)) return "CASH";
   if (vixValue < 15) return "HIGH";
   if (vixValue < 20) return "MEDIUM";
   if (vixValue < 25) return "LOW";

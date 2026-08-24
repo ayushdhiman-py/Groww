@@ -15,7 +15,7 @@ import { fetchCandles, rateLimit } from "./upstox.mjs";
 import { buildSignal, state as mainState, isMarketOpen } from "./scanner.mjs";
 import { SCREENER_UNIVERSE } from "./screener_universe.mjs";
 import { UNIVERSE } from "./universe.mjs";
-import { getLtp } from "./feed.mjs";
+import { getLtpWithFreshness } from "./feed.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SCREENER_TFS = ["5m", "15m", "1d"];
@@ -26,6 +26,7 @@ const mainUniverseSet = new Set(UNIVERSE);
 
 export let screenerState = {
     lastUpdated: null,
+    dataAsOf: null,
     universeSize: SCREENER_UNIVERSE.length,
     gainers: [], losers: [], volumeShockers: [],
     high52w: [], low52w: [],
@@ -40,7 +41,7 @@ async function scanNewSymbol(symbol, rowsByTf) {
         try {
             await rateLimit();
             const candles = await fetchCandles(symbol, tf);
-            const row = buildSignal(candles, tf, symbol, getLtp(symbol));
+            const row = buildSignal(candles, tf, symbol, getLtpWithFreshness(symbol));
             if (row) rowsByTf[tf].push(row);
         } catch (e) {
             // Best-effort — skip this symbol/timeframe rather than aborting
@@ -85,8 +86,18 @@ function computeScreenerCategories(rowsByTf) {
         .sort((a, b) => a.rsi - b.rsi)
         .slice(0, TOP_N);
 
+    // `lastUpdated` is when this refresh cycle ran, not a claim that every
+    // row is that fresh — rows reused from the main scan can be up to ~30s
+    // old, and rows for symbols outside the main UNIVERSE are only refreshed
+    // once per REFRESH_INTERVAL_MS (15 min). `dataAsOf` is the actual oldest
+    // priceTs among everything just categorized.
+    const allRows = [...daily, ...fiveMin];
+    const priceTimes = allRows.map(r => r.priceTs).filter(ts => ts != null);
+    const dataAsOf = priceTimes.length ? Math.min(...priceTimes) : null;
+
     screenerState = {
         lastUpdated: new Date().toISOString(),
+        dataAsOf,
         universeSize: SCREENER_UNIVERSE.length,
         gainers, losers, volumeShockers, high52w, low52w,
         bullishCrossover, momentumBurst, rsiOversold,

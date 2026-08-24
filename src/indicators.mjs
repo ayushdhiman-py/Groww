@@ -146,15 +146,21 @@ function bsGreeks(S, K, T, r, iv) {
 
 /**
  * Historical Volatility from close prices (annualised std-dev of log returns).
+ * Always returns { value, estimated } — never a bare number — so a caller
+ * with genuinely insufficient history can tell a real computed HV apart
+ * from the 25% placeholder, instead of both looking like the same real
+ * number. (buildSignal(), the only live caller, guards cls.length >= 55
+ * before calling this, so `estimated:true` is unreachable from the live
+ * scanner today — this exists for any other/future caller.)
  */
 export function historicalVolatility(closes, lookback = 20) {
-    if (closes.length < lookback + 1) return 0.25; // default 25% if not enough data
+    if (closes.length < lookback + 1) return { value: 0.25, estimated: true };
     const recent = closes.slice(-lookback - 1);
     const returns = [];
     for (let i = 1; i < recent.length; i++) returns.push(Math.log(recent[i] / recent[i - 1]));
     const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
     const variance = returns.reduce((s, r) => s + (r - mean) ** 2, 0) / (returns.length - 1);
-    return Math.sqrt(variance * 252); // annualise
+    return { value: Math.sqrt(variance * 252), estimated: false }; // annualise
 }
 
 /**
@@ -209,8 +215,11 @@ export function theoreticalOptionChain(spot, hv, daysToExpiry = 7, symbol = "") 
             moneyness,
             ltp: g.call.price,
             greeks: g.call,
-            openInterest: 0,
-            oiChange: 0,
+            // null, not 0 — this is a Black-Scholes-modeled chain with no
+            // real OI data at all; 0 would read as "confirmed zero open
+            // interest," which is a different (and false) claim.
+            openInterest: null,
+            oiChange: null,
             type: "CE",
         });
         chain.push({
@@ -218,8 +227,8 @@ export function theoreticalOptionChain(spot, hv, daysToExpiry = 7, symbol = "") 
             moneyness,
             ltp: g.put.price,
             greeks: g.put,
-            openInterest: 0,
-            oiChange: 0,
+            openInterest: null,
+            oiChange: null,
             type: "PE",
         });
     }

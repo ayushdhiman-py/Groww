@@ -66,6 +66,28 @@ test("fetchBulkLtp maps Upstox's colon-keyed response back to our symbols via in
     assert.equal(prices.BANKNIFTY, 57761.95);
 });
 
+test("fetchBulkLtp omits a symbol entirely when Upstox doesn't return a price for it — never defaults to 0", async () => {
+    _setMapsForTesting([
+        { symbol: "NIFTY", instrumentKey: "NSE_INDEX|Nifty 50" },
+        { symbol: "BANKNIFTY", instrumentKey: "NSE_INDEX|Nifty Bank" },
+    ]);
+    mock.method(axios, "get", async () => ({
+        data: {
+            status: "success",
+            data: {
+                // NIFTY entry has no last_price at all (e.g. a partial/degraded
+                // upstream response) — BANKNIFTY is normal.
+                "NSE_INDEX:Nifty 50": { instrument_token: "NSE_INDEX|Nifty 50" },
+                "NSE_INDEX:Nifty Bank": { last_price: 57761.95, instrument_token: "NSE_INDEX|Nifty Bank" },
+            },
+        },
+    }));
+
+    const prices = await fetchBulkLtp(["NIFTY", "BANKNIFTY"]);
+    assert.equal("NIFTY" in prices, false, "a missing price must be omitted, not defaulted to 0");
+    assert.equal(prices.BANKNIFTY, 57761.95);
+});
+
 test("fetchBulkLtp returns {} without calling the API when nothing resolves", async () => {
     _setMapsForTesting([]);
     let called = false;

@@ -24,6 +24,18 @@ function captureScroll() {
   };
 }
 
+/**
+ * A small colored dot next to any live-data value so a genuinely live price
+ * is never visually indistinguishable from a delayed/historical/estimated/
+ * unavailable one. `source` is one of the data_quality.mjs SOURCE values;
+ * `ts` (epoch ms, may be null) is shown in the tooltip as the real age.
+ */
+function freshnessDot(source, ts) {
+  const cls = (source || 'UNAVAILABLE').toLowerCase();
+  const ageTxt = ts ? ` · ${Math.round((Date.now() - ts) / 1000)}s ago` : '';
+  return `<span class="freshness-dot freshness-${cls}" title="${source || 'UNAVAILABLE'}${ageTxt}"></span>`;
+}
+
 function formatVolume(v) {
   if (!v) return '—';
   const abs = Math.abs(v);
@@ -295,7 +307,7 @@ function renderStocks(data) {
       </td>
       <td>
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-          <span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+          <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs)}</span>
           <span class="muted-xl">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
         </div>
       </td>
@@ -394,6 +406,13 @@ function renderStocks(data) {
           }
         }
         tr.dataset.price = r.price;
+        const dotEl = cells[1]?.querySelector('.freshness-dot');
+        if (dotEl) {
+          const cls = (r.priceSource || 'UNAVAILABLE').toLowerCase();
+          const ageTxt = r.priceTs ? ` · ${Math.round((Date.now() - r.priceTs) / 1000)}s ago` : '';
+          dotEl.className = `freshness-dot freshness-${cls}`;
+          dotEl.title = `${r.priceSource || 'UNAVAILABLE'}${ageTxt}`;
+        }
         const vwapEl = cells[1]?.querySelector('.muted-xl');
         if (vwapEl) {
           const vwapArrow = r.aboveVwap ? '▲' : '▼';
@@ -574,7 +593,7 @@ function renderIntraday(data) {
         <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
       </td>
-      <td><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></td>
+      <td><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
       <td><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td>
         <div style="display:flex;flex-direction:column;align-items:center;">
@@ -637,7 +656,7 @@ function screenerCardHtml(section, rows) {
         const m = section.meta(r);
         return `<div style="display:grid; grid-template-columns:1fr 70px 55px auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
           <a href="${nseUrl(r.symbol)}" target="_blank" rel="noopener noreferrer" style="color:var(--text); text-decoration:none; font-weight:600; font-size:11px; font-family:var(--mono);">${r.symbol}</a>
-          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${freshnessDot(r.priceSource, r.priceTs)}</span>
           <div style="cursor:pointer;" onclick="window.openModalChart('${r.symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>
           <span class="${m.cls}" style="font-family:var(--mono); font-size:10px; text-align:right; white-space:nowrap;">${m.value}</span>
         </div>`;
@@ -669,8 +688,14 @@ function renderScreeners(data) {
 
   const rcEl = document.getElementById('rowCount');
   if (rcEl) {
-    const updated = data.lastUpdated ? new Date(data.lastUpdated).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '—';
-    rcEl.textContent = `Screeners: Nifty ${data.universeSize || 500} · updated ${updated} · refreshes ~every 15 min`;
+    // `lastUpdated` is when this refresh cycle ran, not how fresh every row
+    // actually is (rows can be reused from up to ~30s-old main-scan data, or
+    // up to 15min old for symbols outside the main universe) — show the
+    // real oldest-price timestamp (`dataAsOf`) instead of implying the
+    // whole set is as fresh as the cycle time.
+    const asOfTs = data.dataAsOf ?? (data.lastUpdated ? Date.parse(data.lastUpdated) : null);
+    const updated = asOfTs ? new Date(asOfTs).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '—';
+    rcEl.textContent = `Screeners: Nifty ${data.universeSize || 500} · data as of ${updated} · refreshes ~every 15 min`;
   }
 
   if (empty) empty.style.display = 'none';
@@ -813,6 +838,7 @@ function renderPortfolio(data) {
     const equityCurrent = holdings?.reduce((s, h) => s + (h.current_value || 0), 0) || 0;
     const totalPnl = equityPnl;
 
+    const pricingIncomplete = summary?.pricing_incomplete;
     summaryEl.innerHTML = `
       <div style="background:linear-gradient(135deg, rgba(13,18,32,0.95), rgba(17,25,39,0.8)); border:1px solid var(--border); border-radius:14px; padding:16px 20px; margin-bottom:10px; width:100%;">
         <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
@@ -825,6 +851,7 @@ function renderPortfolio(data) {
             <div style="font-size:18px; font-weight:800; font-family:var(--mono); color:${totalPnl >= 0 ? '#22c55e' : '#ef4444'};">${totalPnl >= 0 ? '+' : ''}₹${totalPnl.toFixed(2)}</div>
           </div>
         </div>
+        ${pricingIncomplete ? `<div style="font-size:9px; color:var(--yellow, #eab308);">⚠ One or more holdings/positions have no live price this cycle — totals above exclude them, not "flat".</div>` : ''}
       </div>`;
   }
 
@@ -861,9 +888,16 @@ function renderPortfolio(data) {
       </div>`;
 
     holdings.forEach(h => {
-      const pnl = h.pnl || 0;
-      const pnlPct = h.pnl_percent || 0;
-      const pnlColor = pnl >= 0 ? '#22c55e' : '#ef4444';
+      // current_price/pnl/pnl_percent are null (not 0) when Upstox didn't
+      // return a live price for this holding — show "—", never a fabricated
+      // ₹0.00 that would misread as "flat, no gain/loss."
+      const hasPrice = h.current_price != null;
+      const pnl = h.pnl;
+      const pnlPct = h.pnl_percent;
+      const pnlColor = !hasPrice ? 'var(--muted)' : (pnl >= 0 ? '#22c55e' : '#ef4444');
+      const ltpTxt = hasPrice ? `₹${h.current_price.toFixed(2)}` : '—';
+      const pnlTxt = hasPrice ? `${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}` : '—';
+      const pnlPctTxt = hasPrice ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : 'price unavailable';
 
       html += `<div style="background:rgba(255,255,255,0.02); border:1px solid ${pnlColor}30; border-radius:10px; padding:10px 14px; margin-bottom:6px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
         <div>
@@ -871,12 +905,12 @@ function renderPortfolio(data) {
           <div style="display:flex; gap:12px; margin-top:3px; font-size:9px; color:var(--muted);">
             <span>Qty: <b style="color:var(--text);">${h.quantity}</b></span>
             <span>Avg: <b style="color:var(--text);">₹${(h.average_price || 0).toFixed(2)}</b></span>
-            <span>LTP: <b style="color:var(--text);">₹${(h.current_price || 0).toFixed(2)}</b></span>
+            <span>LTP: <b style="color:var(--text);">${ltpTxt}</b>${freshnessDot(h.price_source, null)}</span>
           </div>
         </div>
         <div style="text-align:right;">
-          <div style="font-weight:700; font-size:14px; font-family:var(--mono); color:${pnlColor};">${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}</div>
-          <div style="font-size:10px; font-weight:600; font-family:var(--mono); color:${pnlColor};">${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%</div>
+          <div style="font-weight:700; font-size:14px; font-family:var(--mono); color:${pnlColor};">${pnlTxt}</div>
+          <div style="font-size:10px; font-weight:600; font-family:var(--mono); color:${pnlColor};">${pnlPctTxt}</div>
         </div>
       </div>`;
     });
@@ -1136,7 +1170,21 @@ function updateLastUpdatedBadge(data) {
     const d = new Date(data.lastUpdated);
     const date = d.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'numeric', year: 'numeric' });
     const time = d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    el.textContent = `Updated ${date} - ${time}`;
+    el.textContent = `Scan synced ${date} - ${time}`;
+
+    // `lastUpdated` is when this scan CYCLE synced, not a promise that every
+    // row's price is that fresh — `dataAsOf` (the oldest priceTs actually
+    // behind this data) is the honest freshness fact; surface it in the
+    // tooltip rather than collapsing both into one string that could imply
+    // more freshness than the data actually has. Per-row freshness is shown
+    // by the dot next to each price.
+    if (data.dataAsOf) {
+      const asOf = new Date(data.dataAsOf);
+      const asOfTime = asOf.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      el.title = `Scan cycle synced ${time} · oldest price behind this data is as of ${asOfTime} · see the dot next to each price for its own freshness`;
+    } else {
+      el.title = '';
+    }
   }
 }
 

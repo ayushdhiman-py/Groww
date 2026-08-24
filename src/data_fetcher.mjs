@@ -239,9 +239,11 @@ export async function fetchVIXFromAlternatives() {
     }
   }
 
-  // Last resort: return estimated VIX
-  console.log("[VIX] All sources failed, using default estimate");
-  return { value: 14.5, source: "default_estimate" };
+  // All sources failed — do NOT substitute a hardcoded "default estimate".
+  // A fabricated 14.5 would be indistinguishable from a real calm-market
+  // reading downstream, when VIX is actually unknown.
+  console.log("[VIX] All sources failed — VIX unavailable this cycle");
+  return { value: null, source: "unavailable" };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -249,6 +251,23 @@ export async function fetchVIXFromAlternatives() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let foBanCache = { data: new Set(), ts: 0, ttl: 5 * 60 * 1000 };
+
+/**
+ * Freshness verdict for the F&O ban list. `ts:0` means no source has EVER
+ * succeeded — an empty Set at that point means "unknown," not "confirmed no
+ * bans," which matters because intraday_scanner.mjs/overnight_scanner.mjs
+ * hard-block a symbol on `isFOBanned` — a silently-empty list from a failed
+ * fetch would let an actually-banned stock through undetected.
+ */
+export function getFOBanListStatus() {
+  const ageMs = foBanCache.ts ? Date.now() - foBanCache.ts : null;
+  return {
+    available: foBanCache.ts > 0,
+    stale: foBanCache.ts === 0 || ageMs > foBanCache.ttl * 3,
+    ageMs,
+    count: foBanCache.data.size,
+  };
+}
 
 export async function getFOBanList() {
   if (foBanCache.data.size > 0 && Date.now() - foBanCache.ts < foBanCache.ttl) {
@@ -266,7 +285,7 @@ export async function getFOBanList() {
         }
       }
       if (bannedStocks.size > 0) {
-        foBanCache = { data: bannedStocks, ts: Date.now() };
+        foBanCache = { ...foBanCache, data: bannedStocks, ts: Date.now() };
         console.log(`[F&O Ban] NSE: ${bannedStocks.size} banned stocks`);
         return bannedStocks;
       }
@@ -288,7 +307,7 @@ export async function getFOBanList() {
         res.data.data.fno_ban_stocks.map(s => (s.symbol || s).toUpperCase())
       );
       if (bannedStocks.size > 0) {
-        foBanCache = { data: bannedStocks, ts: Date.now() };
+        foBanCache = { ...foBanCache, data: bannedStocks, ts: Date.now() };
         console.log(`[F&O Ban] Sensibull: ${bannedStocks.size} banned stocks`);
         return bannedStocks;
       }
@@ -303,7 +322,7 @@ export async function getFOBanList() {
     if (data?.banStocks) {
       const bannedStocks = new Set(data.banStocks.map(s => (s.symbol || "").toUpperCase()));
       if (bannedStocks.size > 0) {
-        foBanCache = { data: bannedStocks, ts: Date.now() };
+        foBanCache = { ...foBanCache, data: bannedStocks, ts: Date.now() };
         console.log(`[F&O Ban] NSE Alternative: ${bannedStocks.size} banned stocks`);
         return bannedStocks;
       }
@@ -323,6 +342,11 @@ export async function getFOBanList() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let deliveryCache = { data: new Map(), ts: 0, ttl: 30 * 60 * 1000 };
+
+export function getDeliveryDataStatus() {
+  const ageMs = deliveryCache.ts ? Date.now() - deliveryCache.ts : null;
+  return { available: deliveryCache.ts > 0, stale: deliveryCache.ts === 0 || ageMs > deliveryCache.ttl * 3, ageMs, count: deliveryCache.data.size };
+}
 
 export async function getDeliveryData() {
   if (deliveryCache.data.size > 0 && Date.now() - deliveryCache.ts < deliveryCache.ttl) {
@@ -345,7 +369,7 @@ export async function getDeliveryData() {
         }
       }
       if (deliveryMap.size > 0) {
-        deliveryCache = { data: deliveryMap, ts: Date.now() };
+        deliveryCache = { ...deliveryCache, data: deliveryMap, ts: Date.now() };
         console.log(`[Delivery] NSE Today: ${deliveryMap.size} stocks`);
         return deliveryMap;
       }
@@ -371,7 +395,7 @@ export async function getDeliveryData() {
         }
       }
       if (deliveryMap.size > 0) {
-        deliveryCache = { data: deliveryMap, ts: Date.now() };
+        deliveryCache = { ...deliveryCache, data: deliveryMap, ts: Date.now() };
         console.log(`[Delivery] NSE Previous Day: ${deliveryMap.size} stocks`);
         return deliveryMap;
       }
@@ -390,6 +414,11 @@ export async function getDeliveryData() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 let earningsCache = { data: [], ts: 0, ttl: 60 * 60 * 1000 };
+
+export function getEarningsCalendarStatus() {
+  const ageMs = earningsCache.ts ? Date.now() - earningsCache.ts : null;
+  return { available: earningsCache.ts > 0, stale: earningsCache.ts === 0 || ageMs > earningsCache.ttl * 3, ageMs, count: earningsCache.data.length };
+}
 
 export async function getEarningsCalendar() {
   if (earningsCache.data.length > 0 && Date.now() - earningsCache.ts < earningsCache.ttl) {
@@ -422,7 +451,7 @@ export async function getEarningsCalendar() {
         }
       }
       if (earnings.length > 0) {
-        earningsCache = { data: earnings, ts: Date.now() };
+        earningsCache = { ...earningsCache, data: earnings, ts: Date.now() };
         console.log(`[Earnings] NSE: ${earnings.length} upcoming`);
         return earnings;
       }
@@ -464,7 +493,7 @@ export async function getEarningsCalendar() {
       }
 
       if (earnings.length > 0) {
-        earningsCache = { data: earnings, ts: Date.now() };
+        earningsCache = { ...earningsCache, data: earnings, ts: Date.now() };
         console.log(`[Earnings] Yahoo Finance: ${earnings.length} upcoming`);
         return earnings;
       }
@@ -481,10 +510,17 @@ export async function getEarningsCalendar() {
 // FII/DII Flow Data
 // ─────────────────────────────────────────────────────────────────────────────
 
-let fiiDiiCache = { data: { fii: 0, dii: 0 }, ts: 0, ttl: 60 * 60 * 1000 };
+// fii/dii start null — a fabricated {fii:0, dii:0} at cold start would read
+// as "confirmed no flow today" before any fetch has even been attempted.
+let fiiDiiCache = { data: { fii: null, dii: null }, ts: 0, ttl: 60 * 60 * 1000 };
+
+export function getFiiDiiStatus() {
+  const ageMs = fiiDiiCache.ts ? Date.now() - fiiDiiCache.ts : null;
+  return { available: fiiDiiCache.ts > 0, stale: fiiDiiCache.ts === 0 || ageMs > fiiDiiCache.ttl * 3, ageMs };
+}
 
 export async function getFIIDIIFlow() {
-  if (Date.now() - fiiDiiCache.ts < fiiDiiCache.ttl) {
+  if (fiiDiiCache.ts && Date.now() - fiiDiiCache.ts < fiiDiiCache.ttl) {
     return fiiDiiCache.data;
   }
 
@@ -500,7 +536,7 @@ export async function getFIIDIIFlow() {
       }
 
       const result = { fii: fiiNet, dii: diiNet, date: todayData?.date || new Date().toISOString() };
-      fiiDiiCache = { data: result, ts: Date.now() };
+      fiiDiiCache = { ...fiiDiiCache, data: result, ts: Date.now() };
       console.log(`[FII/DII] FII: ₹${fiiNet.toFixed(0)}Cr, DII: ₹${diiNet.toFixed(0)}Cr`);
       return result;
     }
@@ -516,7 +552,14 @@ export async function getFIIDIIFlow() {
 // Gift Nifty
 // ─────────────────────────────────────────────────────────────────────────────
 
-let giftNiftyCache = { data: 0, ts: 0, ttl: 60 * 1000 };
+// null, not 0 — a fabricated 0-point Gift Nifty at cold start (or after a
+// total fetch failure) would look like a real "flat" reading.
+let giftNiftyCache = { data: null, ts: 0, ttl: 60 * 1000 };
+
+export function getGiftNiftyStatus() {
+  const ageMs = giftNiftyCache.ts ? Date.now() - giftNiftyCache.ts : null;
+  return { available: giftNiftyCache.ts > 0, stale: giftNiftyCache.ts === 0 || ageMs > giftNiftyCache.ttl * 3, ageMs };
+}
 
 export async function getGiftNifty() {
   if (Date.now() - giftNiftyCache.ts < giftNiftyCache.ttl) {
@@ -549,7 +592,7 @@ export async function getGiftNifty() {
       try {
         const value = await fn();
         if (value && !isNaN(value)) {
-          giftNiftyCache = { data: value, ts: Date.now() };
+          giftNiftyCache = { ...giftNiftyCache, data: value, ts: Date.now() };
           return value;
         }
       } catch {}
@@ -578,12 +621,34 @@ export async function fetchAllMarketData() {
   ]);
 
   return {
-    vix: vixData.status === "fulfilled" ? vixData.value : { value: 14.5, source: "default" },
+    // On rejection, value:null/unavailable — never a fabricated 14.5 that
+    // would be indistinguishable from a real calm-VIX reading downstream.
+    vix: vixData.status === "fulfilled" ? vixData.value : { value: null, source: "unavailable" },
     foBanList: foBanList.status === "fulfilled" ? foBanList.value : new Set(),
     deliveryMap: deliveryMap.status === "fulfilled" ? deliveryMap.value : new Map(),
     earnings: earnings.status === "fulfilled" ? earnings.value : [],
-    fiiDii: fiiDii.status === "fulfilled" ? fiiDii.value : { fii: 0, dii: 0 },
-    giftNifty: giftNifty.status === "fulfilled" ? giftNifty.value : 0
+    // On rejection, fii/dii are null (unknown), not a fabricated 0 (which
+    // reads as "confirmed no flow today").
+    fiiDii: fiiDii.status === "fulfilled" ? fiiDii.value : { fii: null, dii: null, unavailable: true },
+    giftNifty: giftNifty.status === "fulfilled" ? giftNifty.value : null,
+    // Per-source availability/staleness verdict for THIS cycle — an empty
+    // Set/Map/Array above is otherwise indistinguishable from "confirmed
+    // nothing," which matters most for foBanList: intraday_scanner.mjs and
+    // overnight_scanner.mjs hard-block a symbol on isFOBanned, so a silently
+    // empty ban list from a failed fetch would let an actually-banned stock
+    // through with no visible warning. Surfaced end-to-end via
+    // buildMarketSummary()'s data_quality_warnings in operator_scanner.mjs.
+    dataQuality: getMarketDataStatus(),
+  };
+}
+
+export function getMarketDataStatus() {
+  return {
+    foBanList: getFOBanListStatus(),
+    deliveryMap: getDeliveryDataStatus(),
+    earnings: getEarningsCalendarStatus(),
+    fiiDii: getFiiDiiStatus(),
+    giftNifty: getGiftNiftyStatus(),
   };
 }
 

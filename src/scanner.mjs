@@ -4,7 +4,8 @@ import { analyzeStructure, detectBreakout, detectRetest, detectRejection, detect
 import { TF_MAP } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 import { optionsCache } from "./options_feed.mjs";
-import { getLtp } from "./feed.mjs";
+import { getLtpWithFreshness } from "./feed.mjs";
+import { historical, UNAVAILABLE, isMarketOpen as _isMarketOpen } from "./data_quality.mjs";
 
 import { fetchDividend, formatDividendInfo } from "./dividend.mjs";
 import { enrichOpportunities } from "./entry_score.mjs";
@@ -23,11 +24,10 @@ export function setIsAuthenticated(val) {
     isAuthenticated = val;
 }
 
-export function isMarketOpen() {
-    const ist = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
-    const h = ist.getHours(), m = ist.getMinutes(), d = ist.getDay();
-    return d > 0 && d < 6 && (h > 9 || (h === 9 && m >= 15)) && (h < 15 || (h === 15 && m <= 30));
-}
+// Re-exported so existing importers (screener.mjs, scanner_testing.mjs,
+// operator scanners) keep working unchanged — the actual logic now lives in
+// data_quality.mjs alongside the freshness-threshold policy that depends on it.
+export const isMarketOpen = _isMarketOpen;
 
 export function getState() {
     return state;
@@ -36,12 +36,25 @@ export function getState() {
 export function emptyState() {
     const data = {};
     for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
-    return { lastUpdated: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [] };
+    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [] };
+}
+
+// The oldest priceTs among rows currently in state — an honest "as of"
+// distinct from `lastUpdated` (which just says when the scan cycle synced,
+// not how fresh the prices it synced actually are).
+function computeDataAsOf(data) {
+    let min = Infinity;
+    for (const tf of Object.keys(TF_MAP)) {
+        for (const row of data[`${tf}_ALL`] || []) {
+            if (row.priceTs != null && row.priceTs < min) min = row.priceTs;
+        }
+    }
+    return Number.isFinite(min) ? min : null;
 }
 
 // Local rateLimit removed in favor of global one in upstox.mjs
 
-export function buildSignal(candles, tf, symbol, ltp = null) {
+export function buildSignal(candles, tf, symbol, ltpFresh = UNAVAILABLE("no ltp arg")) {
     const cls = candles.map(c => c.close).filter(Number.isFinite);
     const vol = candles.map(c => c.volume).filter(Number.isFinite);
     if (cls.length < 55 || vol.length < 15) return null;
@@ -50,7 +63,8 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
     const { macd: ml, signal: sl } = macd(cls, 12, 26, 9);
     const rsiVal = rsi(cls);
     const vwapVal = vwap(candles);
-    const hv = historicalVolatility(cls, 20);
+    const hvResult = historicalVolatility(cls, 20);
+    const hv = hvResult.value;
     const n = cls.length;
 
     const c9 = e9[n - 1];
@@ -80,11 +94,16 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
     const volSpike = lastVol > avgVol * 1.5;
 
     const last = candles[candles.length - 1];
-    const livePrice = ltp || last.close;
-    const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
-
     const normalizeTs = ts => ts < 10000000000 ? ts * 1000 : ts;
     const lastTs = normalizeTs(last.ts);
+    // Never silently substitute a stale candle close for a live price: if no
+    // live tick was supplied (or it's itself UNAVAILABLE), the price falls
+    // back to the candle close but is explicitly tagged HISTORICAL — never
+    // indistinguishable from a genuine live read.
+    const priceSource = ltpFresh && ltpFresh.value != null ? ltpFresh : historical(last.close, lastTs);
+    const livePrice = priceSource.value;
+    const emaGap = c50 ? +(((c21 - c50) / c50) * 100).toFixed(3) : 0;
+
     // IST calendar-day bucket as a plain integer instead of
     // toLocaleDateString(..., {timeZone}) — Intl-based timezone formatting
     // is expensive enough that calling it per-candle in the loop below (run
@@ -280,7 +299,7 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
         techScore, redCount,
         rating,
         ts: last.ts,
-        hv,
+        hv, hvEstimated: hvResult.estimated,
         atr: null, atrPct: null, // filled in by scanSymbol() from the 1d-pass cache
         dayOpen: dayOpen !== null ? +dayOpen.toFixed(2) : null,
         pctFromOpen: pctFromOpen !== null && Number.isFinite(pctFromOpen) ? +pctFromOpen.toFixed(2) : null,
@@ -299,15 +318,22 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
         w52H: h52w, w52L: l52w,
         priceChange: +priceChange.toFixed(2),
         dividend: null,
+        // Freshness provenance — `ts` stays the candle timestamp (unchanged,
+        // for backward compat), but `price`/`chgPct`/dayH/dayL etc. may have
+        // come from a separately-sourced live tick of a DIFFERENT age. Expose
+        // both real ages explicitly instead of collapsing them into one
+        // timestamp that would otherwise silently imply they match.
+        priceSource: priceSource.source, priceTs: priceSource.ts, candleTs: lastTs,
     };
 }
 
-const w52Cache = new Map();
-const atrCache = new Map(); // symbol -> { atr, atrPct } — computed once on the 1d pass, applied to every tf
+const w52Cache = new Map();  // symbol -> { w52H, w52L, wroteAt }
+const atrCache = new Map();  // symbol -> { atr, atrPct, wroteAt } — computed once on the 1d pass, applied to every tf
+const CACHE_MAX_AGE_MS = 26 * 3600 * 1000; // one missed daily refresh — beyond this, stop serving it as current
 const symbolErrorCount = new Map(); // Track consecutive errors per symbol
 const MAX_CONSECUTIVE_ERRORS = 3; // Skip symbol after this many consecutive errors
 
-async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
+async function scanSymbol(symbol, buckets, errors, progressInfo, ltpFresh) {
     // Skip symbols with too many consecutive errors (likely invalid symbols)
     const consecutiveErrors = symbolErrorCount.get(symbol) || 0;
     if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
@@ -330,26 +356,35 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
             // Reset error count on successful fetch
             symbolErrorCount.set(symbol, 0);
 
-            const row = buildSignal(candles, tf, symbol, ltp);
+            const row = buildSignal(candles, tf, symbol, ltpFresh);
             if (!row) continue;
 
             if (tf === "1d") {
-                w52Cache.set(symbol, { w52H: row.w52H, w52L: row.w52L });
+                w52Cache.set(symbol, { w52H: row.w52H, w52L: row.w52L, wroteAt: Date.now() });
                 const dailyAtr = atr(candles, 14);
                 const atrPct = dailyAtr !== null && row.price ? (dailyAtr / row.price) * 100 : null;
-                atrCache.set(symbol, { atr: dailyAtr !== null ? +dailyAtr.toFixed(2) : null, atrPct: atrPct !== null ? +atrPct.toFixed(2) : null });
+                atrCache.set(symbol, { atr: dailyAtr !== null ? +dailyAtr.toFixed(2) : null, atrPct: atrPct !== null ? +atrPct.toFixed(2) : null, wroteAt: Date.now() });
                 row.atr = atrCache.get(symbol).atr;
                 row.atrPct = atrCache.get(symbol).atrPct;
             } else {
+                // If a later 1d fetch fails, don't keep perpetuating an
+                // arbitrarily old 52W/ATR value forever — past one missed
+                // daily refresh, surface it as unavailable instead.
                 const cached = w52Cache.get(symbol);
-                if (cached) {
+                if (cached && Date.now() - cached.wroteAt < CACHE_MAX_AGE_MS) {
                     row.w52H = cached.w52H;
                     row.w52L = cached.w52L;
+                } else {
+                    row.w52H = null;
+                    row.w52L = null;
                 }
                 const cachedAtr = atrCache.get(symbol);
-                if (cachedAtr) {
+                if (cachedAtr && Date.now() - cachedAtr.wroteAt < CACHE_MAX_AGE_MS) {
                     row.atr = cachedAtr.atr;
                     row.atrPct = cachedAtr.atrPct;
+                } else {
+                    row.atr = null;
+                    row.atrPct = null;
                 }
             }
 
@@ -394,24 +429,31 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltp) {
 // path used everywhere else doesn't carry it) for the shortlist only, not
 // the whole scanned universe, and throttled independently of how often the
 // periodic sync tick fires — spread doesn't need refreshing every ~2s.
-let lastQuoteFetchTs = 0;
+let lastQuoteAttemptTs = 0;  // throttles how often we RETRY the fetch
+let lastQuoteSuccessTs = 0;  // when lastQuoteMap was actually last refreshed
 let lastQuoteMap = {};
 const QUOTE_FETCH_INTERVAL_MS = 20000;
+const QUOTE_STALE_AFTER_MS = QUOTE_FETCH_INTERVAL_MS * 3; // 3 missed refresh cycles — stop trusting it
 
 async function annotateSpread(opportunities) {
     if (!opportunities.length) return;
     const now = Date.now();
-    if (now - lastQuoteFetchTs >= QUOTE_FETCH_INTERVAL_MS) {
-        lastQuoteFetchTs = now;
+    if (now - lastQuoteAttemptTs >= QUOTE_FETCH_INTERVAL_MS) {
+        lastQuoteAttemptTs = now;
         try {
             lastQuoteMap = await fetchBulkQuotes(opportunities.map(o => o.symbol));
+            lastQuoteSuccessTs = now;
         } catch (e) {
             console.error("[Scanner] Spread fetch failed:", e.message);
+            // lastQuoteSuccessTs is intentionally left where it was — a
+            // failed fetch must not reset the staleness clock, or a
+            // permanently-failing fetch would keep looking "just refreshed."
         }
     }
+    const spreadIsStale = now - lastQuoteSuccessTs > QUOTE_STALE_AFTER_MS;
     for (const o of opportunities) {
         const q = lastQuoteMap[o.symbol];
-        if (!q || q.spreadPct == null) continue;
+        if (!q || q.spreadPct == null || spreadIsStale) continue;
         o.spreadPct = q.spreadPct;
         // A discount, not a hard filter — a wide spread makes a setup less
         // attractive to act on right now (execution/slippage risk), it
@@ -453,7 +495,7 @@ export async function scanAll() {
             const sym = UNIVERSE[scanIdx];
             const pInfo = `[${scanProgress.done + 1}/${UNIVERSE.length}]`;
             try {
-                await scanSymbol(sym, next.data, next.errors, pInfo, getLtp(sym));
+                await scanSymbol(sym, next.data, next.errors, pInfo, getLtpWithFreshness(sym));
             } catch (e) {
                 console.error(`\n❌ Critical error scanning ${sym}:`, e.message);
             }
@@ -482,7 +524,8 @@ export async function scanAll() {
             next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
             await annotateSpread(next.intradayOpportunities);
 
-            next.lastUpdated = new Date().toISOString();
+            next.lastUpdated = new Date().toISOString();  // when this scan cycle synced — NOT a data-freshness claim
+            next.dataAsOf = computeDataAsOf(next.data);    // the actual oldest price timestamp behind what synced
             state = JSON.parse(JSON.stringify(next));
 
             onScanComplete(next).catch(e => console.error("[CriticalTrades] onScanComplete error:", e.message));
@@ -518,6 +561,11 @@ async function fetchDividendsInBackground(data) {
             console.log(`  💰 Dividend progress: ${Math.min(i + batchSize, allStocks.length)}/${allStocks.length}`);
         }
 
+        // `data` was mutated in place, but `state` was already deep-cloned
+        // via JSON.parse(JSON.stringify(next)) back in scanAll() — a value
+        // copy, not a reference — so without this, every dividend enrichment
+        // above is silently discarded and never reaches served state.
+        state = { ...state, data: JSON.parse(JSON.stringify(data)) };
         console.log(`✅ Dividend fetch complete.`);
     } catch (e) {
         console.error("❌ Error fetching dividends:", e.message);

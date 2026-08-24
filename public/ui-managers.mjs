@@ -70,6 +70,17 @@ export class LivePriceUpdater {
             row.chgPct = +(((newPrice - row.prevClose) / row.prevClose) * 100).toFixed(2);
             if (row.vwap !== null) row.aboveVwap = newPrice > row.vwap;
 
+            // Patch the freshness metadata in the SAME pass — otherwise this
+            // update would reproduce the exact bug it's meant to fix: a
+            // freshly-patched price paired with stale priceSource/priceTs
+            // left over from the last full /api/state fetch, making the row
+            // look as fresh as the price alone when the rest of it isn't.
+            const meta = ltpData.meta?.[row.symbol];
+            if (meta) {
+              row.priceSource = meta.source;
+              row.priceTs = meta.ts;
+            }
+
             if (oldPrice !== row.price) {
               anyChanged = true;
             }
