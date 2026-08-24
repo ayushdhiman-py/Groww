@@ -51,7 +51,7 @@ async function scanNewSymbol(symbol, rowsByTf) {
     }
 }
 
-function computeScreenerCategories(rowsByTf) {
+export function computeScreenerCategories(rowsByTf) {
     const daily = rowsByTf["1d"];
     const fiveMin = rowsByTf["5m"];
 
@@ -74,15 +74,24 @@ function computeScreenerCategories(rowsByTf) {
         .sort((a, b) => a.chgPct - b.chgPct)
         .slice(0, TOP_N);
 
-    const bullishCrossover = fiveMin
+    // Daily, not 5m — "Golden Cross"/"RSI Oversold"/"Momentum" are
+    // conventionally daily-timeframe concepts on every broker app (Upstox
+    // included); computing them from 5-minute candles instead produced a
+    // completely different, much noisier list (5m RSI dips under 30 many
+    // times a day as ordinary intraday noise, while a genuine daily RSI
+    // oversold reading is rare and significant) — not wrong data, just a
+    // different definition than what these category names imply.
+    // Volume Shockers stays 5m deliberately: an intraday relative-volume
+    // spike is itself an inherently intraday concept, unlike these three.
+    const bullishCrossover = daily
         .filter(r => r.goldenCross)
         .sort((a, b) => b.techScore - a.techScore)
         .slice(0, TOP_N);
-    const momentumBurst = fiveMin
+    const momentumBurst = daily
         .filter(r => r.volSpike && r.macdBull)
         .sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange))
         .slice(0, TOP_N);
-    const rsiOversold = fiveMin
+    const rsiOversold = daily
         .filter(r => r.rsi !== null && r.rsi < 30)
         .sort((a, b) => a.rsi - b.rsi)
         .slice(0, TOP_N);
