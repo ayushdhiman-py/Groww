@@ -63,6 +63,10 @@ function scorePriceAction(row) {
     if (row.rejection?.rejected) { score -= 4; notes.push("Latest candle shows an upper-wick rejection"); }
     if (row.orb?.brokenAbove && row.orb?.retestFailed) { score -= 5; notes.push("Failed retest of the opening-range high"); }
     else if (row.orb?.brokenAbove && (row.orb?.retested === false || row.orb?.retestHeld)) { score += 4; notes.push("Holding above the opening range"); }
+    if (row.prevDayH != null && row.price != null) {
+        if (row.price > row.prevDayH) { score += 3; notes.push(`Trading above previous day's high (₹${row.prevDayH})`); }
+        else if (row.rejection?.rejected && Math.abs(row.price - row.prevDayH) / row.prevDayH < 0.01) { score -= 3; notes.push("Rejected near previous day's high"); }
+    }
     return { score: clamp(score, 0, 20), notes };
 }
 
@@ -83,8 +87,13 @@ function scoreOpeningStrength(row) {
 
 function scoreVwap(row) {
     let score = 0; const notes = [];
-    if (row.aboveSessionVwap) { score += 8; notes.push("Above session VWAP"); }
-    else if (row.aboveSessionVwap === false) notes.push("Below session VWAP");
+    if (row.aboveSessionVwap) {
+        score += 8; notes.push("Above session VWAP");
+        if (row.vwapReclaimed) notes.push("Reclaimed VWAP after dipping below — support holding");
+    } else if (row.aboveSessionVwap === false) {
+        notes.push("Below session VWAP");
+        if (row.vwapReclaimFailed) { score -= 3; notes.push("Failed to hold a VWAP reclaim"); }
+    }
     if (row.sessionVwapSlope != null) {
         if (row.sessionVwapSlope > 0) { score += 7; notes.push("Session VWAP rising"); }
         else notes.push("Session VWAP flat or falling");
@@ -120,6 +129,18 @@ function scoreVolume(row) {
     return { score: clamp(score, 0, 15), notes };
 }
 
+// Recent return over the last `bars` candles from a priceHist array (both
+// stock and NIFTY rows carry the same-length, same-tf priceHist, so indices
+// line up closely enough to compare short-term trend, not just the
+// since-open snapshot).
+function recentReturnPct(priceHist, bars = 5) {
+    if (!priceHist || priceHist.length < bars + 1) return null;
+    const cur = priceHist[priceHist.length - 1];
+    const prior = priceHist[priceHist.length - 1 - bars];
+    if (!prior) return null;
+    return ((cur - prior) / prior) * 100;
+}
+
 function scoreRelativeStrength(row, ctx) {
     let score = 0; const notes = [];
     const nifty = ctx.niftyRow;
@@ -129,12 +150,23 @@ function scoreRelativeStrength(row, ctx) {
         else if (rsVsNifty > 0) score += 4;
         else notes.push("Underperforming NIFTY since open");
     }
+    // Improving relative strength: is the stock pulling ahead of NIFTY over
+    // the last few bars, not just cumulatively since open? A distinct signal
+    // from the since-open snapshot above (a stock can be behind since open
+    // but currently pulling ahead, or vice versa).
+    if (nifty) {
+        const stockRet = recentReturnPct(row.priceHist, 5);
+        const niftyRet = recentReturnPct(nifty.priceHist, 5);
+        if (stockRet != null && niftyRet != null && stockRet - niftyRet > 0.1) {
+            score += 2; notes.push("Relative strength improving vs NIFTY over the last few bars");
+        }
+    }
     const sectorStat = ctx.sectorStats?.[row.sector];
     if (sectorStat && sectorStat.avgPctFromOpen != null) {
         if (row.pctFromOpen != null && row.pctFromOpen > sectorStat.avgPctFromOpen && sectorStat.positiveShare >= 0.5) {
-            score += 7; notes.push(`Leading its sector (${row.sector})`);
+            score += 5; notes.push(`Leading its sector (${row.sector})`);
         } else if (sectorStat.positiveShare >= 0.5) {
-            score += 3; notes.push(`Sector ${row.sector} broadly positive`);
+            score += 2; notes.push(`Sector ${row.sector} broadly positive`);
         } else {
             notes.push(`Sector ${row.sector} weak today`);
         }
@@ -325,6 +357,7 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
     // just because it already ran — avoids chasing.
     const rows5 = dataBuckets["5m_ALL"] || [];
     const rows15ByS = new Map((dataBuckets["15m_ALL"] || []).map(r => [r.symbol, r]));
+    const rows30ByS = new Map((dataBuckets["30m_ALL"] || []).map(r => [r.symbol, r]));
 
     const opportunities = [];
     for (const r5 of rows5) {
@@ -335,6 +368,11 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
 
         const combinedOpportunity = Math.round((r5.opportunityScore + r15.opportunityScore) / 2);
         const combinedAttractiveness = Math.round((r5.entryAttractiveness + r15.entryAttractiveness) / 2);
+        // 30m ("broader trend") is informational context here, not a hard
+        // gate — requiring three independent timeframes to agree would make
+        // an already-rare signal even rarer without a stated basis for the
+        // stricter bar.
+        const r30 = rows30ByS.get(r5.symbol);
 
         opportunities.push({
             symbol: r5.symbol, sector: r5.sector, tf: r5.tf,
@@ -344,7 +382,8 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
             entryAttractiveness: combinedAttractiveness,
             entryAttractivenessLabel: r5.entryAttractivenessLabel,
             upside: r5.upside,
-            score5m: r5.opportunityScore, score15m: r15.opportunityScore,
+            score5m: r5.opportunityScore, score15m: r15.opportunityScore, score30m: r30?.opportunityScore ?? null,
+            broaderTrendSupportive: r30 ? r30.opportunityScore >= 50 : null,
             notes: [...new Set([...(r5.opportunityNotes || []), ...(r15.opportunityNotes || [])])].slice(0, 6),
             priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
             dayH: r5.dayH, dayL: r5.dayL, vwap: r5.sessionVwap ?? r5.vwap, chgPct: r5.chgPct,
@@ -352,9 +391,17 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
         });
     }
 
+    // Among otherwise-tied opportunities: prefer more remaining upside (the
+    // spec's "prefer evidence of unusually high upside potential" applied
+    // as a tiebreaker, not a primary rank — Opportunity/Entry Attractiveness
+    // stay primary since a mediocre setup with a big theoretical zone still
+    // isn't a good trade), then prefer 30m trend agreement.
     opportunities.sort((a, b) => {
         if (b.opportunityScore !== a.opportunityScore) return b.opportunityScore - a.opportunityScore;
-        return b.entryAttractiveness - a.entryAttractiveness;
+        if (b.entryAttractiveness !== a.entryAttractiveness) return b.entryAttractiveness - a.entryAttractiveness;
+        const upsideA = a.upside?.remainingPct ?? 0, upsideB = b.upside?.remainingPct ?? 0;
+        if (upsideB !== upsideA) return upsideB - upsideA;
+        return (b.broaderTrendSupportive === true ? 1 : 0) - (a.broaderTrendSupportive === true ? 1 : 0);
     });
 
     return opportunities.slice(0, 40);

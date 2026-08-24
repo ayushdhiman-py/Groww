@@ -16,7 +16,7 @@
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
-function scorePriceActionHealth(row5m, row15m, price) {
+function scorePriceActionHealth(row5m, row15m, row1m, price) {
     let score = 100; const notes = [];
     const s5 = row5m?.structure, s15 = row15m?.structure;
     if (s5 && !s5.insufficientData) {
@@ -29,13 +29,21 @@ function scorePriceActionHealth(row5m, row15m, price) {
     if (s5?.lastSwingHigh != null && price != null && price < s5.lastSwingHigh * 0.997) {
         score -= 10; notes.push("Unable to make a new high");
     }
+    // 1m = immediate behaviour: a small, early nudge only — deliberately
+    // low weight since 1m noise is high; it should never dominate the 5m/
+    // 15m structural read above.
+    if (row1m?.rejection?.rejected) { score -= 5; notes.push("1m: immediate rejection candle"); }
+    if (row1m?.structure?.brokeStructure) { score -= 5; notes.push("1m: immediate structure weakening"); }
     return { score: clamp(score, 0, 100), notes };
 }
 
 function scoreVwapHealth(row) {
     if (!row) return { score: 60, notes: ["VWAP data unavailable"] };
     let score = 100; const notes = [];
-    if (row.aboveSessionVwap === false) { score -= 40; notes.push("Price below session VWAP"); }
+    if (row.aboveSessionVwap === false) {
+        score -= 40; notes.push("Price below session VWAP");
+        if (row.vwapReclaimFailed) { score -= 15; notes.push("Failed VWAP reclaim"); }
+    }
     if (row.sessionVwapSlope != null && row.sessionVwapSlope < 0) { score -= 20; notes.push("Session VWAP slope weakening"); }
     return { score: clamp(score, 0, 100), notes };
 }
@@ -134,15 +142,16 @@ export function classifyDeteriorationPattern(minuteHistory) {
 /**
  * Main entry point — one Trade Health computation for one Critical trade.
  * @param {object} trade — the persisted Critical trade record
- * @param {object} ctx — { row5m, row15m, niftyRow5m, sectorStats5m, livePrice }
+ * @param {object} ctx — { row1m, row5m, row15m, niftyRow5m, sectorStats5m, livePrice }
+ *   row1m is optional (immediate-behaviour nudge only); everything else is required.
  */
 export function computeTradeHealth(trade, ctx) {
-    const { row5m, row15m, niftyRow5m, sectorStats5m, livePrice } = ctx;
+    const { row1m, row5m, row15m, niftyRow5m, sectorStats5m, livePrice } = ctx;
     const price = livePrice ?? row5m?.price ?? trade.entryPrice;
     const pnl = (price - trade.entryPrice) * trade.quantity;
     const pnlPct = ((price - trade.entryPrice) / trade.entryPrice) * 100;
 
-    const priceActionHealth = scorePriceActionHealth(row5m, row15m, price);
+    const priceActionHealth = scorePriceActionHealth(row5m, row15m, row1m, price);
     const vwapHealth = scoreVwapHealth(row5m);
     const volumeHealth = scoreVolumeHealth(row5m);
     const rsHealth = scoreRsHealth(row5m, niftyRow5m, sectorStats5m);
@@ -171,12 +180,21 @@ export function computeTradeHealth(trade, ctx) {
     const deteriorationSignals = [priceActionHealth.score < 70, vwapHealth.score < 70, volumeHealth.score < 70, rsHealth.score < 70].filter(Boolean).length;
     const profitProtectionWarning = pnlPct > 0 && deteriorationSignals >= 2;
 
+    // Multi-timeframe reference points named explicitly per spec: price vs
+    // entry (pnlPct above), vs today's open, and vs the estimated upside
+    // zone computed at/after entry — three different reference frames that
+    // are easy to conflate otherwise.
+    const vsOpenPct = row5m?.pctFromOpen ?? null;
+    const upside = row5m?.upside ?? null;
+    const vsUpsideZonePct = upside?.zoneHigh ? +(((price - upside.zoneHigh) / upside.zoneHigh) * 100).toFixed(2) : null;
+
     return {
         price: +price.toFixed(2), pnl: +pnl.toFixed(2), pnlPct: +pnlPct.toFixed(2),
+        vsOpenPct, vsUpsideZonePct,
         score, state, warnings,
         breakdown: { priceActionHealth, vwapHealth, volumeHealth, rsHealth, confirmHealth },
         profitProtectionWarning,
-        remainingUpside: row5m?.upside ?? null,
+        remainingUpside: upside,
         ts: new Date().toISOString(),
     };
 }

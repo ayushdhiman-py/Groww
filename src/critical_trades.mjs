@@ -140,6 +140,7 @@ export async function onScanComplete(scanResult) {
     const nowMinuteKey = new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata", hour: "2-digit", minute: "2-digit", hour12: false });
 
     for (const trade of active) {
+        const row1m = findRow(dataBuckets, trade.symbol, "1m");
         const row5m = findRow(dataBuckets, trade.symbol, "5m");
         const row15m = findRow(dataBuckets, trade.symbol, "15m");
         const livePrice = getLtp(trade.symbol) ?? row5m?.price ?? trade.entryPrice;
@@ -147,7 +148,7 @@ export async function onScanComplete(scanResult) {
         if (livePrice > trade.peakPrice) trade.peakPrice = livePrice;
 
         const health = computeTradeHealth(trade, {
-            row5m, row15m, niftyRow5m: ctx5m.niftyRow, sectorStats5m: ctx5m.sectorStats, livePrice,
+            row1m, row5m, row15m, niftyRow5m: ctx5m.niftyRow, sectorStats5m: ctx5m.sectorStats, livePrice,
         });
         trade.lastHealth = health;
         trade.trap = classifyTrapRisk(row5m, trade);

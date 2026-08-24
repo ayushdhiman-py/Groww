@@ -165,6 +165,7 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
     let rejection = { rejected: false, upperWickRatio: 0 };
     let consolidation = { consolidating: false, rangePct: null };
     let sessionVwap = null, sessionVwapSlope = null, aboveSessionVwap = null;
+    let vwapReclaimed = false, vwapReclaimFailed = false;
 
     if (isIntradayTf && todayCandles.length > 0) {
         dayOpen = todayCandles[0].open;
@@ -190,6 +191,19 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
             sessionVwapSlope = prior ? ((sessionVwap - prior) / prior) * 100 / 5 : null;
         }
         aboveSessionVwap = sessionVwap !== null ? livePrice > sessionVwap : null;
+
+        // VWAP reclaim / failed-reclaim: did price dip below session VWAP in
+        // the recent window and then recover above it (reclaim), or recover
+        // and then lose it again (failed reclaim)? Distinct from just
+        // "currently above/below" — a reclaim is stronger evidence of
+        // support than having simply never dipped.
+        const reclaimLookback = Math.min(10, sessionVwapArr.length - 1);
+        let dippedBelowRecently = false;
+        for (let k = Math.max(0, todayCandles.length - 1 - reclaimLookback); k < todayCandles.length - 1; k++) {
+            if (sessionVwapArr[k] != null && todayCandles[k].close < sessionVwapArr[k]) dippedBelowRecently = true;
+        }
+        vwapReclaimed = dippedBelowRecently && aboveSessionVwap === true;
+        vwapReclaimFailed = dippedBelowRecently && aboveSessionVwap === false;
     }
 
     const histLen = 60;
@@ -252,7 +266,7 @@ export function buildSignal(candles, tf, symbol, ltp = null) {
         macdHist: macdHist !== null && Number.isFinite(macdHist) ? +macdHist.toFixed(4) : null,
         macdHistAccel: macdHistAccel !== null && Number.isFinite(macdHistAccel) ? +macdHistAccel.toFixed(4) : null,
         vwap: vwapVal, aboveVwap,
-        sessionVwap, sessionVwapSlope, aboveSessionVwap,
+        sessionVwap, sessionVwapSlope, aboveSessionVwap, vwapReclaimed, vwapReclaimFailed,
         rsi: rsiVal,
         checks, redFlags,
         techScore, redCount,
