@@ -158,7 +158,7 @@ export function deleteCriticalTrade(id) {
  * — completely decoupled from the general 5-minute scan cycle, so a Critical
  * trade's structural data (VWAP/volume/price-action) is never held hostage
  * to wherever the general scan's Stage-2 pass currently is.
- * @param {Object<string, {1m?:object, 5m?:object, 15m?:object}>} rowsBySymbol
+ * @param {Object<string, {1m?:object, 5m?:object, 15m?:object, 30m?:object}>} rowsBySymbol
  *   Fresh buildSignal() rows for each active trade's symbol, keyed by symbol
  *   then timeframe — produced by critical_monitor.mjs from force-refreshed
  *   candles (bypassing the general candle cache's TTL).
@@ -179,6 +179,7 @@ export async function onCriticalTick(rowsBySymbol) {
         const row1m = rows["1m"] || null;
         const row5m = rows["5m"] || null;
         const row15m = rows["15m"] || null;
+        const row30m = rows["30m"] || null;
         const priceFresh = getLtpWithFreshness(trade.symbol);
         const livePrice = priceFresh.value ?? row5m?.price ?? null;
 
@@ -195,7 +196,7 @@ export async function onCriticalTick(rowsBySymbol) {
         if (livePrice > trade.peakPrice) trade.peakPrice = livePrice;
 
         const health = computeTradeHealth(trade, {
-            row1m, row5m, row15m, niftyRow5m: ctx5m.niftyRow, sectorStats5m: ctx5m.sectorStats, livePrice,
+            row1m, row5m, row15m, row30m, niftyRow5m: ctx5m.niftyRow, sectorStats5m: ctx5m.sectorStats, livePrice,
         });
 
         const quote = spreadMap[trade.symbol];

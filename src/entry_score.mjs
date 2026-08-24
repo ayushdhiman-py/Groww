@@ -12,11 +12,71 @@
 // a future backtester without violating no-look-ahead.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import fs from "fs";
+import path from "path";
 import { recordSectorSnapshot, getSectorMomentum } from "./sector_history.mjs";
+import { __dirname } from "./config.mjs";
 
 const INTRADAY_TFS = ["5m", "15m", "30m"];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+// ── Upside-Potential calibration — backtest-derived historical base rates ──
+// backtest.mjs writes this file after a run (see its computeUpsideCalibration
+// / MIN_CALIBRATION_SAMPLES). It's a slow-moving, human-triggered artifact
+// (a fresh backtest run), not live data, so re-checking its mtime every 5
+// minutes is more than enough — never treated as authoritative on its own:
+// see applyUpsideCalibration()'s "never upgrade, only demote or confirm"
+// rule and the sufficientSample gate below.
+const UPSIDE_CALIBRATION_FILE = path.join(__dirname, "..", "data", "upside_calibration.json");
+const CALIBRATION_RECHECK_MS = 5 * 60 * 1000;
+let calibrationCache = { data: null, mtimeMs: 0, checkedAt: 0 };
+
+function loadUpsideCalibration() {
+    const now = Date.now();
+    if (now - calibrationCache.checkedAt < CALIBRATION_RECHECK_MS) return calibrationCache.data;
+    calibrationCache.checkedAt = now;
+    try {
+        const stat = fs.statSync(UPSIDE_CALIBRATION_FILE);
+        if (stat.mtimeMs === calibrationCache.mtimeMs) return calibrationCache.data; // unchanged since last read
+        const parsed = JSON.parse(fs.readFileSync(UPSIDE_CALIBRATION_FILE, "utf8"));
+        calibrationCache = { data: parsed, mtimeMs: stat.mtimeMs, checkedAt: now };
+        console.log(`[EntryScore] Loaded upside-potential calibration from ${parsed.generatedAt} (${parsed.totalTrades} trades).`);
+    } catch (e) {
+        // No calibration file yet (never backtested), or malformed — fall
+        // back to the pure rule-based confidence. Never crash the live
+        // scanner over a missing/bad optional calibration artifact.
+        calibrationCache = { data: null, mtimeMs: 0, checkedAt: now };
+    }
+    return calibrationCache.data;
+}
+
+/**
+ * Adjust a rule-based confidence label using backtest.mjs's empirical hit
+ * rate for that label, IF there's a large enough historical sample.
+ * Deliberately asymmetric: a poor historical hit rate demotes the label (a
+ * real caution signal worth surfacing), but a strong hit rate only confirms
+ * it — this never lets calibration data inflate today's rule-based read
+ * above what the observable structure actually earned, matching "never let
+ * a poorly-trained/limited-data signal override strong observable
+ * structure."
+ */
+export function applyUpsideCalibration(label, calibration) {
+    const bucket = calibration?.byConfidence?.[label];
+    if (!bucket || !bucket.sufficientSample) return { confidence: label, note: null };
+
+    if (bucket.hitRate < 0.4 && label !== "LOW") {
+        const downgraded = label === "HIGH" ? "MEDIUM" : "LOW";
+        return {
+            confidence: downgraded,
+            note: `Backtest calibration: ${label}-confidence setups historically reached this zone in only ${Math.round(bucket.hitRate * 100)}% of ${bucket.count} cases — downgraded to ${downgraded}`,
+        };
+    }
+    if (bucket.hitRate >= 0.7) {
+        return { confidence: label, note: `Backtest calibration: ${label}-confidence setups historically reached this zone in ${Math.round(bucket.hitRate * 100)}% of ${bucket.count} cases` };
+    }
+    return { confidence: label, note: null };
+}
 
 function istHourDecimal() {
     const ist = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -208,9 +268,29 @@ function scoreConfirmation(row) {
 // ── Gates (multiplicative, not additive) ──────────────────────────────────────
 function liquidityGate(row) {
     const traded = (row.volume || 0) * (row.price || 0);
-    if (traded < 2_000_000) return { multiplier: 0.5, note: "Low traded value today — execution/spread risk at size" };
-    if (traded < 8_000_000) return { multiplier: 0.85, note: "Moderate traded value" };
-    return { multiplier: 1.0, note: null };
+    let multiplier = 1.0;
+    const notes = [];
+
+    if (traded < 2_000_000) { multiplier = 0.5; notes.push("Low traded value today — execution/spread risk at size"); }
+    else if (traded < 8_000_000) { multiplier = 0.85; notes.push("Moderate traded value"); }
+
+    // Real bid/ask spread (scanner.mjs's applyRowSpread — Upstox's v2 full-
+    // quote endpoint, not available from the v3 LTP path used everywhere
+    // else) when we have it this cycle. Previously only traded value fed
+    // this gate, so two stocks with identical volume/price but very
+    // different spreads scored identically — a genuinely wide spread is
+    // real execution/slippage risk this gate is meant to capture. Absent
+    // (row.spreadPct == null, e.g. not yet fetched this cycle) simply
+    // leaves the traded-value-only behavior unchanged — never a hard
+    // requirement, since spread coverage depends on the shared quote fetch
+    // having run for this symbol.
+    if (row.spreadPct != null && row.spreadPct > 0.15) {
+        const spreadMultiplier = clamp(1 - (row.spreadPct - 0.15) * 0.8, 0.5, 1.0);
+        multiplier *= spreadMultiplier;
+        notes.push(`Spread ${row.spreadPct}% — wider than typical, execution risk at size`);
+    }
+
+    return { multiplier, note: notes.length ? notes.join("; ") : null };
 }
 
 function atrGate(row) {
@@ -334,7 +414,14 @@ export function computeUpsidePotential(row, ctx) {
 
     const zoneLow = +(row.price * (1 + zoneLowPct / 100)).toFixed(2);
     const zoneHigh = +(row.price * (1 + zoneHighPct / 100)).toFixed(2);
-    const confidence = confidenceScore >= 4 ? "HIGH" : confidenceScore >= 2 ? "MEDIUM" : "LOW";
+    const ruleBasedConfidence = confidenceScore >= 4 ? "HIGH" : confidenceScore >= 2 ? "MEDIUM" : "LOW";
+
+    // Ground the rule-based label against backtest.mjs's empirical hit rate
+    // for that label, when enough historical samples exist — see
+    // applyUpsideCalibration()'s doc for why this only ever demotes/confirms,
+    // never upgrades.
+    const { confidence, note: calibrationNote } = applyUpsideCalibration(ruleBasedConfidence, loadUpsideCalibration());
+    if (calibrationNote) notes.push(calibrationNote);
     notes.push("Estimate only — not a target or a guarantee");
 
     return {

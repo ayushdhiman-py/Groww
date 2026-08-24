@@ -418,38 +418,63 @@ async function scanSymbol(symbol, buckets, errors, progressInfo, ltpFresh, { for
 }
 
 // Real bid/ask spread (via Upstox's v2 full-quote endpoint — the v3 LTP
-// path used everywhere else doesn't carry it) for the shortlist only, not
-// the whole scanned universe, and throttled independently of how often the
-// periodic sync tick fires — spread doesn't need refreshing every ~2s.
+// path used everywhere else doesn't carry it), throttled independently of
+// how often the periodic sync tick fires — spread doesn't need refreshing
+// every ~2s. Previously fetched ONLY for the already-shortlisted Intraday
+// Opportunities (~40 symbols), so real spread never reached liquidityGate()'s
+// full-universe Opportunity Score — every OTHER scored row only had traded
+// value to go on. Now fetched for every Stage-2-scanned symbol this cycle
+// (a superset of the opportunities shortlist, since opportunities are
+// derived FROM Stage-2 rows) and attached directly to the underlying rows
+// BEFORE enrichOpportunities() runs, so entry_score.mjs's liquidityGate()
+// can use real spread across the whole deeply-scanned universe, not just
+// the shortlist.
 let lastQuoteAttemptTs = 0;  // throttles how often we RETRY the fetch
 let lastQuoteSuccessTs = 0;  // when lastQuoteMap was actually last refreshed
 let lastQuoteMap = {};
 const QUOTE_FETCH_INTERVAL_MS = 20000;
 const QUOTE_STALE_AFTER_MS = QUOTE_FETCH_INTERVAL_MS * 3; // 3 missed refresh cycles — stop trusting it
 
-async function annotateSpread(opportunities) {
-    if (!opportunities.length) return;
+async function refreshQuoteMap(symbols) {
+    if (!symbols.length) return;
     const now = Date.now();
-    if (now - lastQuoteAttemptTs >= QUOTE_FETCH_INTERVAL_MS) {
-        lastQuoteAttemptTs = now;
-        try {
-            lastQuoteMap = await fetchBulkQuotes(opportunities.map(o => o.symbol));
-            lastQuoteSuccessTs = now;
-        } catch (e) {
-            console.error("[Scanner] Spread fetch failed:", e.message);
-            // lastQuoteSuccessTs is intentionally left where it was — a
-            // failed fetch must not reset the staleness clock, or a
-            // permanently-failing fetch would keep looking "just refreshed."
+    if (now - lastQuoteAttemptTs < QUOTE_FETCH_INTERVAL_MS) return;
+    lastQuoteAttemptTs = now;
+    try {
+        lastQuoteMap = await fetchBulkQuotes(symbols);
+        lastQuoteSuccessTs = now;
+    } catch (e) {
+        console.error("[Scanner] Spread fetch failed:", e.message);
+        // lastQuoteSuccessTs is intentionally left where it was — a failed
+        // fetch must not reset the staleness clock, or a permanently-failing
+        // fetch would keep looking "just refreshed."
+    }
+}
+
+function isQuoteMapStale() {
+    return Date.now() - lastQuoteSuccessTs > QUOTE_STALE_AFTER_MS;
+}
+
+/** Attach real spreadPct onto every intraday row (5m/15m/30m) for `symbols` — feeds entry_score.mjs's liquidityGate() ahead of enrichOpportunities(). */
+function applyRowSpread(dataBuckets, symbols) {
+    if (isQuoteMapStale()) return;
+    const symbolSet = new Set(symbols);
+    for (const tf of ["5m", "15m", "30m"]) {
+        for (const row of dataBuckets[`${tf}_ALL`] || []) {
+            if (!symbolSet.has(row.symbol)) continue;
+            const q = lastQuoteMap[row.symbol];
+            if (q?.spreadPct != null) row.spreadPct = q.spreadPct;
         }
     }
-    const spreadIsStale = now - lastQuoteSuccessTs > QUOTE_STALE_AFTER_MS;
+}
+
+/** Discount for the already-shortlisted Intraday Opportunities — spread makes a setup less attractive to act on NOW, doesn't invalidate the underlying technical picture. */
+function annotateSpread(opportunities) {
+    if (!opportunities.length || isQuoteMapStale()) return;
     for (const o of opportunities) {
         const q = lastQuoteMap[o.symbol];
-        if (!q || q.spreadPct == null || spreadIsStale) continue;
+        if (!q || q.spreadPct == null) continue;
         o.spreadPct = q.spreadPct;
-        // A discount, not a hard filter — a wide spread makes a setup less
-        // attractive to act on right now (execution/slippage risk), it
-        // doesn't invalidate the underlying technical picture.
         if (q.spreadPct > 0.15) {
             const penalty = Math.min(20, (q.spreadPct - 0.15) * 40);
             o.entryAttractiveness = Math.max(0, Math.round(o.entryAttractiveness - penalty));
@@ -548,6 +573,14 @@ export async function scanAll() {
             // this cycle's Stage-2 subset — see applyLivePriceOverlay's doc.
             applyLivePriceOverlay(next.data);
 
+            // Real spread for every Stage-2-scanned symbol — BEFORE
+            // enrichOpportunities() runs, so liquidityGate() sees real
+            // spread across the whole deeply-scanned universe this cycle,
+            // not just the ~40-symbol opportunities shortlist (see the
+            // comment above refreshQuoteMap's definition).
+            await refreshQuoteMap(stage2Symbols);
+            applyRowSpread(next.data, stage2Symbols);
+
             // Cross-sectional passes (need every symbol scanned SO FAR, not
             // the whole universe) run on every periodic sync, not just once
             // at the very end — both the Intraday tab and Critical-trade
@@ -555,7 +588,7 @@ export async function scanAll() {
             next.marketRegime = computeMarketRegime(next.data, snapshot, getAtrPctSnapshot());
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
             next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
-            await annotateSpread(next.intradayOpportunities);
+            annotateSpread(next.intradayOpportunities);
 
             next.lastUpdated = new Date().toISOString();  // when this scan cycle synced — NOT a data-freshness claim
             next.dataAsOf = computeDataAsOf(next.data);    // the actual oldest price timestamp behind what synced

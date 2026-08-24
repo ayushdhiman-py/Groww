@@ -38,3 +38,41 @@ test("computeTradeHealth computes real pnl/pnlPct when a genuine livePrice is su
     assert.equal(health.pnlPct, 10);
     assert.notEqual(health.score, null);
 });
+
+test("computeTradeHealth reports broaderTrendSupportive:null when no 30m row is available (row30m optional)", () => {
+    const health = computeTradeHealth(trade, {
+        row1m: null, row5m: null, row15m: null, row30m: null, niftyRow5m: null, sectorStats5m: {},
+        livePrice: 110,
+    });
+    assert.equal(health.broaderTrendSupportive, null);
+});
+
+test("computeTradeHealth reports broaderTrendSupportive:true when the 30m row is above a rising session VWAP", () => {
+    const health = computeTradeHealth(trade, {
+        row1m: null, row5m: null, row15m: null,
+        row30m: { aboveSessionVwap: true, sessionVwapSlope: 0.2 },
+        niftyRow5m: null, sectorStats5m: {}, livePrice: 110,
+    });
+    assert.equal(health.broaderTrendSupportive, true);
+});
+
+test("computeTradeHealth reports broaderTrendSupportive:false and adds an early-warning note when the 30m trend has turned unsupportive while the score still reads HOLD-or-better", () => {
+    const health = computeTradeHealth(trade, {
+        row1m: null, row5m: null, row15m: null,
+        row30m: { aboveSessionVwap: false, sessionVwapSlope: -0.3 },
+        niftyRow5m: null, sectorStats5m: {}, livePrice: 110,
+    });
+    assert.equal(health.broaderTrendSupportive, false);
+    // With no row5m/row15m data, every sub-score defaults to its "data
+    // unavailable" neutral value (well above 70), so this note should fire.
+    assert.ok(health.warnings.some(w => w.includes("30m broader trend has turned unsupportive")));
+});
+
+test("computeTradeHealth never lets the 30m broader-trend signal change the weighted score/state — it's informational only", () => {
+    const ctxWithout30m = { row1m: null, row5m: null, row15m: null, niftyRow5m: null, sectorStats5m: {}, livePrice: 110 };
+    const ctxWithBad30m = { ...ctxWithout30m, row30m: { aboveSessionVwap: false, sessionVwapSlope: -0.5 } };
+    const healthWithout = computeTradeHealth(trade, ctxWithout30m);
+    const healthWithBad = computeTradeHealth(trade, ctxWithBad30m);
+    assert.equal(healthWithout.score, healthWithBad.score);
+    assert.equal(healthWithout.state, healthWithBad.state);
+});

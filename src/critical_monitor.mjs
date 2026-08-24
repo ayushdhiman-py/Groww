@@ -2,8 +2,8 @@
 // critical_monitor.mjs — dedicated ~1-minute Critical-trade refresh loop.
 //
 // Decoupled entirely from the general 5-minute Stage-1/Stage-2 scan cycle:
-// this force-refreshes (bypasses the candle cache's TTL) 1m/5m/15m candles
-// for JUST the active Critical-trade symbols — typically a handful, trivial
+// this force-refreshes (bypasses the candle cache's TTL) 1m/5m/15m/30m
+// candles for JUST the active Critical-trade symbols — typically a handful, trivial
 // request volume — and feeds fresh rows into critical_trades.mjs's
 // onCriticalTick(). Uses `priority: true` on every fetch, which reserves
 // rate-limit headroom (see upstox.mjs's rateLimit()) so this is never queued
@@ -15,7 +15,7 @@ import { buildSignal } from "./scanner.mjs";
 import { getLtpWithFreshness } from "./feed.mjs";
 import { listCriticalTrades, onCriticalTick } from "./critical_trades.mjs";
 
-const MONITOR_TFS = ["1m", "5m", "15m"];
+const MONITOR_TFS = ["1m", "5m", "15m", "30m"];
 const MONITOR_INTERVAL_MS = 60_000;
 
 let timer = null;

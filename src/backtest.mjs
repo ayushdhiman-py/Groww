@@ -24,6 +24,8 @@
 //   - Exit rule is a fixed, explicit systematic rule (see EXIT_RULE below) —
 //     a deliberately simpler stand-in for a human reading notifications live.
 // ─────────────────────────────────────────────────────────────────────────────
+import fs from "fs";
+import path from "path";
 import { fetchCandles } from "./upstox.mjs";
 import { buildSignal } from "./scanner.mjs";
 import { atr } from "./indicators.mjs";
@@ -31,6 +33,9 @@ import { computeOpportunityScore, computeEntryAttractiveness, computeUpsidePoten
 import { computeTradeHealth, classifyDeteriorationPattern } from "./trade_health.mjs";
 import { UNIVERSE } from "./universe.mjs";
 import { historical } from "./data_quality.mjs";
+import { __dirname } from "./config.mjs";
+
+const UPSIDE_CALIBRATION_FILE = path.join(__dirname, "..", "data", "upside_calibration.json");
 
 const ENTRY_MIN_SCORE = 70; // WATCH+ on both 5m and 15m, same bar as live confluence gate
 const EXIT_RULE = "Two consecutive evaluated bars both showing Trade Health < 60 (mirrors the live 'confirmed, not a single blip' notification rule).";
@@ -140,6 +145,7 @@ function simulateSymbol(symbol, series, niftySeries, fromDate, toDate) {
                     entryBand: opp5.score >= 90 && opp15.score >= 90 ? "VERY STRONG" : opp5.score >= 80 && opp15.score >= 80 ? "STRONG" : "WATCH",
                     entryAttractiveness: attract.score,
                     upsideZoneHighPct: upside.zoneHighPct,
+                    upsideConfidence: upside.confidence,
                     peakPrice: price, troughPrice: price,
                     minuteHistory: [],
                 };
@@ -186,10 +192,39 @@ function finalizeTrade(openTrade, exitPrice, exitReason, exitTs) {
         entryPrice: +openTrade.entryPrice.toFixed(2), exitPrice: +exitPrice.toFixed(2),
         entryOpportunityScore: openTrade.entryOpportunityScore, entryBand: openTrade.entryBand,
         entryAttractiveness: openTrade.entryAttractiveness, upsideZoneHighPct: openTrade.upsideZoneHighPct,
+        upsideConfidence: openTrade.upsideConfidence,
         returnPct: +returnPct.toFixed(2), mfePct: +mfePct.toFixed(2), maePct: +maePct.toFixed(2),
         peakPct: +peakPct.toFixed(2), givebackPct: givebackPct != null ? +givebackPct.toFixed(1) : null,
         exitReason,
     };
+}
+
+/**
+ * Empirical calibration of computeUpsidePotential()'s confidence label: for
+ * each LOW/MEDIUM/HIGH bucket, what fraction of historical trades actually
+ * reached (or exceeded) their estimated zoneHighPct via MFE, and what was
+ * the average MFE actually achieved? This is what lets the LIVE confidence
+ * label be informed by real outcomes instead of only the rule-based point
+ * count that produced it — see entry_score.mjs's applyUpsideCalibration().
+ */
+const MIN_CALIBRATION_SAMPLES = 20; // below this, a bucket's hit rate is noise, not signal — see caveats
+
+export function computeUpsideCalibration(trades) {
+    const withUpside = trades.filter(t => t.upsideConfidence && t.upsideZoneHighPct != null);
+    const byBucket = {};
+    for (const label of ["LOW", "MEDIUM", "HIGH"]) {
+        const bucket = withUpside.filter(t => t.upsideConfidence === label);
+        if (!bucket.length) { byBucket[label] = { count: 0, hitRate: null, avgMfePct: null, sufficientSample: false }; continue; }
+        const hits = bucket.filter(t => t.mfePct >= t.upsideZoneHighPct).length;
+        const avgMfePct = bucket.reduce((s, t) => s + t.mfePct, 0) / bucket.length;
+        byBucket[label] = {
+            count: bucket.length,
+            hitRate: +(hits / bucket.length).toFixed(3),
+            avgMfePct: +avgMfePct.toFixed(2),
+            sufficientSample: bucket.length >= MIN_CALIBRATION_SAMPLES,
+        };
+    }
+    return byBucket;
 }
 
 function computeMetrics(trades) {
@@ -335,8 +370,30 @@ export async function runBacktest(opts) {
     const devCalibration = allDevHealthSamples.length ? computeHealthCalibration(allDevHealthSamples) : null;
     const valCalibration = allValHealthSamples.length ? computeHealthCalibration(allValHealthSamples) : null;
 
+    // Upside-Potential calibration uses ALL trades (dev+validation combined)
+    // — this is a "what has actually happened historically" base rate, not
+    // a dev/validation split model itself, so maximizing sample size is more
+    // valuable here than holding out a validation slice.
+    const allTrades = [...allDevTrades, ...allValTrades];
+    const upsideCalibration = allTrades.length ? computeUpsideCalibration(allTrades) : null;
+    if (upsideCalibration) {
+        try {
+            fs.mkdirSync(path.dirname(UPSIDE_CALIBRATION_FILE), { recursive: true });
+            fs.writeFileSync(UPSIDE_CALIBRATION_FILE, JSON.stringify({
+                generatedAt: new Date().toISOString(),
+                sampleRange: { from: earliest, to: latest },
+                totalTrades: allTrades.length,
+                byConfidence: upsideCalibration,
+            }, null, 2));
+            console.log(`[Backtest] Upside-Potential calibration written to ${UPSIDE_CALIBRATION_FILE}`);
+        } catch (e) {
+            console.error("[Backtest] Failed to write upside calibration:", e.message);
+        }
+    }
+
     return {
         exitRule: EXIT_RULE,
+        upsideCalibration,
         dev: devFrom && devTo ? {
             range: { from: devFrom, to: devTo },
             overall: computeMetrics(allDevTrades),
@@ -358,6 +415,7 @@ export async function runBacktest(opts) {
             "Every simulated trade force-closes at end of day (intraday only).",
             "Exit rule is a fixed systematic rule, not a human reading live notifications — treat as a lower bound on what disciplined execution of the Trade Health engine's warnings would have done.",
             "healthCalibration buckets EVERY evaluated bar of every open simulated trade by its health score and reports the average/median return from that bar's price to that day's actual close — this checks whether lower health scores really did predict worse outcomes, not just whether they look reasonable. Bucket counts are typically small (quality setups are rare by design) — treat this as a directional check, not a precise calibration, unless a bucket's count is at least in the dozens.",
+            `upsideCalibration buckets every entered trade by its computeUpsidePotential() confidence label (LOW/MEDIUM/HIGH) and reports the hit rate (fraction that actually reached their estimated zoneHighPct via MFE) and the average MFE achieved — this is written to ${UPSIDE_CALIBRATION_FILE} and read back live by entry_score.mjs to adjust future confidence labels, but only for buckets with at least ${MIN_CALIBRATION_SAMPLES} samples (sufficientSample:false buckets are ignored live).`,
             "Past performance of this scoring logic on historical data is not a guarantee of future results.",
         ],
     };
@@ -399,6 +457,10 @@ if (process.argv[1] && process.argv[1].endsWith("backtest.mjs")) {
                 console.log(JSON.stringify(result.validation.overall, null, 2));
                 console.log("By entry band:", JSON.stringify(result.validation.byBand, null, 2));
                 console.log(`Trade Health calibration (monotonic: ${result.validation.healthCalibrationMonotonic}):`, JSON.stringify(result.validation.healthCalibration, null, 2));
+            }
+            if (result.upsideCalibration) {
+                console.log("\n-- Upside-Potential calibration (all trades, dev+validation combined) --");
+                console.log(JSON.stringify(result.upsideCalibration, null, 2));
             }
             console.log("\nCaveats:");
             result.caveats.forEach(c => console.log(`  - ${c}`));

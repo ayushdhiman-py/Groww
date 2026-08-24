@@ -142,11 +142,12 @@ export function classifyDeteriorationPattern(minuteHistory) {
 /**
  * Main entry point — one Trade Health computation for one Critical trade.
  * @param {object} trade — the persisted Critical trade record
- * @param {object} ctx — { row1m, row5m, row15m, niftyRow5m, sectorStats5m, livePrice }
- *   row1m is optional (immediate-behaviour nudge only); everything else is required.
+ * @param {object} ctx — { row1m, row5m, row15m, row30m, niftyRow5m, sectorStats5m, livePrice }
+ *   row1m and row30m are optional (immediate-behaviour nudge / broader-trend
+ *   context only); everything else is required.
  */
 export function computeTradeHealth(trade, ctx) {
-    const { row1m, row5m, row15m, niftyRow5m, sectorStats5m, livePrice } = ctx;
+    const { row1m, row5m, row15m, row30m, niftyRow5m, sectorStats5m, livePrice } = ctx;
     // Callers must resolve a real price before calling this — never fall
     // back to trade.entryPrice here either, or a genuinely unavailable price
     // would silently compute as a fabricated flat/0%-P&L reading.
@@ -157,6 +158,7 @@ export function computeTradeHealth(trade, ctx) {
             score: null, state: "DATA_UNAVAILABLE",
             warnings: ["Live price unavailable this cycle — health not recomputed"],
             breakdown: null, profitProtectionWarning: false, remainingUpside: null,
+            broaderTrendSupportive: null,
             ts: new Date().toISOString(),
         };
     }
@@ -186,7 +188,21 @@ export function computeTradeHealth(trade, ctx) {
         : score >= 50 ? "STRONG EXIT WARNING"
         : "THESIS INVALIDATED";
 
-    const warnings = [...priceActionHealth.notes, ...vwapHealth.notes, ...volumeHealth.notes, ...rsHealth.notes, ...confirmHealth.notes];
+    // 30m = "broader trend," per spec — informational context/tiebreaker
+    // only, same treatment entry_score.mjs already gives it: it never enters
+    // the weighted score/state above (those thresholds are backtest-
+    // calibrated; reweighting them for one more signal risks destabilizing
+    // that calibration), but a genuinely unsupportive higher-timeframe
+    // backdrop is worth surfacing as an early-warning note even while the
+    // 5m/15m-driven score still reads HOLD-or-better.
+    const broaderTrendSupportive = row30m
+        ? row30m.aboveSessionVwap === true && (row30m.sessionVwapSlope ?? 0) >= 0
+        : null;
+    const broaderTrendNotes = broaderTrendSupportive === false && score >= 70
+        ? ["30m broader trend has turned unsupportive — the higher-timeframe backdrop is weakening even though nearer-term momentum still looks fine"]
+        : [];
+
+    const warnings = [...priceActionHealth.notes, ...vwapHealth.notes, ...volumeHealth.notes, ...rsHealth.notes, ...confirmHealth.notes, ...broaderTrendNotes];
 
     // Fires independent of the score threshold above and even while still in
     // profit — "do not wait until price falls below entry."
@@ -208,6 +224,7 @@ export function computeTradeHealth(trade, ctx) {
         breakdown: { priceActionHealth, vwapHealth, volumeHealth, rsHealth, confirmHealth },
         profitProtectionWarning,
         remainingUpside: upside,
+        broaderTrendSupportive,
         ts: new Date().toISOString(),
     };
 }
