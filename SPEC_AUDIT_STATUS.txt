@@ -307,29 +307,42 @@ Overall: NOT DONE. Clean slate — nothing in this section exists in any form.
              SAME 5m+15m confluence gate the Opportunities list uses, BEFORE
              its top-40 truncation — not just ones actually taken.
              backfillTakenTrades() separately marks was_taken afterward.
-  [NOT DONE] Statistical learning (rolling win rate, Bayesian updating,
-             logistic regression, calibrated probability).
+  [DONE]     Statistical learning — rolling win rate + calibrated probability.
+             src/learning_stats.mjs: segments nest regime -> regime+time_bucket
+             -> +signal_combo (combo level only unlocked once its parent
+             clears MIN_SAMPLE_SIZE=30), RECENT (last 10 trading days) vs
+             HISTORICAL windows, getCalibratedProbability() falls back
+             coarse-to-fine and never returns an under-sampled segment.
+             (Logistic-regression weight LEARNING, as opposed to rolling win
+             rates, is Phase 5 below — this phase is pure descriptive stats.)
   [NOT DONE] Weight adaptation (PROPOSED vs PRODUCTION weights).
   [PARTIAL]  Walk-forward / frozen validation — backtest.mjs already supports
              a one-off manual dev/validation date-range split via CLI flags,
              but there's no rolling walk-forward loop, no automation, no
              persisted "frozen" dataset.
-  [NOT DONE] Market-regime-specific learning.
-  [NOT DONE] Time-of-day learning.
-  [NOT DONE] Signal-interaction (combination) learning.
+  [DONE]     Market-regime-specific learning — top level of every segment key.
+  [DONE]     Time-of-day learning — regime+time_bucket segment level.
+  [DONE]     Signal-interaction (combination) learning — orb_state+
+             price_action_state combo segment level (gated on sample size).
   [NOT DONE] Outcome labels (CLOSE_ABOVE_OPEN, REACHED_1/2/2.5/5_PERCENT,
              MAJOR_REVERSAL, PROFIT_GIVEBACK, THESIS_FAILURE).
   [NOT DONE] Calibrated probability display (% + confidence + sample size).
   [PARTIAL]  Minimum sample size guard — backtest.mjs has a comment warning
              results are "directional, not precise" below dozens of samples,
              but nothing enforces a minimum anywhere in code.
-  [NOT DONE] Model safety fallback, drift detection, model versioning/rollback.
-  [NOT DONE] Storage efficiency / retention policy (nothing stored yet).
-  [DONE]     Daily post-market-close learning loop (outcome finalization).
+  [PARTIAL]  Model safety fallback, drift detection, model versioning/rollback.
+             Drift detection DONE (detectDrift(), drift_log table, flags
+             RECENT-vs-HISTORICAL win-rate divergence >=15pp with >=15 recent
+             samples). Model versioning/rollback is Phase 5 (weight
+             adaptation) below — model_versions table schema exists (Phase 0)
+             but nothing writes to it yet.
+  [NOT DONE] Storage efficiency / retention policy (nothing pruned yet).
+  [DONE]     Daily post-market-close learning loop (outcome finalization +
+             statistical rollup + drift detection).
              src/daily_learning_job.mjs — runs at 15:45 IST, guarded by a
              job_runs table (no double-run/silent-skip on restart), re-entrancy
-             guard, manual trigger via POST /api/learning/retrain. Statistical
-             rollup/drift/weight-adaptation steps still to be appended (below).
+             guard, manual trigger via POST /api/learning/retrain. Weight
+             proposal/validation steps still to be appended (Phase 5/6).
   [NOT DONE] "MODEL / LEARNING" dashboard section.
 
 --------------------------------------------------------------------------------
@@ -360,17 +373,18 @@ Part 2: DONE and live-verified (candle cache, two-stage scan, decoupled
         Critical-trade history, incremental indicators, time-of-day volume
         normalization, event-driven re-evaluation) — not addressed.
 
-Part 3: IN PROGRESS (Phases 0-2 of 6 done, tested, live-verified).
+Part 3: IN PROGRESS (Phases 0-3 of 6 done, tested, live-verified).
         Phase 0 (SQLite foundation) + Phase 1 (selection-bias-free snapshot
         capture, wired into scanAll()) + Phase 2 (EOD outcome finalization +
-        the guarded daily job + manual retrain route) are complete — 23 new
-        tests, full suite (110) green, confirmed against a live server boot
-        (POST /api/learning/retrain returns real job_runs rows).
-        Remaining: Phase 3 (statistical learning — rolling win rates,
-        calibrated probability, drift detection), Phase 4 (MODEL/LEARNING
-        dashboard tab, read-only), Phase 5 (weight adaptation — PROPOSED vs
-        PRODUCTION, gated, manual promotion), Phase 6 (operational hardening
-        — retention pruning, inertness verification, full dry run).
+        the guarded daily job + manual retrain route) + Phase 3 (rolling
+        win-rate/calibrated-probability statistics, segmented by regime x
+        time-bucket x signal-combo, plus drift detection) are complete — 29
+        new tests, full suite (116) green, confirmed against a live server
+        boot (POST /api/learning/retrain returns real job_runs rows).
+        Remaining: Phase 4 (MODEL/LEARNING dashboard tab, read-only), Phase 5
+        (weight adaptation — PROPOSED vs PRODUCTION, gated, manual promotion),
+        Phase 6 (operational hardening — retention pruning, inertness
+        verification, full dry run).
 
 This file is updated in place as each item is completed.
 ================================================================================

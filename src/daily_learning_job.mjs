@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { getDb } from "./learning_db.mjs";
 import { finalizeOutcomes, backfillTakenTrades } from "./learning_outcomes.mjs";
+import { runDailyStatsRollup, detectDrift } from "./learning_stats.mjs";
 
 export const DAILY_JOB_IST_HOUR = 15;
 export const DAILY_JOB_IST_MINUTE = 45;
@@ -22,10 +23,10 @@ let jobInFlight = false; // re-entrancy guard — a slow run must not overlap a 
 
 /**
  * Runs the full nightly sequence for one trade_date. Idempotent: re-running
- * an already-OK day is a no-op unless `force`. Phase 3/5/6 steps (stats
- * rollup, drift detection, weight proposal/validation, retention pruning)
- * are appended here as later phases land — this phase only does outcome
- * finalization.
+ * an already-OK day is a no-op unless `force`. Phase 5/6 steps (weight
+ * proposal/validation, retention pruning) are appended here as later phases
+ * land — this phase does outcome finalization + the statistical rollup/
+ * drift check.
  */
 export async function runDailyLearningJob({ force = false, tradeDate = todayIST() } = {}) {
     if (jobInFlight) return { skipped: true, reason: "already running" };
@@ -46,9 +47,11 @@ export async function runDailyLearningJob({ force = false, tradeDate = todayIST(
     try {
         const outcomes = await finalizeOutcomes(tradeDate);
         const backfill = backfillTakenTrades(tradeDate);
+        const statsRollup = runDailyStatsRollup(tradeDate);
+        const drift = detectDrift(tradeDate);
 
         db.prepare("UPDATE job_runs SET finished_at = ?, status = 'OK' WHERE run_date = ?").run(Date.now(), tradeDate);
-        return { tradeDate, outcomes, backfill, durationMs: Date.now() - startedAt };
+        return { tradeDate, outcomes, backfill, statsRollup, drift, durationMs: Date.now() - startedAt };
     } catch (e) {
         db.prepare("UPDATE job_runs SET finished_at = ?, status = 'FAILED', error = ? WHERE run_date = ?")
             .run(Date.now(), e.message, tradeDate);
