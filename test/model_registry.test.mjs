@@ -53,16 +53,26 @@ test("getProductionWeights returns a promoted version's weights, and falls back 
     assert.deepEqual(getProductionWeights(), DEFAULT_WEIGHTS);
 });
 
-test("aggregateScore with DEFAULT_WEIGHTS reproduces the plain raw/105*100 formula exactly (inertness)", () => {
-    const buckets = { priceAction: { score: 10 }, openingStrength: { score: 8 }, vwap: { score: 5 }, orb: { score: 15 }, volume: { score: 0 }, relativeStrength: { score: 15 }, confirmation: { score: 5 } };
-    const rawSum = 10 + 8 + 5 + 15 + 0 + 15 + 5;
-    const expected = (rawSum / 105) * 100;
+test("aggregateScore with DEFAULT_WEIGHTS reproduces the plain raw/totalWeightBudget*100 formula exactly (inertness)", () => {
+    // Built from DEFAULT_WEIGHTS' own keys (not a hardcoded bucket list) so
+    // this doesn't go stale again the next time a bucket is added or
+    // removed — it already did once (orderFlow), silently, because this
+    // test hardcoded "105" and nothing exercised it until the full suite
+    // ran.
+    const buckets = {};
+    let i = 1;
+    for (const k of Object.keys(DEFAULT_WEIGHTS)) buckets[k] = { score: i++ };
+    const rawSum = Object.values(buckets).reduce((s, b) => s + b.score, 0);
+    const totalWeightBudget = Object.values(DEFAULT_WEIGHTS).reduce((a, b) => a + b, 0);
+    const expected = (rawSum / totalWeightBudget) * 100;
     assert.equal(aggregateScore(buckets, DEFAULT_WEIGHTS), expected);
 });
 
 test("aggregateScore accepts a plain-number breakdown (as parsed from storage) the same as a {score,notes} object", () => {
-    const asObjects = { priceAction: { score: 10 }, openingStrength: { score: 0 }, vwap: { score: 0 }, orb: { score: 0 }, volume: { score: 0 }, relativeStrength: { score: 0 }, confirmation: { score: 0 } };
-    const asNumbers = { priceAction: 10, openingStrength: 0, vwap: 0, orb: 0, volume: 0, relativeStrength: 0, confirmation: 0 };
+    const asObjects = {}, asNumbers = {};
+    for (const k of Object.keys(DEFAULT_WEIGHTS)) { asObjects[k] = { score: 0 }; asNumbers[k] = 0; }
+    asObjects.priceAction = { score: 10 };
+    asNumbers.priceAction = 10;
     assert.equal(aggregateScore(asObjects, DEFAULT_WEIGHTS), aggregateScore(asNumbers, DEFAULT_WEIGHTS));
 });
 
