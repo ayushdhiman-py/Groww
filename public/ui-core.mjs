@@ -521,6 +521,16 @@ export class TabManager {
       } else {
         console.error('[TabManager] Failed to fetch intraday data');
       }
+    } else if (tab === 'QUALITY') {
+      // Same full /api/state snapshot as every other tab — qualityList is
+      // just another field on it, computed once per scan cycle server-side.
+      const data = await this.data.fetchState('QUALITY', 'QUALITY', true);
+      if (data) {
+        window.renderQuality(data);
+        window.updateBadges?.(data);
+      } else {
+        console.error('[TabManager] Failed to fetch quality-list data');
+      }
     } else if (tab === 'SCREENERS') {
       const data = await this.data.fetchScreener();
       window.renderScreeners(data);

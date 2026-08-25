@@ -888,6 +888,88 @@ function renderRegimeBanner(regime) {
     `<span class="regime-notes">${(regime.notes || []).join(' · ')}</span>`;
 }
 
+// ── RENDER: TOP 50 QUALITY SCREENER ───────────────────────────
+// A separate, independent funnel from the Intraday tab (src/quality_filter.mjs)
+// — reject invalid, penalize imperfect. Server has already hard-gated,
+// scored, percentile-ranked, regime-adjusted, and deduped this list; this
+// just displays it, best-first.
+const QUALITY_TABLE_HEADER = `<tr>
+    <th style="text-align:left;">#</th>
+    <th style="text-align:left;">Stock / Sector</th>
+    <th>Price</th>
+    <th>Chart</th>
+    <th>Score <div class="th-sub">weighted evidence</div></th>
+    <th>Percentile <div class="th-sub">vs today's pool</div></th>
+    <th>Evidence Breadth</th>
+  </tr>`;
+
+function renderQualityRowHtml(c, rank) {
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(c.symbol.toUpperCase())}`;
+  const cc = c.chgPct >= 0 ? 'up' : 'dn';
+  const breadth = c.evidenceBreadth || {};
+  const scoreColor = c.compositeScore >= 80 ? '#22c55e' : c.compositeScore >= 65 ? '#4ade80' : '#f59e0b';
+  return `<tr class="main-row">
+      <td data-label="#"><span class="muted-xl" style="font-size:12px;">${rank}</span></td>
+      <td style="text-align:left;">
+        <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${c.symbol}</a>${c.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
+        <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${c.sector} · <span class="${cc}">${c.chgPct >= 0 ? '+' : ''}${c.chgPct.toFixed(2)}%</span></div>
+      </td>
+      <td data-label="Price"><span class="price-bold">₹${(c.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(c.priceSource, c.priceTs)}</td>
+      <td data-label="Chart"><div style="cursor:pointer;" onclick="window.openModalChart('${c.symbol}', '5m')">${generateSparkline(c.priceHist, c.ema21Hist, c.ema50Hist)}</div></td>
+      <td data-label="Score"><span style="font-weight:700;color:${scoreColor};">${c.compositeScore}</span></td>
+      <td data-label="Percentile"><span style="font-weight:600;">${c.percentile}th</span></td>
+      <td data-label="Evidence Breadth"><span style="font-weight:600;">${breadth.positive}/${breadth.available}</span><span class="muted-xl" style="font-size:8px;display:block;">of ${breadth.total} tracked</span></td>
+    </tr>`;
+}
+
+function renderQuality(data) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  const horizonBar = document.getElementById('intradayHorizons');
+  const restoreScroll = captureScroll();
+
+  document.getElementById('tableHeader').innerHTML = QUALITY_TABLE_HEADER;
+  if (horizonBar) horizonBar.style.display = 'none';
+  updateSortIndicators(null);
+
+  if (!data?.qualityList) {
+    tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data available'; }
+    restoreScroll();
+    return;
+  }
+
+  renderRegimeBanner(data.marketRegime);
+
+  const { list, meta } = data.qualityList;
+  const rcEl = document.getElementById('rowCount');
+  const marketOpen = window.stateManager?.get('marketOpen');
+  const closedSuffix = marketOpen ? '' : ' (last scan — market closed)';
+
+  if (rcEl) {
+    rcEl.textContent = meta
+      ? `Top 50 Quality: ${list.length} of ${meta.qualifyingCount} qualifying (${meta.survivorCount} passed validity, ${meta.universeSize} scanned) · ${meta.regime} regime, min percentile ${meta.minPercentile}${closedSuffix}`
+      : `Top 50 Quality: ${list.length}${closedSuffix}`;
+  }
+
+  if (!list.length) {
+    tbody.innerHTML = '';
+    if (empty) {
+      empty.classList.remove('loading');
+      empty.style.display = 'block';
+      empty.textContent = meta?.error
+        ? `Quality screener unavailable this cycle: ${meta.error}`
+        : 'No stocks currently clear the validity gate + regime-scaled percentile bar. This is expected most of the time — quality setups are rare by design.';
+    }
+    restoreScroll();
+    return;
+  }
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+
+  tbody.innerHTML = list.map((c, i) => renderQualityRowHtml(c, i + 1)).join('');
+  restoreScroll();
+}
+
 // ── RENDER: MARKET SCREENERS (Nifty 500) ─────────────────────
 // Card-based layout (Groww/Upstox-style) rather than a single sortable
 // table — each category is its own scannable list. Reuses the same
@@ -1444,6 +1526,7 @@ function updateBadges(data, screenerData) {
   setBadge('badge-FO', 30);
   setBadge('badge-SECTORS', uniqueSectors);
   setBadge('badge-INTRADAY', computeIntradayCandidates(data).length);
+  setBadge('badge-QUALITY', data.qualityList?.list?.length ?? 0);
 }
 
 // ── HELPER: Update last updated badge ────────────────────────
@@ -1780,6 +1863,7 @@ function renderCritNotifBanner(trades) {
 window.renderStocks = renderStocks;
 window.renderSectors = renderSectors;
 window.renderIntraday = renderIntraday;
+window.renderQuality = renderQuality;
 window.hideTopPicks = hideTopPicks;
 window.renderScreeners = renderScreeners;
 window.renderPortfolio = renderPortfolio;

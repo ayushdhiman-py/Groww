@@ -14,6 +14,7 @@ import { computeMarketRegime, regimeMinOpportunityScore } from "./market_regime.
 import { listCriticalTrades } from "./critical_trades.mjs";
 import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } from "./stage1_filter.mjs";
 import { captureQualifyingSnapshots, LEARNING_CAPTURE_MIN_SCORE } from "./learning_capture.mjs";
+import { buildQualityList } from "./quality_filter.mjs";
 import { attachCalibratedProbabilities } from "./learning_stats.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -40,7 +41,7 @@ export function getState() {
 export function emptyState() {
     const data = {};
     for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
-    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], intradayNearMiss: [], intradayMinScore: null, fastMovers: { "5m": [], "10m": [], "15m": [] } };
+    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], intradayNearMiss: [], intradayMinScore: null, fastMovers: { "5m": [], "10m": [], "15m": [] }, qualityList: { list: [], meta: null } };
 }
 
 // The oldest priceTs among rows currently in state — an honest "as of"
@@ -632,6 +633,17 @@ export async function scanAll() {
             // affect the live scan (see captureQualifyingSnapshots' own
             // try/catch).
             captureQualifyingSnapshots(next.data, next.marketRegime, LEARNING_CAPTURE_MIN_SCORE);
+
+            // Top-50 Quality screener — a separate, independent funnel from
+            // the Intraday Opportunities/Fast Movers above (see
+            // quality_filter.mjs's header). Never allowed to affect the
+            // live scan or the existing Intraday pipeline either way.
+            try {
+                next.qualityList = buildQualityList(next.data, next.marketRegime);
+            } catch (e) {
+                console.error("[Scanner] Quality-filter build failed:", e.message);
+                next.qualityList = { list: [], meta: { error: e.message } };
+            }
 
             next.lastUpdated = new Date().toISOString();  // when this scan cycle synced — NOT a data-freshness claim
             next.dataAsOf = computeDataAsOf(next.data);    // the actual oldest price timestamp behind what synced
