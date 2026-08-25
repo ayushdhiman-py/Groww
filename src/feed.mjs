@@ -117,15 +117,38 @@ export async function startFeed(onBatch) {
     streamer.on("error", (e) => console.error("[Feed] WebSocket error:", e?.message || e));
     streamer.on("close", () => { _connected = false; console.warn("[Feed] WebSocket closed."); });
     streamer.on("reconnecting", (msg) => { _connected = false; console.warn(`[Feed] ${msg}`); });
-    streamer.on("autoReconnectStopped", (msg) => {
-        _connected = false;
-        console.error(`[Feed] Auto-reconnect exhausted (${msg}). Restarting feed in 30s...`);
-        _running = false;
-        _restartTimer = setTimeout(() => { if (!_running) startFeed(_onBatch); }, 30000);
-    });
+    streamer.on("autoReconnectStopped", (msg) => scheduleRestart(`Auto-reconnect exhausted (${msg})`));
 
     _running = true;
     streamer.connect();
+}
+
+/**
+ * Shared recovery path for "the SDK has given up reconnecting" — normally
+ * reached via the "autoReconnectStopped" event above, but also called
+ * directly from scanner_testing.mjs's process-level uncaughtException
+ * handler: upstox-js-sdk's own retryCount-exhausted cleanup
+ * (this.streamer.clearSubscriptions(), in Streamer.js) throws a TypeError
+ * because that method doesn't exist on the feeder object it's called on —
+ * a real bug in the SDK, not just this app's. That throw happens BEFORE the
+ * "autoReconnectStopped" event fires, so if we only swallowed the exception
+ * we'd leave the feed permanently dead (streamer never nulled, `_running`
+ * never reset, nothing ever schedules a restart) instead of merely delayed.
+ */
+function scheduleRestart(reason) {
+    if (_restartTimer) return; // already scheduled — don't stack duplicate restarts
+    _connected = false;
+    console.error(`[Feed] ${reason}. Restarting feed in 30s...`);
+    _running = false;
+    _restartTimer = setTimeout(() => {
+        _restartTimer = null;
+        if (!_running) startFeed(_onBatch);
+    }, 30000);
+}
+
+/** Force the recovery path from outside — see scheduleRestart's doc above. */
+export function forceFeedRestart(reason) {
+    scheduleRestart(reason);
 }
 
 /** Stop the feed and close the WebSocket connection. */

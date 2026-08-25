@@ -289,12 +289,13 @@ export async function fetchBulkLtp(symbols) {
     return prices;
 }
 
-// ── Bulk Quotes (bid/ask depth) ───────────────────────────────────────────────
+// ── Bulk Quotes (bid/ask depth + order-flow) ──────────────────────────────────
 // Upstox's v3 LTP endpoint (used everywhere else in this app) doesn't carry
-// quote/spread data at all — only this older v2 "full quote" endpoint does,
-// via best-5 market depth. Used sparingly (Intraday Opportunities shortlist
-// + active Critical trades only, not the whole scanned universe every
-// cycle) since it's a separate, heavier call than the LTP path.
+// quote/spread/order-flow data at all — only this older v2 "full quote"
+// endpoint does, via best-5 market depth plus total_buy_quantity/
+// total_sell_quantity. Used sparingly (Stage-2-scanned symbols only, not the
+// whole scanned universe every cycle) since it's a separate, heavier call
+// than the LTP path.
 export async function fetchBulkQuotes(symbols) {
     if (!symbols || symbols.length === 0) return {};
     if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
@@ -339,7 +340,18 @@ export async function fetchBulkQuotes(symbols) {
                 const mid = (bestAsk + bestBid) / 2;
                 spreadPct = +((spread / mid) * 100).toFixed(3);
             }
-            quotes[sym] = { bestBid, bestAsk, spread, spreadPct, lastPrice: entry.last_price ?? null };
+            // Real pending order-flow imbalance — total_buy_quantity/total_sell_quantity
+            // are already present on this same response (this endpoint is already
+            // being called every cycle for spread above), just never read before.
+            // Zero extra API cost. Needs both quantities to be meaningfully nonzero;
+            // an illiquid name with near-zero resting orders on one side would
+            // otherwise produce a wild, meaningless ratio.
+            const buyQty = entry.total_buy_quantity ?? null;
+            const sellQty = entry.total_sell_quantity ?? null;
+            const buySellRatio = (buyQty != null && sellQty != null && sellQty > 0 && buyQty > 0)
+                ? +(buyQty / sellQty).toFixed(3)
+                : null;
+            quotes[sym] = { bestBid, bestAsk, spread, spreadPct, lastPrice: entry.last_price ?? null, buyQty, sellQty, buySellRatio };
         }
     }
     return quotes;

@@ -13,7 +13,7 @@ import { enrichOpportunities } from "./entry_score.mjs";
 import { computeMarketRegime, regimeMinOpportunityScore } from "./market_regime.mjs";
 import { listCriticalTrades } from "./critical_trades.mjs";
 import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } from "./stage1_filter.mjs";
-import { captureQualifyingSnapshots } from "./learning_capture.mjs";
+import { captureQualifyingSnapshots, LEARNING_CAPTURE_MIN_SCORE } from "./learning_capture.mjs";
 import { attachCalibratedProbabilities } from "./learning_stats.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -40,7 +40,7 @@ export function getState() {
 export function emptyState() {
     const data = {};
     for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
-    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], fastMovers: { "5m": [], "10m": [], "15m": [] } };
+    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], intradayNearMiss: [], intradayMinScore: null, fastMovers: { "5m": [], "10m": [], "15m": [] } };
 }
 
 // The oldest priceTs among rows currently in state — an honest "as of"
@@ -471,15 +471,17 @@ function isQuoteMapStale() {
     return Date.now() - lastQuoteSuccessTs > QUOTE_STALE_AFTER_MS;
 }
 
-/** Attach real spreadPct onto every intraday row (5m/15m/30m) for `symbols` — feeds entry_score.mjs's liquidityGate() ahead of enrichOpportunities(). */
+/** Attach real spreadPct + buySellRatio onto every intraday row (5m/10m/15m/30m) for `symbols` — feeds entry_score.mjs's liquidityGate() and scoreOrderFlow() ahead of enrichOpportunities(). */
 function applyRowSpread(dataBuckets, symbols) {
     if (isQuoteMapStale()) return;
     const symbolSet = new Set(symbols);
-    for (const tf of ["5m", "15m", "30m"]) {
+    for (const tf of ["5m", "10m", "15m", "30m"]) {
         for (const row of dataBuckets[`${tf}_ALL`] || []) {
             if (!symbolSet.has(row.symbol)) continue;
             const q = lastQuoteMap[row.symbol];
-            if (q?.spreadPct != null) row.spreadPct = q.spreadPct;
+            if (!q) continue;
+            if (q.spreadPct != null) row.spreadPct = q.spreadPct;
+            if (q.buySellRatio != null) row.buySellRatio = q.buySellRatio;
         }
     }
 }
@@ -603,25 +605,33 @@ export async function scanAll() {
             // monitoring should update progressively.
             next.marketRegime = computeMarketRegime(next.data, snapshot, getAtrPctSnapshot());
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
-            const { opportunities, fastMovers } = enrichOpportunities(next.data, minOppScore);
+            const { opportunities, fastMovers, nearMiss } = enrichOpportunities(next.data, minOppScore);
             next.intradayOpportunities = opportunities;
+            next.intradayNearMiss = nearMiss;
+            next.intradayMinScore = minOppScore;
             next.fastMovers = fastMovers;
             annotateSpread(next.intradayOpportunities);
+            annotateSpread(next.intradayNearMiss);
             Object.values(next.fastMovers).forEach(annotateSpread);
             // Real historical win-rate per candidate, once enough learning-
             // layer history exists — additive display data, never a hard
             // scan dependency (see attachCalibratedProbabilities' own
             // per-row try/catch).
             attachCalibratedProbabilities(next.intradayOpportunities, next.marketRegime);
+            attachCalibratedProbabilities(next.intradayNearMiss, next.marketRegime);
             Object.values(next.fastMovers).forEach(rows => attachCalibratedProbabilities(rows, next.marketRegime));
 
-            // Learning-layer snapshot capture — stores EVERY qualifying
-            // candidate (not just ones you act on), so the statistical
-            // layer can learn from what was passed on too, not only from a
-            // self-selected subset. Purely additive/optional: never allowed
-            // to affect the live scan (see captureQualifyingSnapshots' own
+            // Learning-layer snapshot capture. Deliberately uses a fixed,
+            // low, regime-independent floor (LEARNING_CAPTURE_MIN_SCORE) —
+            // NOT minOppScore — so the learning DB stores a real spectrum of
+            // outcomes (including sub-threshold setups), not only
+            // already-passed ones. Without that spread, the nightly
+            // weight-proposal/threshold-calibration job could never actually
+            // tell you whether 70/80/95 are the right bars, only how the
+            // rare passers did. Purely additive/optional: never allowed to
+            // affect the live scan (see captureQualifyingSnapshots' own
             // try/catch).
-            captureQualifyingSnapshots(next.data, next.marketRegime, minOppScore);
+            captureQualifyingSnapshots(next.data, next.marketRegime, LEARNING_CAPTURE_MIN_SCORE);
 
             next.lastUpdated = new Date().toISOString();  // when this scan cycle synced — NOT a data-freshness claim
             next.dataAsOf = computeDataAsOf(next.data);    // the actual oldest price timestamp behind what synced

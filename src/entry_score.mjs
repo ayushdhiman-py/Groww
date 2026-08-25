@@ -148,7 +148,8 @@ export function buildMarketContext(dataBuckets, tf) {
     return { niftyRow, sectorStats };
 }
 
-// ── Opportunity Score buckets (weights sum to 105 raw, normalized to 100) ────
+// ── Opportunity Score buckets (weights sum to model_registry.mjs's
+// TOTAL_WEIGHT_BUDGET raw, normalized to 100 — see computeOpportunityScore) ──
 // Deliberately bucketed by underlying phenomenon, not by indicator name, so
 // EMA/MACD/RSI — which mostly restate the same trend price action and VWAP
 // already scored — contribute only a small "confirmation" allowance instead
@@ -282,6 +283,24 @@ function scoreRelativeStrength(row, ctx) {
     return { score: clamp(score, 0, 15), notes };
 }
 
+// Real pending order-flow imbalance (Upstox v2 quote's total_buy_quantity/
+// total_sell_quantity — see upstox.mjs's fetchBulkQuotes and scanner.mjs's
+// applyRowSpread, which attaches row.buySellRatio from the same already-
+// fetched response no other bucket here uses). A genuinely distinct
+// phenomenon from bar-on-bar volume acceleration (scoreVolume) — this is the
+// STANDING resting-order book, not traded volume — so it gets its own
+// bucket rather than folding into volume's existing point budget.
+function scoreOrderFlow(row) {
+    let score = 0; const notes = [];
+    const ratio = row.buySellRatio;
+    if (ratio == null) return { score: 0, notes: ["Order-flow data unavailable"] };
+    if (ratio >= 1.5) { score += 8; notes.push(`Strong pending buy-side order imbalance (${ratio.toFixed(2)}x buy vs sell)`); }
+    else if (ratio >= 1.2) { score += 5; notes.push(`Buy-side order imbalance (${ratio.toFixed(2)}x)`); }
+    else if (ratio >= 1.05) { score += 2; notes.push(`Mild buy-side order imbalance (${ratio.toFixed(2)}x)`); }
+    else if (ratio < 0.7) { score -= 3; notes.push(`Heavy sell-side order imbalance (${ratio.toFixed(2)}x buy vs sell)`); }
+    return { score: clamp(score, 0, 8), notes };
+}
+
 function scoreConfirmation(row) {
     // Capped low and clearly separate from priceAction/VWAP above — EMA/MACD/
     // RSI mostly restate the same underlying trend, so they only get to add a
@@ -341,14 +360,15 @@ export function computeOpportunityScore(row, ctx, tf) {
         volume: scoreVolume(row),
         relativeStrength: scoreRelativeStrength(row, ctx),
         confirmation: scoreConfirmation(row),
+        orderFlow: scoreOrderFlow(row),
     };
     // Weight-aware aggregation: scales each bucket's raw 0-N sub-score by
     // weight/DEFAULT_WEIGHTS[bucket] instead of using the raw score
     // directly. Every scoreXxx() function above is untouched — this is the
     // ONLY thing Phase 5's weight adaptation ever changes about live
-    // scoring, and it's inert (bit-for-bit identical to the old fixed
-    // 20/15/15/15/15/15/10 formula) until a PROPOSED version is manually
-    // promoted — see model_registry.mjs.
+    // scoring, and it's inert (bit-for-bit identical to the fixed
+    // DEFAULT_WEIGHTS formula in model_registry.mjs) until a PROPOSED
+    // version is manually promoted.
     const weights = getProductionWeights();
     const MAX_RAW = Object.keys(buckets).reduce((s, k) => s + (weights[k] ?? DEFAULT_WEIGHTS[k]), 0);
     const raw = Object.entries(buckets).reduce((s, [k, b]) => {
@@ -506,12 +526,40 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
     const rows15ByS = new Map((dataBuckets["15m_ALL"] || []).map(r => [r.symbol, r]));
     const rows30ByS = new Map((dataBuckets["30m_ALL"] || []).map(r => [r.symbol, r]));
 
+    // Near-miss candidates: same dual-timeframe pairing as `opportunities`
+    // below, but for symbols that DON'T clear minScore on both legs — kept
+    // separate (never merged into `opportunities`, which critical_trades.mjs's
+    // findBetterOpportunity() and capital_rotation.mjs both read assuming
+    // every entry already qualifies) purely so the Intraday tab has something
+    // honest to show instead of a blank page when nothing qualifies: the
+    // closest candidates, clearly labeled as sub-threshold, not a
+    // recommendation.
+    const nearMiss = [];
+
     const opportunities = [];
     for (const r5 of rows5) {
         if (r5.sector === "INDEX") continue;
         const r15 = rows15ByS.get(r5.symbol);
         if (!r15) continue;
-        if ((r5.opportunityScore ?? 0) < minScore || (r15.opportunityScore ?? 0) < minScore) continue;
+        const weakerLeg = Math.min(r5.opportunityScore ?? 0, r15.opportunityScore ?? 0);
+        if (weakerLeg < minScore) {
+            nearMiss.push({
+                symbol: r5.symbol, sector: r5.sector, tf: r5.tf,
+                price: r5.price, priceSource: r5.priceSource, priceTs: r5.priceTs,
+                pctFromOpen: r5.pctFromOpen, chgPct: r5.chgPct,
+                opportunityScore: Math.round((r5.opportunityScore + r15.opportunityScore) / 2),
+                opportunityBand: r5.opportunityBand,
+                score5m: r5.opportunityScore, score15m: r15.opportunityScore,
+                gapToQualify: minScore - weakerLeg,
+                qualifies: false,
+                entryAttractiveness: r5.entryAttractiveness, entryAttractivenessLabel: r5.entryAttractivenessLabel,
+                notes: [...new Set([...(r5.opportunityNotes || []), ...(r15.opportunityNotes || [])])].slice(0, 6),
+                opportunityBreakdown: r5.opportunityBreakdown,
+                upside: r5.upside, volSpike: r5.volSpike || r15.volSpike,
+                priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
+            });
+            continue;
+        }
 
         const combinedOpportunity = Math.round((r5.opportunityScore + r15.opportunityScore) / 2);
         const combinedAttractiveness = Math.round((r5.entryAttractiveness + r15.entryAttractiveness) / 2);
@@ -554,6 +602,8 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
         return (b.broaderTrendSupportive === true ? 1 : 0) - (a.broaderTrendSupportive === true ? 1 : 0);
     });
 
+    nearMiss.sort((a, b) => b.opportunityScore - a.opportunityScore);
+
     // "Fast Movers" — the Intraday tab's per-horizon filter (5m/10m/15m).
     // Deliberately a SEPARATE, looser list from the flagship Opportunities
     // above: single-timeframe qualification only (no dual-timeframe
@@ -564,10 +614,17 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
     // honestly predict a move landing inside an exact N-minute window from
     // technical indicators alone, so this is framed as current momentum
     // strength, not a timed forecast.
+    // Unlike `opportunities`/`nearMiss` above, Fast Movers has no other
+    // backend consumer expecting a pre-filtered "qualifying only" list (it's
+    // Intraday-tab display only), so rather than a separate near-miss array
+    // this just always returns the top-ranked rows with an explicit
+    // `qualifies` flag — the tab is never blank as long as ANY candidate has
+    // a score, and the frontend renders qualifying vs. sub-threshold rows
+    // distinctly instead of silently dropping the latter.
     const fastMovers = {};
     for (const tf of FAST_MOVER_TFS) {
         fastMovers[tf] = (dataBuckets[`${tf}_ALL`] || [])
-            .filter(r => r.sector !== "INDEX" && (r.opportunityScore ?? 0) >= minScore)
+            .filter(r => r.sector !== "INDEX" && r.opportunityScore != null)
             .sort((a, b) => (b.opportunityScore - a.opportunityScore) || ((b.entryAttractiveness ?? 0) - (a.entryAttractiveness ?? 0)))
             .slice(0, 15)
             .map(r => ({
@@ -581,8 +638,10 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
                 upside: r.upside, volSpike: r.volSpike,
                 orb: r.orb, structure: r.structure, // needed by attachCalibratedProbabilities' signalCombo lookup
                 priceHist: r.priceHist, ema21Hist: r.ema21Hist, ema50Hist: r.ema50Hist,
+                qualifies: (r.opportunityScore ?? 0) >= minScore,
+                gapToQualify: (r.opportunityScore ?? 0) >= minScore ? 0 : minScore - r.opportunityScore,
             }));
     }
 
-    return { opportunities: opportunities.slice(0, 40), fastMovers };
+    return { opportunities: opportunities.slice(0, 40), fastMovers, nearMiss: nearMiss.slice(0, 8) };
 }

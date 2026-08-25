@@ -1,14 +1,20 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// learning_capture.mjs — store every QUALIFYING candidate, taken or not.
+// learning_capture.mjs — store every candidate scoring at least
+// LEARNING_CAPTURE_MIN_SCORE, qualifying or not, taken or not.
 //
 // This is the fix for the selection-bias trap the spec explicitly warns
 // about: if only actually-entered Critical trades were stored, the learning
 // layer could only ever learn from a biased subset (whatever you happened to
-// pick), never "what happened to the setups I passed on." So this captures
-// anything that clears the SAME 5m+15m confluence gate entry_score.mjs's
-// enrichOpportunities() uses for the Intraday Opportunities list — computed
-// BEFORE that list's top-40 truncation, so a candidate ranked #41 still gets
-// stored even though it never appears in the UI list.
+// pick), never "what happened to the setups I passed on." That's solved by
+// capturing every candidate clearing a fixed low floor, not just ones that
+// crossed the (regime-scaled, much higher) 70/80/95 Intraday Opportunities
+// bar. A SECOND, distinct selection-bias trap would remain if capture used
+// that same regime-scaled bar: the learning DB would then only ever contain
+// already-passed setups, and could never tell you whether the bar itself is
+// set correctly — only how the rare passers did. Capturing a real spectrum
+// (including sub-threshold setups) is what eventually lets the nightly
+// weight-proposal job in model_registry.mjs answer that question from real
+// outcomes instead of a judgment call.
 //
 // Must NEVER throw into scanAll() — this is optional/additive instrumentation,
 // not a hard dependency of the live scanner.
@@ -19,7 +25,11 @@ import { classifyTrapRisk } from "./trade_health.mjs";
 import { classifyExhaustionRisk } from "./price_action.mjs";
 import { getMarketCapCategory } from "./market_cap.mjs";
 
-const MIN_OPP_SCORE_FALLBACK = 70;
+// Below the lowest regime bar (BULLISH's 70) by a comfortable margin, but
+// well above pure noise — wide enough to capture genuine "how close is
+// close" data without logging every scored row regardless of quality.
+export const LEARNING_CAPTURE_MIN_SCORE = 50;
+const MIN_OPP_SCORE_FALLBACK = LEARNING_CAPTURE_MIN_SCORE;
 
 function istParts(ts) {
     const ist = new Date(new Date(ts).toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
@@ -85,9 +95,11 @@ function getInsertStmt() {
 /**
  * Called once per synced scan cycle, right after enrichOpportunities() has
  * mutated every 5m_ALL/15m_ALL row in place. Stores a compact snapshot for
- * every symbol that clears the SAME confluence gate the Intraday
- * Opportunities list uses, regardless of whether it ends up in that list's
- * top-40 slice or whether you ever act on it.
+ * every symbol scoring at least `minScore` on BOTH 5m and 15m (see
+ * LEARNING_CAPTURE_MIN_SCORE — deliberately NOT the same, much higher,
+ * regime-scaled bar the Intraday Opportunities list itself uses), regardless
+ * of whether it would end up in that list, clear the live bar that day, or
+ * whether you ever act on it.
  */
 export function captureQualifyingSnapshots(dataBuckets, marketRegime, minScore = MIN_OPP_SCORE_FALLBACK) {
     try {

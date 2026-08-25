@@ -6,8 +6,8 @@
 // (Phase 6), but only promoteModelVersion() (triggered by a human clicking
 // the dashboard button) ever changes what entry_score.mjs actually uses.
 //
-// Not a neural network: a small hand-rolled logistic regression (7 features
-// — the existing bucket sub-scores, normalized — batch gradient descent,
+// Not a neural network: a small hand-rolled logistic regression (one feature
+// per scoring bucket, normalized — batch gradient descent,
 // L2-regularized, fixed iterations, no external ML dependency) whose
 // coefficients are converted into new bucket WEIGHTS, not used as a scoring
 // formula themselves. DEFAULT_WEIGHTS mirrors entry_score.mjs's current
@@ -17,10 +17,10 @@
 import { getDb } from "./learning_db.mjs";
 
 export const DEFAULT_WEIGHTS = {
-    priceAction: 20, openingStrength: 15, vwap: 15, orb: 15, volume: 15, relativeStrength: 15, confirmation: 10,
+    priceAction: 20, openingStrength: 15, vwap: 15, orb: 15, volume: 15, relativeStrength: 15, confirmation: 10, orderFlow: 8,
 };
 const FEATURE_KEYS = Object.keys(DEFAULT_WEIGHTS);
-const TOTAL_WEIGHT_BUDGET = Object.values(DEFAULT_WEIGHTS).reduce((a, b) => a + b, 0); // 105 — kept constant across proposals so the score stays on a 0-100 scale
+const TOTAL_WEIGHT_BUDGET = Object.values(DEFAULT_WEIGHTS).reduce((a, b) => a + b, 0); // 113 — kept constant across proposals so the score stays on a 0-100 scale
 
 const MAX_WEIGHT_CHANGE_FRACTION = 0.25; // stability guard: no bucket can move more than ±25% from current production in one proposal
 const IMPORTANCE_FLOOR = 0.05;           // a bucket whose learned coefficient is negative shrinks toward this floor, never toward zero or negative
@@ -142,7 +142,7 @@ function loadTrainingRows(from, to) {
 }
 
 /**
- * Trains on stored breakdown_json feature vectors (7 bucket sub-scores,
+ * Trains on stored breakdown_json feature vectors (bucket sub-scores,
  * normalized to their own 0-1 scale) against reached_1pct labels for
  * [from, to], and inserts a new PROPOSED model_versions row. Never touches
  * PRODUCTION. Returns {ok:false, reason} rather than proposing anything off

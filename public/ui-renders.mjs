@@ -74,8 +74,8 @@ const CHECK_DEFS = [
 // Opportunity Score buckets (entry_score.mjs computeOpportunityScore) —
 // each bucket's raw sub-score is out of its own DEFAULT_WEIGHTS max
 // (model_registry.mjs), used here purely to normalize the visual bar.
-const BREAKDOWN_MAX = { priceAction: 20, openingStrength: 15, vwap: 15, orb: 15, volume: 15, relativeStrength: 15, confirmation: 10 };
-const BREAKDOWN_LABELS = { priceAction: 'PA', openingStrength: 'OPEN', vwap: 'VWAP', orb: 'ORB', volume: 'VOL', relativeStrength: 'RS', confirmation: 'CONF' };
+const BREAKDOWN_MAX = { priceAction: 20, openingStrength: 15, vwap: 15, orb: 15, volume: 15, relativeStrength: 15, confirmation: 10, orderFlow: 8 };
+const BREAKDOWN_LABELS = { priceAction: 'PA', openingStrength: 'OPEN', vwap: 'VWAP', orb: 'ORB', volume: 'VOL', relativeStrength: 'RS', confirmation: 'CONF', orderFlow: 'FLOW' };
 
 // A compact, always-visible segmented bar turning the Opportunity Score's
 // component buckets (previously computed server-side but never shown) into
@@ -676,7 +676,16 @@ function renderIntradayRowHtml(p, trioLabel) {
   const confHtml = prob?.available
     ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span><span class="muted-xl" style="font-size:8px;display:block;">n=${prob.sampleCount}</span>`
     : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
-  return `<tr class="main-row">
+  // Near-miss rows (p.qualifies === false, from intradayNearMiss or an
+  // unfiltered Fast Movers list) are shown dimmed with an explicit
+  // sub-threshold badge — visibility into "how close," never implying
+  // these are recommendations the way a qualifying row is.
+  const isNearMiss = p.qualifies === false;
+  const rowCls = isNearMiss ? 'main-row near-miss-row' : 'main-row';
+  const nmBadge = isNearMiss
+    ? `<span class="nm-badge" title="Below today's qualifying bar">SUB-THRESHOLD${p.gapToQualify ? ` · needs +${p.gapToQualify}` : ''}</span>`
+    : '';
+  return `<tr class="${rowCls}">
       <td style="text-align:left;">
         <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
@@ -686,6 +695,7 @@ function renderIntradayRowHtml(p, trioLabel) {
       <td data-label="Chart"><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td data-label="Opportunity">
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+          ${nmBadge}
           <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
           <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>
           ${renderBreakdownBar(p.opportunityBreakdown)}
@@ -759,14 +769,39 @@ function renderIntraday(data) {
     }
 
     if (!picks.length) {
-      tbody.innerHTML = '';
-      if (empty) {
-        empty.classList.remove('loading');
-        empty.style.display = 'block';
-        empty.textContent = data.marketRegime?.noTrade
-          ? 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.'
-          : 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
+      if (data.marketRegime?.noTrade) {
+        // NO TRADE is a deliberate hard stop (BEARISH/high-vol regime), not
+        // just a scoring bar — no near-miss fallback here, that would
+        // undercut the point of the stop.
+        tbody.innerHTML = '';
+        if (empty) {
+          empty.classList.remove('loading');
+          empty.style.display = 'block';
+          empty.textContent = 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.';
+        }
+        restoreScroll();
+        return;
       }
+
+      const nearMiss = data.intradayNearMiss || [];
+      if (!nearMiss.length) {
+        tbody.innerHTML = '';
+        if (empty) {
+          empty.classList.remove('loading');
+          empty.style.display = 'block';
+          empty.textContent = 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
+        }
+        restoreScroll();
+        return;
+      }
+
+      // Nothing qualifies, but there's real ranked data — show the closest
+      // candidates instead of a blank page, clearly marked sub-threshold.
+      if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+      if (rcEl) {
+        rcEl.textContent = `Intraday Opportunities: 0 confirmed · showing ${nearMiss.length} closest sub-threshold candidate${nearMiss.length === 1 ? '' : 's'}${closedSuffix}`;
+      }
+      tbody.innerHTML = nearMiss.map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'}`)).join('');
       restoreScroll();
       return;
     }
@@ -780,27 +815,32 @@ function renderIntraday(data) {
   // Fast Movers — a single-timeframe momentum ranking, not a timed
   // prediction. hideTopPicks() rather than renderTopPicks([]) since these
   // rows aren't the flagship dual-confirmed candidates the Top Picks
-  // banner is about.
+  // banner is about. Rows arrive unfiltered (entry_score.mjs no longer
+  // drops sub-threshold candidates) with an explicit `qualifies` flag, so
+  // the tab always shows something as long as ANY candidate has a score.
   hideTopPicks();
-  const rows = data.fastMovers?.[horizon] || [];
+  const allRows = data.fastMovers?.[horizon] || [];
+  const qualifyingCount = allRows.filter(r => r.qualifies).length;
   const label = HORIZON_LABELS[horizon] || horizon;
   if (rcEl) {
-    rcEl.textContent = `Fast Movers — ${label} horizon: ${rows.length} · ranked by current momentum strength, not a timing prediction${closedSuffix}`;
+    rcEl.textContent = qualifyingCount
+      ? `Fast Movers — ${label} horizon: ${qualifyingCount} qualifying · ranked by current momentum strength, not a timing prediction${closedSuffix}`
+      : `Fast Movers — ${label} horizon: 0 qualifying · showing ${allRows.length} closest sub-threshold candidate${allRows.length === 1 ? '' : 's'}${closedSuffix}`;
   }
 
-  if (!rows.length) {
+  if (!allRows.length) {
     tbody.innerHTML = '';
     if (empty) {
       empty.classList.remove('loading');
       empty.style.display = 'block';
-      empty.textContent = `No stocks currently clear the Opportunity Score bar on the ${label} timeframe alone. This is expected most of the time — quality setups are rare by design.`;
+      empty.textContent = `No scored candidates yet on the ${label} timeframe this cycle — check back shortly.`;
     }
     restoreScroll();
     return;
   }
   if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
-  tbody.innerHTML = rows.map(p => renderIntradayRowHtml(p, `${label} horizon only — not confirmed on other timeframes`)).join('');
+  tbody.innerHTML = allRows.map(p => renderIntradayRowHtml(p, `${label} horizon only — not confirmed on other timeframes`)).join('');
   restoreScroll();
 }
 

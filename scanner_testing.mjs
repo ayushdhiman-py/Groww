@@ -7,7 +7,7 @@ import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, p
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow } from "./src/scanner.mjs";
 import { cacheStats } from "./src/candle_cache.mjs";
 import { startOptionsFeed, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
-import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick } from "./src/feed.mjs";
+import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick, forceFeedRestart } from "./src/feed.mjs";
 import { isInstrumentMasterLoaded, isInstrumentMasterStale } from "./src/instruments.mjs";
 import { UNIVERSE } from "./src/universe.mjs";
 import { isMarketOpen } from "./src/scanner.mjs";
@@ -817,6 +817,18 @@ process.on('uncaughtException', (err) => {
     if (err?.message?.includes('Failed to subscribe: WebSocket is not open') ||
         err?.message?.includes('Failed to changeMode: WebSocket is not open')) {
         console.error(`[Feed] Swallowed known upstox-js-sdk reconnect race: ${err.message}`);
+        return;
+    }
+    // A second known upstox-js-sdk bug: when autoReconnect's retryCount is
+    // exhausted, Streamer.js calls this.streamer.clearSubscriptions() on the
+    // feeder object, which never defines that method — a TypeError, thrown
+    // BEFORE the "autoReconnectStopped" event feed.mjs listens for gets a
+    // chance to fire. Swallowing this alone would leave the feed silently
+    // dead forever (nothing left to schedule a restart), so this explicitly
+    // drives feed.mjs's own recovery path instead of just logging past it.
+    if (err?.message?.includes('clearSubscriptions is not a function')) {
+        console.error(`[Feed] Swallowed known upstox-js-sdk reconnect-exhaustion bug: ${err.message}`);
+        forceFeedRestart('Reconnect exhausted (SDK cleanup bug worked around)');
         return;
     }
     console.error('Uncaught exception, exiting:', err);
