@@ -1148,10 +1148,17 @@ function openModalChart(symbol, tf) {
 
   if (!data?.data) return;
 
-  const allKeys = ['1m_ALL', '5m_ALL', '10m_ALL', '15m_ALL', '30m_ALL', '1h_ALL', '1d_ALL',
-                   '1m_GOLDEN', '5m_GOLDEN', '10m_GOLDEN', '15m_GOLDEN', '30m_GOLDEN', '1h_GOLDEN', '1d_GOLDEN',
-                   '1m_BUY', '5m_BUY', '10m_BUY', '15m_BUY', '30m_BUY', '1h_BUY', '1d_BUY',
-                   '1m_SELL', '5m_SELL', '10m_SELL', '15m_SELL', '30m_SELL', '1h_SELL', '1d_SELL'];
+  // Look up the SAME timeframe the user actually clicked the sparkline from
+  // first — this used to always try '1m_ALL' first regardless of `tf`, so
+  // the modal silently showed 1-minute EMAs even when clicked from a 15m/1d
+  // row, which both looks wrong on its own and can't match a same-timeframe
+  // chart on Upstox (or anywhere else) since it's a different timeframe's
+  // data entirely. Only fall back to other timeframes if this symbol truly
+  // has no data at all for the requested one.
+  const ALL_TFS = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
+  const BUCKETS = ['ALL', 'GOLDEN', 'BUY', 'SELL'];
+  const orderedTfs = [tf, ...ALL_TFS.filter(t => t !== tf)];
+  const allKeys = orderedTfs.flatMap(t => BUCKETS.map(b => `${t}_${b}`));
 
   let row = null;
   for (const key of allKeys) {
