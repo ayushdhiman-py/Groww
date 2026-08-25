@@ -721,7 +721,7 @@ function renderIntradayRowHtml(p, trioLabel) {
       <td data-label="Price"><div style="max-width:90px;"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span><div style="margin-top:2px;">${freshnessDot(p.priceSource, p.priceTs)}</div></div></td>
       <td data-label="Chart"><div style="cursor:pointer;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td data-label="Opportunity">
-        <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div class="opp-cell" style="display:flex;flex-direction:column;align-items:center;gap:3px;">
           ${nmBadge}
           <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
           <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>

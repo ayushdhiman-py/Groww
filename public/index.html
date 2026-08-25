@@ -2166,6 +2166,15 @@
       .tw table, .model-table { display: block; width: 100%; }
       .tw thead, .model-table thead { display: none; }
       .tw tbody, .model-table tbody { display: block; }
+      /* #tbody { display: table-row-group !important; } (unconditional,
+         desktop-only rendering fix elsewhere in this file) otherwise beats
+         the rule above too — same specificity, !important, but declared
+         earlier in the file, so this later declaration at equal
+         specificity is what actually wins it back for mobile. Without it
+         tbody stays table-row-group here, its "display:block" child <tr>
+         becomes an anonymous table object instead of a real block box, and
+         never actually stretches to the card's full width. */
+      #tbody { display: block !important; }
 
       .tw tbody tr:not(.sub-row), .model-table tbody tr {
         display: block;
@@ -2174,6 +2183,20 @@
         border-radius: 12px;
         margin-bottom: 10px;
         overflow: hidden;
+      }
+
+      /* `tbody tr.main-row { display: table-row !important; }` (added
+         earlier as a desktop rendering fix, unconditional/!important, and
+         Intraday rows are the only ones carrying .main-row) otherwise beats
+         the block-display rule above on mobile too — the row LOOKS
+         card-like since every td inside is independently flexed/blocked,
+         but the tr's own box stays sized under table auto-layout instead of
+         the full card width, which any percentage-width child (like the
+         Opportunity breakdown bar) then inherits as a silently narrower
+         "100%" than the actual visible card. Needs higher specificity than
+         the plain-tag rule to win regardless of !important vs. source order. */
+      .tw tbody tr.main-row:not(.sub-row) {
+        display: block !important;
       }
 
       .tw tbody tr:not(.sub-row) td, .model-table tbody tr td {
@@ -2252,6 +2275,19 @@
 
       /* Check pills */
       .ck-pill { font-size: 7px; padding: 1px 3px; }
+
+      /* Opportunity Score breakdown bar (Intraday) — desktop caps this at
+         130px to fit a narrow table column, but a mobile row is its own
+         full-width card with plenty of room. Two things were fighting
+         this: the cap itself, AND the value container (.opp-cell) not
+         actually stretching to fill the row (a flex item shrinks to its
+         content's width by default, so .bd-bar's width:100% was 100% of
+         its own circular shrink-to-fit size) — together, 8 segments'
+         worth of labels (PA/OPEN/VWAP/ORB/VOL/RS/CONF/FLOW) rendered
+         almost edge-to-edge with no gap between them. */
+      .tw tbody tr:not(.sub-row) td .opp-cell { flex: 1; width: 100%; }
+      .bd-bar { max-width: 280px; gap: 4px; }
+      .bd-seg-label { font-size: 7px; }
 
       /* Index cards — stack price/change vertically instead of side by
          side, so a wide value ("Rs 57,460.70") never collides with the
