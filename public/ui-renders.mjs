@@ -371,20 +371,20 @@ function renderStocks(data) {
         <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
         ${r.dividend ? `<div class='dividend-info' style="margin-top:2px; font-size:9px; font-family:var(--mono);">💰 <span class="${r.dividend.colorClass}">${r.dividend.displayText}</span> <span style="opacity:0.6;">(${r.dividend.yield.toFixed(2)}% yield)</span></div>` : ''}
       </td>
-      <td>
+      <td data-label="CMP">
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
           <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</span>
           <span class="muted-xl vwap-line">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
         </div>
       </td>
-      <td><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
-      <td>
+      <td data-label="Chart"><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
+      <td data-label="EMA">
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
           <div>${statusTxt}</div>
           <div class="muted-xl ${cc}" style="font-weight:600;">Gap ${Math.abs(r.emaGap || 0).toFixed(2)}%</div>
         </div>
       </td>
-      <td>
+      <td data-label="Volume">
         <div style="display:flex; flex-direction:column; align-items:center; gap:5px;">
           <div class="${r.volSpike ? 'vol-spike-⚡' : ''}" style="font-size:13px; font-weight:700; font-family:var(--mono); color:${r.volSpike ? 'var(--yellow)' : 'var(--text)'};">${r.volSpike ? '⚡ ' : ''}${formatVolume(r.volume)}</div>
           <div style="width:88px; height:7px; background:rgba(255,255,255,0.07); border-radius:6px; overflow:hidden;">
@@ -393,16 +393,16 @@ function renderStocks(data) {
           <div class="${(r.volumeChange || 0) >= 0 ? 'up' : 'dn'}" style="font-size:10px; font-family:var(--mono);">${(r.volumeChange || 0) >= 0 ? '+' : ''}${formatVolume(r.volumeChange)} ${(r.volumeChange || 0) >= 0 ? '↑' : '↓'}</div>
         </div>
       </td>
-      <td><div style="display:flex; justify-content:center;">${macdTxt}</div></td>
-      <td><div>${generateRangeBar(r.dayL, r.dayH, r.price)}</div></td>
-      <td><div>${generateRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div></td>
-      <td>
+      <td data-label="MACD"><div style="display:flex; justify-content:center;">${macdTxt}</div></td>
+      <td data-label="Day Range"><div>${generateRangeBar(r.dayL, r.dayH, r.price)}</div></td>
+      <td data-label="52W Range"><div>${generateRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div></td>
+      <td data-label="Score">
         <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
           <span style="font-weight:800; font-family:var(--mono); font-size:15px; color:var(--text);">${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span></span>
           <div class="checks">${boxes}</div>
         </div>
       </td>
-      <td>
+      <td data-label="Rating">
         <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
           <div class="rat-badge ${ratCls}">${r.rating}</div>
           <div class="flag-group">
@@ -712,9 +712,9 @@ function renderIntraday(data) {
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
         ${whyTxt ? `<div class="muted-xl why-line">${whyTxt}</div>` : ''}
       </td>
-      <td><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
-      <td><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
-      <td>
+      <td data-label="Price"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
+      <td data-label="Chart"><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
+      <td data-label="Opportunity">
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
           <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
           <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>
@@ -722,18 +722,18 @@ function renderIntraday(data) {
           <span class="muted-xl" style="font-size:8px;">5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}</span>
         </div>
       </td>
-      <td>
+      <td data-label="Entry Attractiveness">
         <div style="display:flex;flex-direction:column;align-items:center;">
           <span style="font-weight:700;">${p.entryAttractiveness}</span>
           <span class="muted-xl" style="font-size:9px;">${p.entryAttractivenessLabel || ''}</span>
           ${p.entryAttractivenessNotes?.[0] ? `<span class="muted-xl" style="font-size:8px;max-width:110px;white-space:normal;text-align:center;line-height:1.3;">${p.entryAttractivenessNotes[0]}</span>` : ''}
         </div>
       </td>
-      <td><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
-      <td>${upside.zoneLow != null ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span>` : '<span class="muted-xl">—</span>'}</td>
-      <td>${upside.remainingPct != null ? `<span class="up">+${upside.remainingPct}%</span>` : '—'}</td>
-      <td>${confHtml}</td>
-      <td><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
+      <td data-label="Move From Open"><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
+      <td data-label="Est. Upside Zone">${upside.zoneLow != null ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span>` : '<span class="muted-xl">—</span>'}</td>
+      <td data-label="Remaining Upside">${upside.remainingPct != null ? `<span class="up">+${upside.remainingPct}%</span>` : '—'}</td>
+      <td data-label="Confidence">${confHtml}</td>
+      <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
   }).join('');
 
@@ -932,13 +932,13 @@ function renderSectors(data) {
 
     return `<tr>
       <td style="font-weight:700; color:var(--text);">${s.name}</td>
-      <td style="font-family:var(--mono); font-weight:700;" class="${avgColor}">${s.avgChg >= 0 ? '+' : ''}${s.avgChg.toFixed(2)}%</td>
-      <td style="text-align:center; font-family:var(--mono);">${s.stocks}</td>
-      <td>
+      <td data-label="Average Change" style="font-family:var(--mono); font-weight:700;" class="${avgColor}">${s.avgChg >= 0 ? '+' : ''}${s.avgChg.toFixed(2)}%</td>
+      <td data-label="Stocks" style="text-align:center; font-family:var(--mono);">${s.stocks}</td>
+      <td data-label="Top Gainer">
         <span class="${gainerColor}" style="font-family:var(--mono); font-weight:600;">${s.topGainer.symbol}</span>
         <span class="${gainerColor}" style="font-size:10px; margin-left:4px;">(${s.topGainer.chgPct >= 0 ? '+' : ''}${s.topGainer.chgPct.toFixed(2)}%)</span>
       </td>
-      <td>
+      <td data-label="Bottom Loser">
         <span class="${loserColor}" style="font-family:var(--mono); font-weight:600;">${s.topLoser.symbol}</span>
         <span class="${loserColor}" style="font-size:10px; margin-left:4px;">(${s.topLoser.chgPct >= 0 ? '+' : ''}${s.topLoser.chgPct.toFixed(2)}%)</span>
       </td>
@@ -1509,32 +1509,32 @@ function renderModel(payload) {
   const regimeRows = (overview.regimeOverview || []).map(r => `
     <tr class="${r.sufficient_sample ? '' : 'insufficient'}">
       <td>${r.segment_key.replace('regime:', '')}</td>
-      <td>${r.window}</td>
-      <td>${r.sample_count}</td>
-      <td>${fmtPct(r.win_rate)}</td>
-      <td>${r.sufficient_sample ? 'Yes' : 'No — below minimum sample size'}</td>
+      <td data-label="Window">${r.window}</td>
+      <td data-label="Samples">${r.sample_count}</td>
+      <td data-label="Win Rate">${fmtPct(r.win_rate)}</td>
+      <td data-label="Sufficient?">${r.sufficient_sample ? 'Yes' : 'No — below minimum sample size'}</td>
     </tr>`).join('');
 
   const segmentRows = segments.slice(0, 100).map(s => `
     <tr class="${s.sufficient_sample ? '' : 'insufficient'}">
       <td>${s.segment_key}</td>
-      <td>${s.window}</td>
-      <td>${s.sample_count}</td>
-      <td>${fmtPct(s.win_rate)}</td>
-      <td>${fmtPct(s.prob_reach_1pct)}</td>
-      <td>${fmtPct(s.prob_reach_2pct)}</td>
-      <td>${fmtPct(s.prob_reach_5pct)}</td>
-      <td>${fmtPct(s.prob_major_adverse)}</td>
+      <td data-label="Window">${s.window}</td>
+      <td data-label="N">${s.sample_count}</td>
+      <td data-label="Win Rate">${fmtPct(s.win_rate)}</td>
+      <td data-label="P(+1%)">${fmtPct(s.prob_reach_1pct)}</td>
+      <td data-label="P(+2%)">${fmtPct(s.prob_reach_2pct)}</td>
+      <td data-label="P(+5%)">${fmtPct(s.prob_reach_5pct)}</td>
+      <td data-label="P(Major Adverse)">${fmtPct(s.prob_major_adverse)}</td>
     </tr>`).join('');
 
   const driftRows = drift.map(d => `
     <tr class="model-drift-row ${d.flagged ? 'flagged' : ''}">
       <td>${d.segment_key}</td>
-      <td>${fmtPct(d.recent_win_rate)}</td>
-      <td>${fmtPct(d.historical_win_rate)}</td>
-      <td>${d.delta > 0 ? '+' : ''}${d.delta}pp</td>
-      <td>${d.recent_sample_count} / ${d.historical_sample_count}</td>
-      <td>${d.notes || '—'}</td>
+      <td data-label="Recent">${fmtPct(d.recent_win_rate)}</td>
+      <td data-label="Historical">${fmtPct(d.historical_win_rate)}</td>
+      <td data-label="Delta">${d.delta > 0 ? '+' : ''}${d.delta}pp</td>
+      <td data-label="N (recent/hist)">${d.recent_sample_count} / ${d.historical_sample_count}</td>
+      <td data-label="Notes">${d.notes || '—'}</td>
     </tr>`).join('');
 
   const versionRows = versions.map(v => {
@@ -1547,11 +1547,11 @@ function renderModel(payload) {
     }
     return `<tr>
       <td>v${v.version_id}</td>
-      <td>${v.status}</td>
-      <td>${v.training_sample_count ?? '—'}</td>
-      <td>${v.validation_sample_count ?? '—'}</td>
-      <td>${v.promoted_at ? new Date(v.promoted_at).toLocaleString() : '—'}</td>
-      <td>${actions.join(' ')}</td>
+      <td data-label="Status">${v.status}</td>
+      <td data-label="Train N">${v.training_sample_count ?? '—'}</td>
+      <td data-label="Validation N">${v.validation_sample_count ?? '—'}</td>
+      <td data-label="Promoted At">${v.promoted_at ? new Date(v.promoted_at).toLocaleString() : '—'}</td>
+      <td data-label="Actions">${actions.join(' ')}</td>
     </tr>`;
   }).join('');
 

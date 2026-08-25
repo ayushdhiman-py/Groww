@@ -404,7 +404,7 @@ async function fetchIndices() {
 
       const showChange = idx.chgPct !== null && idx.priceChange !== null;
       const pctHtml = showChange
-        ? `<div style='display:flex;flex-direction:column;align-items:flex-end;margin-left:auto;'>
+        ? `<div class='idx-change'>
             <span style='font-size:11px;font-weight:700;color:rgb(${rgba})'>${arr} ${idx.priceChange >= 0 ? '+' : ''}${idx.priceChange.toFixed(2)}</span>
             <span style='font-size:9px;background:rgba(${rgba},0.15);padding:1px 5px;border-radius:4px;color:rgb(${rgba})'>${sgn}${idx.chgPct.toFixed(2)}%</span>
           </div>`
@@ -412,8 +412,8 @@ async function fetchIndices() {
 
       html += `<div class='sc'>
         <div class='scl'>${idx.symbol}</div>
-        <div class='scv ${cl}' style='font-size:14px;display:flex;align-items:center;justify-content:space-between;'>
-          Rs ${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+        <div class='scv ${cl} idx-value' style='font-size:14px;'>
+          <span class='idx-price'>Rs ${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
           ${pctHtml}
         </div></div>`;
     });
