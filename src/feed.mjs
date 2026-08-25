@@ -161,8 +161,12 @@ export function subscribeSymbols(symbols) {
     const { instrumentKeyBySymbol } = resolveInstrumentKeys(symbols);
     const newKeys = [...instrumentKeyBySymbol.values()].filter(k => !subscribedKeys.has(k));
     if (newKeys.length === 0) return;
-    streamer.subscribe(newKeys, "ltpc");
-    newKeys.forEach(k => subscribedKeys.add(k));
+    try {
+        streamer.subscribe(newKeys, "ltpc");
+        newKeys.forEach(k => subscribedKeys.add(k));
+    } catch (e) {
+        console.error(`[Feed] subscribe failed (socket not open yet): ${e.message}`);
+    }
 }
 
 /** Unsubscribe symbols currently streamed. */
@@ -171,8 +175,12 @@ export function unsubscribeSymbols(symbols) {
     const { instrumentKeyBySymbol } = resolveInstrumentKeys(symbols);
     const keys = [...instrumentKeyBySymbol.values()].filter(k => subscribedKeys.has(k));
     if (keys.length === 0) return;
-    streamer.unsubscribe(keys);
-    keys.forEach(k => subscribedKeys.delete(k));
+    try {
+        streamer.unsubscribe(keys);
+        keys.forEach(k => subscribedKeys.delete(k));
+    } catch (e) {
+        console.error(`[Feed] unsubscribe failed (socket not open yet): ${e.message}`);
+    }
 }
 
 /**

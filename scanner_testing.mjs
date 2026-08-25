@@ -801,3 +801,24 @@ process.on('SIGINT', () => {
     console.log('\n🛑 SIGINT received. Shutting down gracefully...');
     process.exit(0);
 });
+
+// upstox-js-sdk's MarketDataStreamerV3 registers its own internal "open"
+// listener that auto-resubscribes on every reconnect. If the underlying
+// WebSocket isn't fully OPEN at that exact instant, MarketDataFeederV3.subscribe()
+// throws synchronously several frames deep inside the SDK's own event-emission
+// chain — a call stack we never enter, so there is no try/catch we can place
+// around it from feed.mjs. Left unhandled, this kills the whole Node process
+// and Render cold-restarts everything, wiping all in-memory scan progress —
+// the actual cause behind repeated "stuck/empty" symptoms, distinct from
+// ordinary Render free-tier sleep. This subsystem doesn't touch scan state,
+// the DB, or the Express server, so surviving it is safe; feed.mjs's own
+// reconnect loop keeps running underneath. Anything else still crashes.
+process.on('uncaughtException', (err) => {
+    if (err?.message?.includes('Failed to subscribe: WebSocket is not open') ||
+        err?.message?.includes('Failed to changeMode: WebSocket is not open')) {
+        console.error(`[Feed] Swallowed known upstox-js-sdk reconnect race: ${err.message}`);
+        return;
+    }
+    console.error('Uncaught exception, exiting:', err);
+    process.exit(1);
+});
