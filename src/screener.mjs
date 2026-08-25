@@ -1,28 +1,27 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // screener.mjs — Market-wide screeners (Top Gainers/Losers, Volume Shockers,
-// 52-Week breakouts, momentum/pattern scans) across the Nifty 500, not just
-// the curated 241-symbol UNIVERSE.
+// 52-Week breakouts, momentum/pattern scans) across the full Nifty 500.
 // ─────────────────────────────────────────────────────────────────────────────
 // Reuses buildSignal (same indicator math as the main scanner) so results are
-// directly comparable. For the ~40% of Nifty 500 already covered by the main
-// UNIVERSE scan, reuses its already-computed rows instead of re-fetching —
-// only the remaining symbols cost real API calls here. Runs on its own,
-// slower cadence (not every ~30s like the main scan) since these categories
-// don't need second-by-second freshness, and to keep total load on the
-// shared rate limiter reasonable.
+// directly comparable. UNIVERSE (src/universe.mjs) now covers nearly all of
+// Nifty 500, but Stage 2 only deep-scans a capped subset each cycle — so
+// reuse is decided per-symbol by whether the main scan has ACTUALLY produced
+// a row yet, not by UNIVERSE membership alone (a symbol can sit in UNIVERSE
+// for a while before its first Stage-2/rotation turn comes up). Only
+// symbols with no row anywhere yet cost a real API call here. Runs on its
+// own, slower cadence (not every ~30s like the main scan) since these
+// categories don't need second-by-second freshness, and to keep total load
+// on the shared rate limiter reasonable.
 // ─────────────────────────────────────────────────────────────────────────────
 import { getOrFetchCandles } from "./candle_cache.mjs";
 import { buildSignal, state as mainState, isMarketOpen } from "./scanner.mjs";
 import { SCREENER_UNIVERSE } from "./screener_universe.mjs";
-import { UNIVERSE } from "./universe.mjs";
 import { getLtpWithFreshness } from "./feed.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SCREENER_TFS = ["5m", "15m", "1d"];
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes between full refreshes
 const TOP_N = 15;
-
-const mainUniverseSet = new Set(UNIVERSE);
 
 export let screenerState = {
     lastUpdated: null,
@@ -98,9 +97,9 @@ export function computeScreenerCategories(rowsByTf) {
 
     // `lastUpdated` is when this refresh cycle ran, not a claim that every
     // row is that fresh — rows reused from the main scan can be up to ~30s
-    // old, and rows for symbols outside the main UNIVERSE are only refreshed
-    // once per REFRESH_INTERVAL_MS (15 min). `dataAsOf` is the actual oldest
-    // priceTs among everything just categorized.
+    // old, and symbols the main scan hasn't produced a row for yet are only
+    // refreshed once per REFRESH_INTERVAL_MS (15 min). `dataAsOf` is the
+    // actual oldest priceTs among everything just categorized.
     const allRows = [...daily, ...fiveMin];
     const priceTimes = allRows.map(r => r.priceTs).filter(ts => ts != null);
     const dataAsOf = priceTimes.length ? Math.min(...priceTimes) : null;
@@ -121,15 +120,22 @@ export async function runScreenerScan() {
         const rowsByTf = { "5m": [], "15m": [], "1d": [] };
         const newSymbols = [];
 
+        // Reuse only when the main scan has ACTUALLY produced a row for this
+        // symbol — not merely when it's nominally in UNIVERSE. UNIVERSE now
+        // covers nearly all of Nifty 500 (see universe.mjs), but Stage 2 only
+        // deep-scans a capped subset each cycle; a symbol can sit in UNIVERSE
+        // for a while before its first Stage-2 scan/fairness-rotation turn
+        // comes up. Gating on UNIVERSE membership alone would silently leave
+        // those symbols with zero data — neither reused (no row exists yet)
+        // nor freshly fetched (membership check skipped them) — until
+        // rotation happened to reach them.
         for (const sym of SCREENER_UNIVERSE) {
-            if (mainUniverseSet.has(sym)) {
-                for (const tf of SCREENER_TFS) {
-                    const row = (mainState.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
-                    if (row) rowsByTf[tf].push(row);
-                }
-            } else {
-                newSymbols.push(sym);
+            let foundAny = false;
+            for (const tf of SCREENER_TFS) {
+                const row = (mainState.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
+                if (row) { rowsByTf[tf].push(row); foundAny = true; }
             }
+            if (!foundAny) newSymbols.push(sym);
         }
 
         console.log(`[Screener] Refreshing — ${newSymbols.length} new symbol(s) to fetch, ${SCREENER_UNIVERSE.length - newSymbols.length} reused from main scan`);

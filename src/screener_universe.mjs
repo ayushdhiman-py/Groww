@@ -2,11 +2,15 @@
 // screener_universe.mjs — NSE Nifty 500 constituents (as of 2026-08-24)
 // ─────────────────────────────────────────────────────────────────────────────
 // Source: NSE's official index constituent archive (ind_nifty500list.csv).
-// This is a much broader, "whole market" universe than UNIVERSE (241 curated
-// large-caps/sector-leaders) — used specifically for market-wide screeners
-// (Top Gainers/Losers, Volume Shockers, 52-Week breakouts, pattern scans)
-// where the point is to see the ENTIRE liquid market, not a curated watchlist.
-// All 500 symbols verified to resolve against the Upstox instrument master.
+// This is the authoritative Nifty 500 list, kept as its own file (rather than
+// folded entirely into universe.mjs) since it drifts on NSE's own semi-annual
+// reconstitution schedule — universe.mjs's UNIVERSE was expanded to include
+// every name here (plus a handful of indices/legacy tickers) so the main
+// scanner's Stage 1 cheap filter considers the real Nifty 500, but this file
+// stays the definitive reference list for that expansion and for the
+// Screeners tab's market-wide categories (Top Gainers/Losers, Volume
+// Shockers, 52-Week breakouts, pattern scans). All 500 symbols verified to
+// resolve against the Upstox instrument master.
 //
 // This list drifts as NSE reconstitutes the index (twice a year); it doesn't
 // need to be perfectly current to be useful, but should be refreshed

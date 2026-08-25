@@ -105,7 +105,79 @@ export const UNIVERSE = [
     "INDIGO",
 
     // ── Miscellaneous ─────────────────────────────────────────────────────────
-    "CASTROLIND"
+    "CASTROLIND",
+
+    // ── Nifty 500 — remaining constituents ──────────────────────────────────────
+    // Everything above this line was the original hand-curated 241-name
+    // watchlist; Intraday's Opportunity Score pipeline (entry_score.mjs)
+    // only ever evaluated THAT list, silently excluding ~280 real Nifty 500
+    // names regardless of how strong their setup looked that day. These are
+    // the remaining src/screener_universe.mjs (Nifty 500) constituents not
+    // already covered above, added so Stage 1's cheap full-universe filter
+    // (stage1_filter.mjs — cache/WebSocket only, near-zero REST cost) can
+    // consider the real Nifty 500, not an arbitrary subset of it. Stage 2's
+    // deep-scan cap is unchanged, so cycle time is unaffected — this only
+    // widens who's ELIGIBLE to be selected into it. Not individually
+    // sector-tagged (see SECTOR below); getSector() honestly falls back to
+    // "OTHER" for these rather than guessing.
+    "360ONE", "3MINDIA", "AADHARHFC", "AAVAS", "ABCAPITAL",
+    "ABDL", "ABFRL", "ABLBL", "ABREL", "ABSLAMC",
+    "ACC", "ACE", "ACMESOLAR", "ACUTAAS", "AEGISLOG",
+    "AEGISVOPAK", "AFCONS", "AFFLE", "AIAENG", "AIIL",
+    "AJANTPHARM", "AMBER", "ANANDRATHI", "ANANTRAJ", "ANTHEM",
+    "ANURAS", "APARINDS", "APOLLOTYRE", "APTUS", "ARE&M",
+    "ASAHIINDIA", "ASHOKLEY", "ATGL", "ATHERENERG", "AWL",
+    "BAJAJHFL", "BAJAJHLDNG", "BALKRISIND", "BATAINDIA", "BAYERCROP",
+    "BBTC", "BELRISE", "BHARATFORG", "BHARTIHEXA", "BIKAJI",
+    "BLS", "BLUEDART", "BLUEJET", "BLUESTARCO", "BRIGADE",
+    "BSE", "BSOFT", "CANFINHOME", "CANHLIFE", "CAPLIPOINT",
+    "CARBORUNIV", "CARTRADE", "CCL", "CEATLTD", "CEMPRO",
+    "CENTRALBK", "CESC", "CGCL", "CGPOWER", "CHALET",
+    "CHENNPETRO", "CHOICEIN", "CHOLAHLDNG", "CIEINDIA", "CLEAN",
+    "COHANCE", "CPPLUS", "CRAFTSMAN", "CREDITACC", "CUB",
+    "CYIENT", "DATAPATTNS", "DCMSHRIRAM", "DEEPAKFERT", "DELHIVERY",
+    "DEVYANI", "DOMS", "ECLERX", "EIHOTEL", "ELECON",
+    "ELGIEQUIP", "EMAMILTD", "EMCURE", "EMMVEE", "ENRIN",
+    "ERIS", "ETERNAL", "FACT", "FINCABLES", "FIRSTCRY",
+    "FIVESTAR", "FORCEMOT", "FSL", "GABRIEL", "GALLANTT",
+    "GICRE", "GILLETTE", "GLAND", "GLAXO", "GMRAIRPORT",
+    "GODFRYPHLP", "GODREJIND", "GPIL", "GRAVITA", "GROWW",
+    "GVT&D", "HAVELLS", "HBLENGINE", "HDBFS", "HEG",
+    "HEXT", "HOMEFIRST", "HONASA", "HONAUT", "HSCL",
+    "ICICIAMC", "ICICIGI", "ICICIPRULI", "IDBI", "IEX",
+    "IFCI", "IGIL", "IIFL", "IKS", "INDGN",
+    "INDHOTEL", "INDIAMART", "INDIANB", "INOXWIND", "INTELLECT",
+    "IOB", "IRB", "ITCHOTELS", "ITI", "J&KBANK",
+    "JAINREC", "JBMA", "JINDALSAW", "JINDALSTEL", "JKTYRE",
+    "JMFINANCIL", "JPPOWER", "JSL", "JSWDULUX", "JSWINFRA",
+    "JUBLINGREA", "JUBLPHARMA", "JWL", "JYOTICNC", "KAJARIACER",
+    "KAYNES", "KEC", "KEI", "KFINTECH", "KIMS",
+    "KIRLOSENG", "KPIL", "KPRMILL", "LATENTVIEW", "LEMONTREE",
+    "LENSKART", "LGEINDIA", "LICHSGFIN", "LICI", "LINDEINDIA",
+    "LLOYDSME", "LTFOODS", "LTM", "MAHABANK", "MANAPPURAM",
+    "MAPMYINDIA", "MCX", "MEESHO", "MFSL", "MINDACORP",
+    "MMTC", "MRF", "MRPL", "MSUMI", "MUTHOOTFIN",
+    "NAM-INDIA", "NAUKRI", "NAVA", "NCC", "NETWEB",
+    "NEULANDLAB", "NEWGEN", "NH", "NIVABUPA", "NSLNISP",
+    "NTPCGREEN", "NUVOCO", "OFSS", "OIL", "OLAELEC",
+    "OLECTRA", "ONESOURCE", "PARADEEP", "PATANJALI", "PCBL",
+    "PFIZER", "PFOCUS", "PGEL", "PHOENIXLTD", "PIIND",
+    "PINELABS", "PIRAMALFIN", "PNBHOUSING", "POLICYBZR", "POLYMED",
+    "POWERINDIA", "PPLPHARMA", "PREMIERENE", "PTCIL", "PWL",
+    "RADICO", "RBLBANK", "REDINGTON", "RHIM", "RKFORGE",
+    "RPOWER", "RRKABEL", "SAGILITY", "SAILIFE", "SAMMAANCAP",
+    "SARDAEN", "SAREGAMA", "SBFC", "SCHNEIDER", "SCI",
+    "SHYAMMETL", "SIGNATURE", "SOBHA", "SONACOMS", "SONATSOFTW",
+    "SPLPETRO", "SUMICHEM", "SUNDARMFIN", "SUNTV", "SUPREMEIND",
+    "SWANCORP", "SYNGENE", "SYRMA", "TARIL", "TATACAP",
+    "TATAINVEST", "TATATECH", "TBOTEK", "TECHNOE", "TEGA",
+    "TEJASNET", "TENNIND", "THELEELA", "THERMAX", "TIMKEN",
+    "TITAGARH", "TMCV", "TMPV", "TORNTPOWER", "TRAVELFOOD",
+    "TRIDENT", "TRITURBINE", "UBL", "UCOBANK", "UNITDSPR",
+    "UPL", "URBANCO", "USHAMART", "UTIAMC", "VBL",
+    "VIJAYA", "VMM", "VTL", "WELCORP", "WELSPUNLIV",
+    "WHIRLPOOL", "WOCKPHARMA", "YESBANK", "ZEEL", "ZENSARTECH",
+    "ZENTEC", "ZFCVINDIA", "ZYDUSWELL"
 ];
 
 // Deduplicate (safety net — removes any accidental duplicates at runtime)

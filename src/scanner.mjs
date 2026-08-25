@@ -491,8 +491,8 @@ function annotateSpread(opportunities) {
 
 /**
  * Two-stage scan cycle:
- *  Stage 1 — computeFullUniverseSnapshot() (stage1_filter.mjs): ALL 241
- *    symbols, near-zero REST cost (cache reads + free WebSocket LTP).
+ *  Stage 1 — computeFullUniverseSnapshot() (stage1_filter.mjs): the full
+ *    UNIVERSE, near-zero REST cost (cache reads + free WebSocket LTP).
  *  Stage 2 — deep buildSignal() analysis, but ONLY on selectStage2Symbols()'s
  *    output (indices + active Critical trades + top cheap-score + a fairness
  *    rotation slice) instead of the whole universe — this is what brings a
@@ -510,8 +510,8 @@ export async function scanAll() {
     const cycleStartedAt = Date.now();
     const stage1StartedAt = Date.now();
 
-    // Stage 1 breadth/participation is deliberately computed from ALL 241
-    // symbols here, never from the Stage-2 shortlist below — otherwise Market
+    // Stage 1 breadth/participation is deliberately computed from the full
+    // UNIVERSE here, never from the Stage-2 shortlist below — otherwise Market
     // Regime would be biased toward stocks that already look strong (a
     // regime "confirmed" only by cherry-picked survivors is not a regime
     // reading at all).

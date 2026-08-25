@@ -7,7 +7,7 @@
 // computed only from stocks that already look strong would be permanently
 // biased bullish. `stage1Snapshot` (stage1_filter.mjs's
 // computeFullUniverseSnapshot output) and `atrPctBySymbol`
-// (scanner.mjs's getAtrPctSnapshot output) both cover all 241 symbols
+// (scanner.mjs's getAtrPctSnapshot output) both cover the full UNIVERSE
 // regardless of which subset Stage-2 refreshed this cycle. NIFTY's own row
 // still comes from the 15m_ALL bucket — NIFTY is always Stage-2'd every
 // cycle (it's in the always-include set), so it's always fresh.

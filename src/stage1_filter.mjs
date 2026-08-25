@@ -1,14 +1,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // stage1_filter.mjs — cheap, full-universe pre-filter that runs every cycle
 // with near-zero REST cost (cache reads + free WebSocket LTP only), used to
-// narrow the 241-symbol curated universe down to a Stage-2 deep-analysis
+// narrow the curated UNIVERSE (src/universe.mjs — now the full Nifty 500 plus
+// a handful of indices/legacy names) down to a Stage-2 deep-analysis
 // shortlist. This is what makes a real ~5-minute cycle possible: Stage-2
 // (buildSignal across all 7 timeframes) only runs on the symbols this module
 // selects, not the whole universe every time.
 //
 // IMPORTANT: computeFullUniverseSnapshot() must stay full-universe every
-// cycle — Market Regime's breadth calculation depends on it covering all 241
-// symbols, not just symbols that already look strong. If this were computed
+// cycle — Market Regime's breadth calculation depends on it covering the
+// whole UNIVERSE, not just symbols that already look strong. If this were computed
 // only from Stage-2 survivors, breadth would be permanently biased bullish
 // (a "regime computed only from stocks that already look strong" selection-
 // bias trap).
