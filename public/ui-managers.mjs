@@ -457,10 +457,13 @@ export class SortManager {
 
     this.state.set('sortStack', sortStack);
 
-    // Persist sort state for current tab
+    // Persist sort state for current tab (STOCKS keys per active filter chip
+    // so All/Golden Cross/Buy/Sell/F&O each keep their own sort, matching
+    // the old behavior from when these were separate tabs).
     const activeTab = this.state.get('activeTab');
+    const sortKey = activeTab === 'STOCKS' ? `STOCKS::${this.state.get('stockFilter')}` : activeTab;
     const tabSorts = this.state.get('tabSorts');
-    tabSorts[activeTab] = [...sortStack];
+    tabSorts[sortKey] = [...sortStack];
     this.state.set('tabSorts', tabSorts);
     this.state.persist();
 
@@ -492,7 +495,7 @@ export class SortManager {
           }
         }
       } else {
-        // Regular tabs: ALL, GOLDEN, BUY, SELL, FO
+        // STOCKS tab — one cached fetch shared by every filter chip
         const dataKey = window.dataManager.cacheKey(timeframe, activeTab);
 
         const cached = window.dataManager.cache.get(dataKey);
@@ -642,7 +645,7 @@ export class FOManager {
   init() {
     // Start countdown ticker
     setInterval(() => {
-      if (this.state.get('activeTab') !== 'FO') return;
+      if (!(this.state.get('activeTab') === 'STOCKS' && this.state.get('stockFilter') === 'FO')) return;
 
       this.countdown = Math.max(0, Math.round((this.nextRefreshAt - Date.now()) / 1000));
       const rcEl = document.getElementById('rowCount');
@@ -658,8 +661,8 @@ export class FOManager {
       this.nextRefreshAt = Date.now() + 300000;
       this.countdown = 300;
 
-      // Only refresh if F&O tab is active and market is open
-      if (this.state.get('activeTab') === 'FO' && this.state.get('marketOpen')) {
+      // Only refresh if the F&O chip is active and market is open
+      if (this.state.get('activeTab') === 'STOCKS' && this.state.get('stockFilter') === 'FO' && this.state.get('marketOpen')) {
         await window.tabManager?.loadScannerData();
 
         // Reload expanded row if exists

@@ -528,6 +528,8 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
             score5m: r5.opportunityScore, score15m: r15.opportunityScore, score30m: r30?.opportunityScore ?? null,
             broaderTrendSupportive: r30 ? r30.opportunityScore >= 50 : null,
             notes: [...new Set([...(r5.opportunityNotes || []), ...(r15.opportunityNotes || [])])].slice(0, 6),
+            opportunityBreakdown: r5.opportunityBreakdown,
+            entryAttractivenessNotes: [...new Set([...(r5.entryAttractivenessNotes || []), ...(r15.entryAttractivenessNotes || [])])].slice(0, 4),
             priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
             dayH: r5.dayH, dayL: r5.dayL, vwap: r5.sessionVwap ?? r5.vwap, chgPct: r5.chgPct,
             volSpike: r5.volSpike || r15.volSpike,

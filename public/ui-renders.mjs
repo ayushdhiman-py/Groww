@@ -24,16 +24,24 @@ function captureScroll() {
   };
 }
 
+// Short, always-visible label per data_quality.mjs SOURCE value — no hover
+// needed to know what it means.
+const FRESHNESS_LABEL = { live: 'LIVE', delayed: 'DLY', estimated: 'EST', unavailable: 'N/A' };
+
 /**
- * A small colored dot next to any live-data value so a genuinely live price
- * is never visually indistinguishable from a delayed/historical/estimated/
- * unavailable one. `source` is one of the data_quality.mjs SOURCE values;
- * `ts` (epoch ms, may be null) is shown in the tooltip as the real age.
+ * A small colored, LABELED tag next to any live-data value so a genuinely
+ * live price is never visually indistinguishable from a delayed/historical/
+ * estimated/unavailable one — the label and age are printed directly, not
+ * hidden behind a hover. `source` is one of the data_quality.mjs SOURCE
+ * values; `ts` (epoch ms, may be null) renders as the real age; `extraText`
+ * (from candleFreshnessNote below) appends a second, visible clause instead
+ * of a tooltip.
  */
-function freshnessDot(source, ts, extraTitle = '') {
+function freshnessDot(source, ts, extraText = '') {
   const cls = (source || 'UNAVAILABLE').toLowerCase();
-  const ageTxt = ts ? ` · ${Math.round((Date.now() - ts) / 1000)}s ago` : '';
-  return `<span class="freshness-dot freshness-${cls}" title="${source || 'UNAVAILABLE'}${ageTxt}${extraTitle}"></span>`;
+  const label = FRESHNESS_LABEL[cls] || cls.slice(0, 3).toUpperCase();
+  const ageTxt = ts ? ` ${Math.round((Date.now() - ts) / 1000)}s` : '';
+  return `<span class="freshness-tag freshness-${cls}">${label}${ageTxt}</span>${extraText}`;
 }
 
 /**
@@ -43,13 +51,47 @@ function freshnessDot(source, ts, extraTitle = '') {
  * actually Stage-2-analyzed this cycle (see scanner.mjs's persistent `_ALL`
  * buckets under the two-stage scan). A row can legitimately show a 2-second-
  * old price next to several-minutes-old indicators with no visible sign of
- * it — this makes that honestly visible in the price dot's own tooltip
- * rather than inventing a separate color-coded staleness threshold.
+ * it — this makes that honestly visible as its own small printed clause
+ * rather than inventing a separate color-coded staleness threshold, and
+ * rather than hiding it behind a hover.
  */
-function candleFreshnessTitle(r) {
+function candleFreshnessNote(r) {
   if (r.candleTs == null) return '';
   const ageS = Math.round((Date.now() - r.candleTs) / 1000);
-  return ` · indicators/score as of ${ageS}s ago`;
+  return `<span class="muted-xl" style="font-size:8px;opacity:0.7;"> · ind ${ageS}s</span>`;
+}
+
+// Stocks-tab Score column — labeled so each pill is self-explanatory without
+// a hover or a separate legend.
+const CHECK_DEFS = [
+  { key: 'Golden Cross (EMA 21>50)', alt: 'EMA 21 above 50', label: 'EMA' },
+  { key: 'MACD Bull cross', alt: 'MACD above signal', label: 'MACD' },
+  { key: 'Vol spike + price up', label: 'VOL' },
+  { key: 'RSI healthy (45-75)', label: 'RSI' },
+  { key: 'Price > VWAP', label: 'VWAP' },
+];
+
+// Opportunity Score buckets (entry_score.mjs computeOpportunityScore) —
+// each bucket's raw sub-score is out of its own DEFAULT_WEIGHTS max
+// (model_registry.mjs), used here purely to normalize the visual bar.
+const BREAKDOWN_MAX = { priceAction: 20, openingStrength: 15, vwap: 15, orb: 15, volume: 15, relativeStrength: 15, confirmation: 10 };
+const BREAKDOWN_LABELS = { priceAction: 'PA', openingStrength: 'OPEN', vwap: 'VWAP', orb: 'ORB', volume: 'VOL', relativeStrength: 'RS', confirmation: 'CONF' };
+
+// A compact, always-visible segmented bar turning the Opportunity Score's
+// component buckets (previously computed server-side but never shown) into
+// a scannable visual instead of a single opaque number.
+function renderBreakdownBar(breakdown) {
+  if (!breakdown) return '';
+  const segs = Object.entries(breakdown).map(([key, b]) => {
+    const max = BREAKDOWN_MAX[key] || 20;
+    const pct = Math.max(0, Math.min(100, Math.round(((b?.score || 0) / max) * 100)));
+    const color = pct >= 66 ? 'var(--green)' : pct >= 33 ? 'var(--yellow)' : 'var(--red)';
+    return `<div class="bd-seg">
+      <div class="bd-seg-track"><div class="bd-seg-fill" style="width:${pct}%;background:${color};"></div></div>
+      <div class="bd-seg-label">${BREAKDOWN_LABELS[key] || key}</div>
+    </div>`;
+  }).join('');
+  return `<div class="bd-bar">${segs}</div>`;
 }
 
 function formatVolume(v) {
@@ -100,10 +142,11 @@ function generateRangeBar(low, high, current) {
   </div>`;
 }
 
-// ── MAIN RENDER: STOCKS (ALL, GOLDEN, BUY, SELL, FO) ─────────
+// ── MAIN RENDER: STOCKS TAB — filter chips: All / Golden Cross / Buy / Sell / F&O ──
 function renderStocks(data) {
   const state = window.stateManager.get();
   const activeTab = state.activeTab;
+  const stockFilter = state.stockFilter || 'ALL';
   const timeframe = state.timeframe;
   const sortStack = state.sortStack;
   const tbody = document.getElementById('tbody');
@@ -111,7 +154,7 @@ function renderStocks(data) {
 
   // GUARD: Don't render stocks when on tabs with their own dedicated render
   // function / different table shape.
-  if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS' || activeTab === 'INTRADAY' || activeTab === 'SCREENERS') {
+  if (activeTab !== 'STOCKS') {
     return;
   }
 
@@ -142,10 +185,12 @@ function renderStocks(data) {
     </tr>`;
   }
 
-  // Collect rows based on active tab and timeframe
+  // Collect rows based on the active filter chip and timeframe. GOLDEN/BUY/
+  // SELL buckets are pre-filtered server-side from ALL (scanner.mjs); F&O
+  // re-sorts the ALL bucket by |volumeChange| instead of reading a bucket.
   let rows = [];
 
-  if (activeTab === 'FO') {
+  if (stockFilter === 'FO') {
     const key = timeframe === 'ALL' ? '5m_ALL' : `${timeframe}_ALL`;
     const rawRows = data.data[key] || [];
     const sorted = rawRows.slice().sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange));
@@ -153,12 +198,12 @@ function renderStocks(data) {
   } else if (timeframe === 'ALL') {
     const allTfs = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
     allTfs.forEach(t => {
-      const key = `${t}_${activeTab}`;
+      const key = `${t}_${stockFilter}`;
       const tfRows = data.data[key] || [];
       rows.push(...tfRows);
     });
   } else {
-    const key = `${timeframe}_${activeTab}`;
+    const key = `${timeframe}_${stockFilter}`;
     rows = (data.data[key] || []).slice();
   }
 
@@ -188,7 +233,7 @@ function renderStocks(data) {
   const totalStocks = data.universe || 0;
   const rcEl = document.getElementById('rowCount');
   if (rcEl) {
-    if (activeTab === 'FO') {
+    if (stockFilter === 'FO') {
       const foMgr = window.foManager;
       const mm = Math.floor(foMgr?.countdown || 300 / 60);
       const ss = String((foMgr?.countdown || 300) % 60).padStart(2, '0');
@@ -234,7 +279,7 @@ function renderStocks(data) {
         const reasons = [];
         if (st.searchQuery?.trim()) reasons.push(`search "${st.searchQuery.trim()}"`);
         if (st.showDividend) reasons.push('the Dividend filter (no dividend data is currently available)');
-        if (!st.showIndices && activeTab !== 'FO') reasons.push('the Indices toggle being off');
+        if (!st.showIndices && stockFilter !== 'FO') reasons.push('the Indices toggle being off');
         empty.textContent = reasons.length
           ? `${rowsBeforeFilter} stock(s) found, but hidden by: ${reasons.join(', ')}.`
           : `${rowsBeforeFilter} stock(s) found, but all were filtered out.`;
@@ -256,7 +301,7 @@ function renderStocks(data) {
   // SAME symbol once per timeframe when timeframe==='ALL', so the id must
   // include tf too — otherwise rows for the same symbol collide on one DOM
   // node and later timeframes silently overwrite/clobber earlier ones.
-  const rowKeyFor = (r) => activeTab === 'FO' ? r.symbol : `${r.symbol}::${r.tf}`;
+  const rowKeyFor = (r) => stockFilter === 'FO' ? r.symbol : `${r.symbol}::${r.tf}`;
 
   // Render row function
   const renderRow = (r) => {
@@ -269,13 +314,13 @@ function renderStocks(data) {
     // EMA status
     let statusTxt = '';
     if (r.goldenCross) {
-      statusTxt = `<div class='ea muted-xl hr-dots' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
+      statusTxt = `<div class='ea muted-xl' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
     } else if (r.deathCross) {
-      statusTxt = `<div class='eb muted-xl hr-dots' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
+      statusTxt = `<div class='eb muted-xl' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
     } else {
       statusTxt = r.ema21above
-        ? `<div class='ea muted-xl hr-dots' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
-        : `<div class='eb muted-xl hr-dots' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
+        ? `<div class='ea muted-xl' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
+        : `<div class='eb muted-xl' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
     }
 
     // Chart sparkline
@@ -285,8 +330,8 @@ function renderStocks(data) {
     const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
     const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
     const macdTxt = r.macdAbove
-      ? `<div class='hr-dots'><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
-      : `<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
+      ? `<div><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
+      : `<div><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
 
     const gcBadge = r.goldenCross ? `<span class='bgc'>🟣GC</span>` : '';
     const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(r.symbol.toUpperCase())}`;
@@ -297,20 +342,18 @@ function renderStocks(data) {
       onmouseout="this.style.color='inherit'">
       ${r.symbol}<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.3;"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></a>`;
 
-    // Technical check boxes
-    const boxes = [
-      r.checks?.['Golden Cross (EMA 21>50)'] || r.checks?.['EMA 21 above 50'],
-      r.checks?.['MACD Bull cross'] || r.checks?.['MACD above signal'],
-      r.checks?.['Vol spike + price up'],
-      r.checks?.['RSI healthy (45-75)'],
-      r.checks?.['Price > VWAP']
-    ].map((isOn, idx) => `<span class='ck ${isOn ? 'on' : 'off'}'></span>`).join('');
+    // Technical check pills — labeled directly (no hover needed to know
+    // which signal is which).
+    const boxes = CHECK_DEFS.map(c => {
+      const isOn = r.checks?.[c.key] || (c.alt && r.checks?.[c.alt]);
+      return `<span class='ck-pill ${isOn ? 'on' : 'off'}'>${c.label}</span>`;
+    }).join('');
 
     const ratCls = r.rating === 'STRONG BUY' ? 'rat-sb' : r.rating === 'MODERATE' ? 'rat-wl' : 'rat-sk';
 
     // F&O expand toggle
-    const isExpanded = activeTab === 'FO' && window.foManager?.expandedSymbol === r.symbol;
-    const expandToggle = activeTab === 'FO'
+    const isExpanded = stockFilter === 'FO' && window.foManager?.expandedSymbol === r.symbol;
+    const expandToggle = stockFilter === 'FO'
       ? `<span class="exp-btn ${isExpanded ? 'active' : ''}" onclick="window.foManager.toggleRow('${r.symbol}', this, event)">▼</span> `
       : '';
     const subRowClass = isExpanded ? 'sub-row active' : 'sub-row';
@@ -323,7 +366,7 @@ function renderStocks(data) {
       </td>
       <td>
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
-          <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessTitle(r))}</span>
+          <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</span>
           <span class="muted-xl">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
         </div>
       </td>
@@ -422,12 +465,13 @@ function renderStocks(data) {
           }
         }
         tr.dataset.price = r.price;
-        const dotEl = cells[1]?.querySelector('.freshness-dot');
-        if (dotEl) {
+        const tagEl = cells[1]?.querySelector('.freshness-tag');
+        if (tagEl) {
           const cls = (r.priceSource || 'UNAVAILABLE').toLowerCase();
-          const ageTxt = r.priceTs ? ` · ${Math.round((Date.now() - r.priceTs) / 1000)}s ago` : '';
-          dotEl.className = `freshness-dot freshness-${cls}`;
-          dotEl.title = `${r.priceSource || 'UNAVAILABLE'}${ageTxt}`;
+          const label = FRESHNESS_LABEL[cls] || cls.slice(0, 3).toUpperCase();
+          const ageTxt = r.priceTs ? ` ${Math.round((Date.now() - r.priceTs) / 1000)}s` : '';
+          tagEl.className = `freshness-tag freshness-${cls}`;
+          tagEl.textContent = `${label}${ageTxt}`;
         }
         const vwapEl = cells[1]?.querySelector('.muted-xl');
         if (vwapEl) {
@@ -447,11 +491,11 @@ function renderStocks(data) {
         // earlier one (e.g. "Gap x%" overwriting "EMA 21 > 50" entirely).
         // Navigate by child index instead, which is unambiguous.
         let statusTxt = '';
-        if (r.goldenCross) statusTxt = `<div class='ea muted-xl hr-dots' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
-        else if (r.deathCross) statusTxt = `<div class='eb muted-xl hr-dots' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
+        if (r.goldenCross) statusTxt = `<div class='ea muted-xl' style='font-weight:700; color:var(--green)'>EMA 21 > 50</div>`;
+        else if (r.deathCross) statusTxt = `<div class='eb muted-xl' style='font-weight:700; color:var(--red)'>EMA 21 < 50</div>`;
         else statusTxt = r.ema21above
-          ? `<div class='ea muted-xl hr-dots' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
-          : `<div class='eb muted-xl hr-dots' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
+          ? `<div class='ea muted-xl' style='font-weight:600; color:var(--green)'>EMA 21 > 50</div>`
+          : `<div class='eb muted-xl' style='font-weight:600; color:var(--red)'>EMA 21 < 50</div>`;
         const emaWrap = cells[3]?.firstElementChild;
         if (emaWrap && emaWrap.children.length >= 2) {
           emaWrap.children[0].innerHTML = statusTxt;
@@ -482,8 +526,8 @@ function renderStocks(data) {
         const macdCell = cells[5]?.querySelector('div');
         if (macdCell) {
           macdCell.innerHTML = r.macdAbove
-            ? `<div class='hr-dots'><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
-            : `<div class='hr-dots'><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
+            ? `<div><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
+            : `<div><span class='dn' style='font-size:12px;font-weight:600;'>▼ Bear <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`;
         }
 
         fragment.appendChild(tr);
@@ -520,7 +564,7 @@ function renderStocks(data) {
   if (tableContainer) tableContainer.scrollTop = scrollPos;
 
   // Reload expanded F&O row if exists
-  if (activeTab === 'FO' && window.foManager?.expandedSymbol) {
+  if (stockFilter === 'FO' && window.foManager?.expandedSymbol) {
     const wrap = document.getElementById(`wrap-${window.foManager.expandedSymbol}`);
     if (wrap) window.foManager.loadOptionChain(window.foManager.expandedSymbol, wrap);
   }
@@ -602,11 +646,11 @@ function renderIntraday(data) {
     <th style="text-align:left;">Stock / Sector</th>
     <th>Price</th>
     <th>Chart</th>
-    <th>Opportunity</th>
+    <th>Opportunity <div class="th-sub">5m/15m breakdown</div></th>
     <th>Entry Attractiveness</th>
     <th>Move From Open</th>
     <th>Est. Upside Zone</th>
-    <th title="How much of the estimated upside is still ahead, given how far price has already travelled">Remaining Upside</th>
+    <th>Remaining Upside <div class="th-sub">of estimated move left</div></th>
     <th>Confidence</th>
     <th>Action</th>
   </tr>`;
@@ -648,30 +692,41 @@ function renderIntraday(data) {
     const cc = p.chgPct >= 0 ? 'up' : 'dn';
     const moveCls = p.pctFromOpen == null ? '' : (p.pctFromOpen >= 0 && p.pctFromOpen <= 2.5 ? 'up' : (p.pctFromOpen > 2.5 ? 'dn' : 'dn'));
     const upside = p.upside || {};
-    const notesTitle = (p.notes || []).join(' · ');
-    return `<tr class="main-row" title="${notesTitle.replace(/"/g, '&quot;')}">
+    // The "why" — previously buried in a delayed native tooltip on the whole
+    // row; printed directly under the symbol instead so it's visible without
+    // hovering.
+    const whyTxt = (p.notes || []).slice(0, 2).join(' · ');
+    const prob = p.calibratedProbability;
+    const confHtml = prob?.available
+      ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span><span class="muted-xl" style="font-size:8px;display:block;">n=${prob.sampleCount}</span>`
+      : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
+    return `<tr class="main-row">
       <td style="text-align:left;">
         <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
+        ${whyTxt ? `<div class="muted-xl why-line">${whyTxt}</div>` : ''}
       </td>
       <td><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
       <td><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td>
-        <div style="display:flex;flex-direction:column;align-items:center;">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
           <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
           <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>
+          ${renderBreakdownBar(p.opportunityBreakdown)}
+          <span class="muted-xl" style="font-size:8px;">5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}</span>
         </div>
       </td>
       <td>
         <div style="display:flex;flex-direction:column;align-items:center;">
           <span style="font-weight:700;">${p.entryAttractiveness}</span>
           <span class="muted-xl" style="font-size:9px;">${p.entryAttractivenessLabel || ''}</span>
+          ${p.entryAttractivenessNotes?.[0] ? `<span class="muted-xl" style="font-size:8px;max-width:110px;white-space:normal;text-align:center;line-height:1.3;">${p.entryAttractivenessNotes[0]}</span>` : ''}
         </div>
       </td>
       <td><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
       <td>${upside.zoneLow != null ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span>` : '<span class="muted-xl">—</span>'}</td>
       <td>${upside.remainingPct != null ? `<span class="up">+${upside.remainingPct}%</span>` : '—'}</td>
-      <td><span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'}</span></td>
+      <td>${confHtml}</td>
       <td><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
   }).join('');
@@ -722,7 +777,7 @@ function screenerCardHtml(section, rows) {
         const m = section.meta(r);
         return `<div style="display:grid; grid-template-columns:1fr 70px 55px auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
           <a href="${nseUrl(r.symbol)}" target="_blank" rel="noopener noreferrer" style="color:var(--text); text-decoration:none; font-weight:600; font-size:11px; font-family:var(--mono);">${r.symbol}</a>
-          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${freshnessDot(r.priceSource, r.priceTs, candleFreshnessTitle(r))}</span>
+          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</span>
           <div style="cursor:pointer;" onclick="window.openModalChart('${r.symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>
           <span class="${m.cls}" style="font-family:var(--mono); font-size:10px; text-align:right; white-space:nowrap;">${m.value}</span>
         </div>`;
@@ -937,6 +992,8 @@ function renderPortfolio(data) {
         ? `⚠️ Upstox blocked this request: ${restricted}`
         : 'No holdings or positions found.';
     }
+    const rcElEmpty = document.getElementById('rowCount');
+    if (rcElEmpty) rcElEmpty.textContent = 'Portfolio: 0 items';
     return;
   }
 

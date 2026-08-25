@@ -6,10 +6,14 @@
 export class StateManager {
   constructor() {
     this.state = {
-      activeTab: 'ALL',
+      activeTab: 'STOCKS',
+      // Sub-filter within the STOCKS tab (All/Golden Cross/Buy/Sell/F&O) —
+      // these used to be separate tabs; now they're chips over the same
+      // cached data, switched without a tab-switch/fetch/loading-flash.
+      stockFilter: localStorage.getItem('scanner_stockFilter') || 'ALL',
       timeframe: localStorage.getItem('scanner_tf') || '15m', // Changed default to 15m
       sortStack: [{ col: 'techScore', asc: false }],
-      tabSorts: {}, // Per-tab sort state: { ALL: [...], GOLDEN: [...], ... }
+      tabSorts: {}, // Per-tab sort state: { STOCKS::ALL: [...], STOCKS::GOLDEN: [...], INTRADAY: [...], ... }
       searchQuery: '',
       showIndices: localStorage.getItem('scanner_showIndices') !== 'false', // Default true
       showDividend: localStorage.getItem('scanner_showDividend') === 'true', // Default false
@@ -49,6 +53,7 @@ export class StateManager {
   persist() {
     try {
       localStorage.setItem('scanner_tf', this.state.timeframe);
+      localStorage.setItem('scanner_stockFilter', this.state.stockFilter);
       localStorage.setItem('scanner_tabSorts', JSON.stringify(this.state.tabSorts));
       localStorage.setItem('scanner_showIndices', this.state.showIndices);
       localStorage.setItem('scanner_showDividend', this.state.showDividend);
@@ -373,8 +378,15 @@ export class TabManager {
     this.state = stateManager;
     this.data = dataManager;
     this.render = renderEngine;
-    this.previousTab = 'ALL';
+    this.previousTab = 'STOCKS';
     this.scrollPositions = new Map(); // Save scroll position per tab
+  }
+
+  // Sort-persistence key: the STOCKS tab has 5 filter chips sharing one
+  // cached fetch, each remembering its own sort (matching the old per-tab
+  // behavior when ALL/GOLDEN/BUY/SELL/FO were separate tabs).
+  sortKey(tab) {
+    return tab === 'STOCKS' ? `STOCKS::${this.state.get('stockFilter')}` : tab;
   }
 
   // Initialize tab click handlers
@@ -407,7 +419,7 @@ export class TabManager {
     // Save sort state for old tab
     const currentSort = this.state.get('sortStack');
     const tabSorts = this.state.get('tabSorts');
-    tabSorts[oldTab] = [...currentSort];
+    tabSorts[this.sortKey(oldTab)] = [...currentSort];
     this.state.set('tabSorts', tabSorts);
 
     // Update active tab in state
@@ -416,6 +428,10 @@ export class TabManager {
     // Update UI: active tab class
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelector(`.tab[data-set="${newTab}"]`)?.classList.add('active');
+
+    // The filter-chip bar only makes sense on the merged Stocks tab.
+    const chipBar = document.getElementById('stockFilters');
+    if (chipBar) chipBar.style.display = newTab === 'STOCKS' ? 'flex' : 'none';
 
     // Clear table and show loading state
     this.showLoadingState();
@@ -452,8 +468,8 @@ export class TabManager {
       window.hideTopPicks?.();
     }
 
-    if (tab === 'FO') {
-      // Clear expanded F&O row
+    if (tab === 'STOCKS') {
+      // Clear any expanded F&O row regardless of which chip was active
       window.foManager?.collapseAll();
     }
   }
@@ -462,7 +478,7 @@ export class TabManager {
   async loadTabData(tab) {
     // Restore sort state for new tab
     const tabSorts = this.state.get('tabSorts');
-    const savedSort = tabSorts[tab];
+    const savedSort = tabSorts[this.sortKey(tab)];
     if (savedSort) {
       this.state.set('sortStack', [...savedSort]);
     } else {
@@ -533,6 +549,43 @@ export class TabManager {
       }
     } else {
       console.error(`[TabManager] ❌ Failed to fetch scanner data for tab=${tab}, timeframe=${timeframe}`);
+    }
+  }
+
+  // Switch the STOCKS-tab filter chip (All/Golden Cross/Buy/Sell/F&O). These
+  // used to be separate tabs, each redundantly re-fetching the identical
+  // /api/state blob just to read a different bucket out of it — now it's one
+  // fetch per (timeframe, STOCKS) and the chip only changes which bucket
+  // renderStocks() reads, so switching is instant with no loading flash.
+  switchStockFilter(newFilter) {
+    const oldFilter = this.state.get('stockFilter');
+    if (oldFilter === newFilter) return;
+
+    if (oldFilter === 'FO') window.foManager?.collapseAll();
+
+    // Save sort for the outgoing chip
+    const tabSorts = this.state.get('tabSorts');
+    tabSorts[`STOCKS::${oldFilter}`] = [...this.state.get('sortStack')];
+
+    this.state.set('stockFilter', newFilter);
+    this.state.persist();
+
+    // Restore (or default) sort for the incoming chip
+    const savedSort = tabSorts[`STOCKS::${newFilter}`];
+    this.state.set('sortStack', savedSort ? [...savedSort] : [{ col: newFilter === 'FO' ? 'volumeChange' : 'techScore', asc: false }]);
+    this.state.set('tabSorts', tabSorts);
+
+    document.querySelectorAll('.stock-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === newFilter));
+
+    // Re-render from the already-cached blob — no network fetch needed.
+    const timeframe = this.state.get('timeframe');
+    const dataKey = this.data.cacheKey(timeframe, 'STOCKS');
+    const cached = this.data.cache.get(dataKey);
+    if (cached?.data) {
+      window.renderStocks(cached.data);
+      window.updateBadges?.(cached.data);
+    } else {
+      this.loadScannerData();
     }
   }
 

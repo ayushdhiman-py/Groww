@@ -459,43 +459,31 @@ function setupKeyboardShortcuts() {
         break;
       case '1':
         e.preventDefault();
-        document.querySelector('[data-set="GOLDEN"]')?.click();
+        document.querySelector('[data-set="STOCKS"]')?.click();
         break;
       case '2':
         e.preventDefault();
-        document.querySelector('[data-set="ALL"]')?.click();
+        document.querySelector('[data-set="INTRADAY"]')?.click();
         break;
       case '3':
         e.preventDefault();
-        document.querySelector('[data-set="INTRADAY"]')?.click();
+        document.querySelector('[data-set="CRITICAL"]')?.click();
         break;
       case '4':
         e.preventDefault();
-        document.querySelector('[data-set="FO"]')?.click();
+        document.querySelector('[data-set="SCREENERS"]')?.click();
         break;
       case '5':
         e.preventDefault();
-        document.querySelector('[data-set="BUY"]')?.click();
+        document.querySelector('[data-set="SECTORS"]')?.click();
         break;
       case '6':
         e.preventDefault();
-        document.querySelector('[data-set="SELL"]')?.click();
+        document.querySelector('[data-set="PORTFOLIO"]')?.click();
         break;
       case '7':
         e.preventDefault();
-        document.querySelector('[data-set="SECTORS"]')?.click();
-        break;
-      case '8':
-        e.preventDefault();
-        document.querySelector('[data-set="PORTFOLIO"]')?.click();
-        break;
-      case '9':
-        e.preventDefault();
-        document.querySelector('[data-set="SCREENERS"]')?.click();
-        break;
-      case 'c':
-        e.preventDefault();
-        document.querySelector('[data-set="CRITICAL"]')?.click();
+        document.querySelector('[data-set="MODEL"]')?.click();
         break;
     }
   });
