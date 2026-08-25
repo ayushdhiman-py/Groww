@@ -108,7 +108,10 @@ function generateSparkline(priceHist, ema21Hist, ema50Hist) {
   if (!priceHist || !ema21Hist || !ema50Hist || priceHist.length < 2) return '';
 
   const w = 150, h = 45;
-  const all = [...priceHist, ...ema21Hist, ...ema50Hist];
+  // Filter to finite values only — a symbol near its EMA50 warm-up point can
+  // carry leading nulls in ema50Hist, and Math.min/max would otherwise treat
+  // null as 0 and silently corrupt the whole chart's vertical scale.
+  const all = [...priceHist, ...ema21Hist, ...ema50Hist].filter(Number.isFinite);
   const min = Math.min(...all), max = Math.max(...all), range = max - min || 1;
 
   const getX = i => (i / (priceHist.length - 1)) * w;
@@ -120,10 +123,27 @@ function generateSparkline(priceHist, ema21Hist, ema50Hist) {
     return `<path class='${cls}' d='${d}' />`;
   };
 
+  // Cross markers — a white dot wherever EMA21 (short) actually crosses
+  // EMA50 (long) within the visible window, interpolated to the true
+  // crossing point between the two candles rather than snapped to one of
+  // them.
+  let crossMarkers = '';
+  for (let i = 1; i < ema21Hist.length; i++) {
+    const p21 = ema21Hist[i - 1], p50 = ema50Hist[i - 1], c21 = ema21Hist[i], c50 = ema50Hist[i];
+    if (![p21, p50, c21, c50].every(Number.isFinite)) continue;
+    const prevDiff = p21 - p50, currDiff = c21 - c50;
+    if (prevDiff === 0 || currDiff === 0 || (prevDiff > 0) === (currDiff > 0)) continue;
+    const t = prevDiff / (prevDiff - currDiff);
+    const x = getX(i - 1) + t * (getX(i) - getX(i - 1));
+    const y = getY(p21 + t * (c21 - p21));
+    crossMarkers += `<circle class='spark-cross' cx='${x.toFixed(2)}' cy='${y.toFixed(2)}' r='2.2' />`;
+  }
+
   return `<svg class='sparkline' viewBox='0 0 ${w} ${h}'>`
     + mkPath(priceHist, 'spark-p')
     + mkPath(ema50Hist, 'spark-50')
     + mkPath(ema21Hist, 'spark-21')
+    + crossMarkers
     + `</svg>`;
 }
 
@@ -1150,13 +1170,27 @@ function openModalChart(symbol, tf) {
 
   const labels = Array.from({ length: row.priceHist.length }, (_, i) => `T-${row.priceHist.length - 1 - i}`);
 
+  // Cross markers — same crossing detection as the sparkline: a white dot on
+  // the EMA21 line wherever it actually crosses EMA50 within this window.
+  const ema21 = row.ema21Hist, ema50 = row.ema50Hist;
+  const crossIndices = new Set();
+  for (let i = 1; i < ema21.length; i++) {
+    const p21 = ema21[i - 1], p50 = ema50[i - 1], c21 = ema21[i], c50 = ema50[i];
+    if (![p21, p50, c21, c50].every(Number.isFinite)) continue;
+    const prevDiff = p21 - p50, currDiff = c21 - c50;
+    if (prevDiff === 0 || currDiff === 0 || (prevDiff > 0) === (currDiff > 0)) continue;
+    crossIndices.add(i);
+  }
+  const crossRadius = ema21.map((_, i) => crossIndices.has(i) ? 5 : 0);
+  const crossHoverRadius = ema21.map((_, i) => crossIndices.has(i) ? 6 : 4);
+
   modalChartInstance = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
       datasets: [
         { label: 'Price', data: row.priceHist, borderColor: 'rgba(255, 255, 255, 0.4)', borderWidth: 1, color: 'white', fill: false, tension: 0.1, pointRadius: 2, pointHoverRadius: 5 },
-        { label: 'EMA 21', data: row.ema21Hist, borderColor: '#22c55e', borderWidth: 2, fill: false, tension: 0.1, pointRadius: 0, pointHoverRadius: 4 },
+        { label: 'EMA 21', data: row.ema21Hist, borderColor: '#22c55e', borderWidth: 2, fill: false, tension: 0.1, pointRadius: crossRadius, pointHoverRadius: crossHoverRadius, pointBackgroundColor: '#ffffff', pointBorderColor: 'rgba(0,0,0,0.5)' },
         { label: 'EMA 50', data: row.ema50Hist, borderColor: '#ef4444', borderWidth: 2, fill: false, tension: 0.1, pointRadius: 0, pointHoverRadius: 4 }
       ]
     },

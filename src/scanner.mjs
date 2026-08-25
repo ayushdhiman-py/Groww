@@ -117,8 +117,18 @@ export function buildSignal(candles, tf, symbol, ltpFresh = UNAVAILABLE("no ltp 
     const ema50Slope = emaSlopePct(e50, 5);
     const emaBullAligned = c9 !== null && c21 !== null && c50 !== null ? (c9 > c21 && c21 > c50) : null;
 
-    const goldenCross = p21 !== null && p50 !== null && p21 <= p50 && c21 > c50;
-    const deathCross = p21 !== null && p50 !== null && p21 >= p50 && c21 < c50;
+    // Require a real, non-noise separation between EMA21/EMA50 for a cross
+    // to count — a bare `c21 > c50` fires the instant they're glued
+    // together to 4+ decimal places (observed live: gaps of 0.0007%-0.02%,
+    // i.e. rounding noise, flagged as "Golden Cross"/STRONG BUY on stocks
+    // whose price was actually falling that same bar). 0.05% is well above
+    // the observed noise floor (nothing below 0.023% in a live 200-symbol
+    // sample) but still well below the 25th-percentile gap (~0.11%) of all
+    // scanned symbols, so genuine crosses aren't meaningfully delayed.
+    const MIN_CROSS_GAP_PCT = 0.05;
+    const crossGapPct = c21 !== null && c50 ? Math.abs((c21 - c50) / c50) * 100 : 0;
+    const goldenCross = p21 !== null && p50 !== null && p21 <= p50 && c21 > c50 && crossGapPct >= MIN_CROSS_GAP_PCT;
+    const deathCross = p21 !== null && p50 !== null && p21 >= p50 && c21 < c50 && crossGapPct >= MIN_CROSS_GAP_PCT;
     const ema21above = c21 > c50;
     const macdBull = pM !== null && pS !== null && pM <= pS && cM > cS;
     const macdBear = pM !== null && pS !== null && pM >= pS && cM < cS;
