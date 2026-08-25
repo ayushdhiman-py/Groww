@@ -40,7 +40,7 @@ export function getState() {
 export function emptyState() {
     const data = {};
     for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
-    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [] };
+    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], fastMovers: { "5m": [], "10m": [], "15m": [] } };
 }
 
 // The oldest priceTs among rows currently in state — an honest "as of"
@@ -603,13 +603,17 @@ export async function scanAll() {
             // monitoring should update progressively.
             next.marketRegime = computeMarketRegime(next.data, snapshot, getAtrPctSnapshot());
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
-            next.intradayOpportunities = enrichOpportunities(next.data, minOppScore);
+            const { opportunities, fastMovers } = enrichOpportunities(next.data, minOppScore);
+            next.intradayOpportunities = opportunities;
+            next.fastMovers = fastMovers;
             annotateSpread(next.intradayOpportunities);
+            Object.values(next.fastMovers).forEach(annotateSpread);
             // Real historical win-rate per candidate, once enough learning-
             // layer history exists — additive display data, never a hard
             // scan dependency (see attachCalibratedProbabilities' own
             // per-row try/catch).
             attachCalibratedProbabilities(next.intradayOpportunities, next.marketRegime);
+            Object.values(next.fastMovers).forEach(rows => attachCalibratedProbabilities(rows, next.marketRegime));
 
             // Learning-layer snapshot capture — stores EVERY qualifying
             // candidate (not just ones you act on), so the statistical

@@ -11,6 +11,10 @@ export class StateManager {
       // these used to be separate tabs; now they're chips over the same
       // cached data, switched without a tab-switch/fetch/loading-flash.
       stockFilter: localStorage.getItem('scanner_stockFilter') || 'ALL',
+      // Intraday tab: 'DEFAULT' = the flagship dual-timeframe-confirmed
+      // Opportunities list; '5m'/'10m'/'15m' = Fast Movers, a single-
+      // timeframe momentum ranking for that horizon (see ui-renders.mjs).
+      intradayHorizon: localStorage.getItem('scanner_intradayHorizon') || 'DEFAULT',
       timeframe: localStorage.getItem('scanner_tf') || '15m', // Changed default to 15m
       sortStack: [{ col: 'techScore', asc: false }],
       tabSorts: {}, // Per-tab sort state: { STOCKS::ALL: [...], STOCKS::GOLDEN: [...], INTRADAY: [...], ... }
@@ -54,6 +58,7 @@ export class StateManager {
     try {
       localStorage.setItem('scanner_tf', this.state.timeframe);
       localStorage.setItem('scanner_stockFilter', this.state.stockFilter);
+      localStorage.setItem('scanner_intradayHorizon', this.state.intradayHorizon);
       localStorage.setItem('scanner_tabSorts', JSON.stringify(this.state.tabSorts));
       localStorage.setItem('scanner_showIndices', this.state.showIndices);
       localStorage.setItem('scanner_showDividend', this.state.showDividend);
@@ -433,6 +438,12 @@ export class TabManager {
     const chipBar = document.getElementById('stockFilters');
     if (chipBar) chipBar.style.display = newTab === 'STOCKS' ? 'flex' : 'none';
 
+    // The horizon-chip bar only makes sense on the Intraday tab; renderIntraday()
+    // shows it again on every render, this just hides it immediately when
+    // navigating away instead of waiting for the next tab's first render.
+    const horizonBar = document.getElementById('intradayHorizons');
+    if (horizonBar && newTab !== 'INTRADAY') horizonBar.style.display = 'none';
+
     // Clear table and show loading state
     this.showLoadingState();
 
@@ -586,6 +597,26 @@ export class TabManager {
       window.updateBadges?.(cached.data);
     } else {
       this.loadScannerData();
+    }
+  }
+
+  // Switch the Intraday tab's horizon chip (Default / 5 min / 10 min /
+  // 15 min Fast Movers) — same cached /api/state blob, just a different
+  // pre-computed list (data.intradayOpportunities vs data.fastMovers[tf]),
+  // so switching is instant with no re-fetch, same pattern as
+  // switchStockFilter().
+  switchIntradayHorizon(newHorizon) {
+    const oldHorizon = this.state.get('intradayHorizon');
+    if (oldHorizon === newHorizon) return;
+
+    this.state.set('intradayHorizon', newHorizon);
+    this.state.persist();
+
+    document.querySelectorAll('.horizon-chip').forEach(c => c.classList.toggle('active', c.dataset.horizon === newHorizon));
+
+    const cached = this.data.cache.get(this.data.cacheKey('INTRADAY', 'INTRADAY'));
+    if (cached?.data) {
+      window.renderIntraday(cached.data);
     }
   }
 

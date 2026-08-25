@@ -57,6 +57,8 @@ async function initApp() {
   const divToggle = document.getElementById('divTgl');
   if (divToggle) divToggle.checked = currentState.showDividend;
 
+  document.querySelectorAll('.horizon-chip').forEach(c => c.classList.toggle('active', c.dataset.horizon === currentState.intradayHorizon));
+
   tabManager.init();
   sortManager.init();
   searchFilter.init();

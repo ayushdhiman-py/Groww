@@ -942,6 +942,12 @@
     .stock-chip[data-filter="FO"].active { background: rgba(99, 102, 241, 0.12); color: #818cf8; border-color: rgba(99, 102, 241, 0.3); }
     .stock-chip[data-filter="FO"].active .chip-badge { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
 
+    /* Intraday horizon chips */
+    .horizon-chip[data-horizon="DEFAULT"].active { background: rgba(0, 212, 170, 0.12); color: var(--accent); border-color: rgba(0, 212, 170, 0.3); }
+    .horizon-chip[data-horizon="5m"].active,
+    .horizon-chip[data-horizon="10m"].active,
+    .horizon-chip[data-horizon="15m"].active { background: rgba(245, 158, 11, 0.12); color: var(--yellow); border-color: rgba(245, 158, 11, 0.3); }
+
     /* INTRADAY — orange */
     .tab[data-set="INTRADAY"].active {
       background: rgba(249, 115, 22, 0.12);
@@ -2543,6 +2549,24 @@
         </div>
         <div class="stock-chip" data-filter="FO" onclick="window.tabManager.switchStockFilter('FO')">
           <span>◈ F&amp;O</span><span class="chip-badge" id="badge-FO">30</span>
+        </div>
+      </div>
+
+      <!-- Intraday horizon chips — Default (dual-timeframe-confirmed
+           Opportunities) vs Fast Movers (single-timeframe momentum ranking
+           for that horizon). Visible only on the Intraday tab. -->
+      <div class="stock-filters horizon-filters" id="intradayHorizons" style="display:none;">
+        <div class="stock-chip horizon-chip active" data-horizon="DEFAULT" onclick="window.tabManager.switchIntradayHorizon('DEFAULT')">
+          <span>Best Setups (5m+15m confirmed)</span>
+        </div>
+        <div class="stock-chip horizon-chip" data-horizon="5m" onclick="window.tabManager.switchIntradayHorizon('5m')">
+          <span>⚡ Fast Movers · 5 min</span>
+        </div>
+        <div class="stock-chip horizon-chip" data-horizon="10m" onclick="window.tabManager.switchIntradayHorizon('10m')">
+          <span>⚡ Fast Movers · 10 min</span>
+        </div>
+        <div class="stock-chip horizon-chip" data-horizon="15m" onclick="window.tabManager.switchIntradayHorizon('15m')">
+          <span>⚡ Fast Movers · 15 min</span>
         </div>
       </div>
 

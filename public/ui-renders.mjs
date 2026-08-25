@@ -658,75 +658,25 @@ function hideTopPicks() {
   if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
 
-function renderIntraday(data) {
-  const tbody = document.getElementById('tbody');
-  const empty = document.getElementById('empty');
-
-  // Every branch below replaces tbody's content wholesale (unlike
-  // renderStocks' in-place row patching), which can shift or clamp scroll —
-  // save/restore around every exit path so a periodic refresh doesn't yank
-  // the user back to the top of the list.
-  const restoreScroll = captureScroll();
-
-  document.getElementById('tableHeader').innerHTML = `<tr>
-    <th style="text-align:left;">Stock / Sector</th>
-    <th>Price</th>
-    <th>Chart</th>
-    <th>Opportunity <div class="th-sub">5m/15m breakdown</div></th>
-    <th>Entry Attractiveness</th>
-    <th>Move From Open</th>
-    <th>Est. Upside Zone</th>
-    <th>Remaining Upside <div class="th-sub">of estimated move left</div></th>
-    <th>Confidence</th>
-    <th>Action</th>
-  </tr>`;
-
-  if (!data?.data) {
-    if (tbody) tbody.innerHTML = '';
-    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data available'; }
-    restoreScroll();
-    return;
-  }
-
-  renderRegimeBanner(data.marketRegime);
-
-  const picks = computeIntradayCandidates(data);
-  renderTopPicks(picks);
-  const rcEl = document.getElementById('rowCount');
-  const marketOpen = window.stateManager?.get('marketOpen');
-  if (rcEl) {
-    const gate = data.marketRegime?.noTrade ? ' · regime unfavorable — bar raised' : '';
-    rcEl.textContent = `Intraday Opportunities: ${picks.length} · confirmed WATCH+ on both 5m and 15m${gate}${marketOpen ? '' : ' (last scan — market closed)'}`;
-  }
-
-  if (!picks.length) {
-    tbody.innerHTML = '';
-    if (empty) {
-      empty.classList.remove('loading');
-      empty.style.display = 'block';
-      empty.textContent = data.marketRegime?.noTrade
-        ? 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.'
-        : 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
-    }
-    restoreScroll();
-    return;
-  }
-  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
-
-  const html = picks.map(p => {
-    const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(p.symbol.toUpperCase())}`;
-    const cc = p.chgPct >= 0 ? 'up' : 'dn';
-    const moveCls = p.pctFromOpen == null ? '' : (p.pctFromOpen >= 0 && p.pctFromOpen <= 2.5 ? 'up' : (p.pctFromOpen > 2.5 ? 'dn' : 'dn'));
-    const upside = p.upside || {};
-    // The "why" — previously buried in a delayed native tooltip on the whole
-    // row; printed directly under the symbol instead so it's visible without
-    // hovering.
-    const whyTxt = (p.notes || []).slice(0, 2).join(' · ');
-    const prob = p.calibratedProbability;
-    const confHtml = prob?.available
-      ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span><span class="muted-xl" style="font-size:8px;display:block;">n=${prob.sampleCount}</span>`
-      : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
-    return `<tr class="main-row">
+// Shared row template for both the flagship (dual-timeframe-confirmed)
+// Intraday list and the single-timeframe Fast Movers lists — same columns,
+// same visual language. `trioLabel` is the small caption under the
+// Opportunity score: the 5m/15m/30m breakdown for the flagship list, or
+// which single horizon this row was ranked under for Fast Movers.
+function renderIntradayRowHtml(p, trioLabel) {
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(p.symbol.toUpperCase())}`;
+  const cc = p.chgPct >= 0 ? 'up' : 'dn';
+  const moveCls = p.pctFromOpen == null ? '' : (p.pctFromOpen >= 0 && p.pctFromOpen <= 2.5 ? 'up' : (p.pctFromOpen > 2.5 ? 'dn' : 'dn'));
+  const upside = p.upside || {};
+  // The "why" — previously buried in a delayed native tooltip on the whole
+  // row; printed directly under the symbol instead so it's visible without
+  // hovering.
+  const whyTxt = (p.notes || []).slice(0, 2).join(' · ');
+  const prob = p.calibratedProbability;
+  const confHtml = prob?.available
+    ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span><span class="muted-xl" style="font-size:8px;display:block;">n=${prob.sampleCount}</span>`
+    : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
+  return `<tr class="main-row">
       <td style="text-align:left;">
         <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
@@ -739,7 +689,7 @@ function renderIntraday(data) {
           <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
           <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>
           ${renderBreakdownBar(p.opportunityBreakdown)}
-          <span class="muted-xl" style="font-size:8px;">5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}</span>
+          <span class="muted-xl" style="font-size:8px;">${trioLabel}</span>
         </div>
       </td>
       <td data-label="Entry Attractiveness">
@@ -755,9 +705,102 @@ function renderIntraday(data) {
       <td data-label="Confidence">${confHtml}</td>
       <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
-  }).join('');
+}
 
-  tbody.innerHTML = html;
+const INTRADAY_TABLE_HEADER = `<tr>
+    <th style="text-align:left;">Stock / Sector</th>
+    <th>Price</th>
+    <th>Chart</th>
+    <th>Opportunity <div class="th-sub">5m/15m breakdown</div></th>
+    <th>Entry Attractiveness</th>
+    <th>Move From Open</th>
+    <th>Est. Upside Zone</th>
+    <th>Remaining Upside <div class="th-sub">of estimated move left</div></th>
+    <th>Confidence</th>
+    <th>Action</th>
+  </tr>`;
+
+const HORIZON_LABELS = { '5m': '5 min', '10m': '10 min', '15m': '15 min' };
+
+function renderIntraday(data) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  const horizonBar = document.getElementById('intradayHorizons');
+
+  // Every branch below replaces tbody's content wholesale (unlike
+  // renderStocks' in-place row patching), which can shift or clamp scroll —
+  // save/restore around every exit path so a periodic refresh doesn't yank
+  // the user back to the top of the list.
+  const restoreScroll = captureScroll();
+
+  document.getElementById('tableHeader').innerHTML = INTRADAY_TABLE_HEADER;
+  if (horizonBar) horizonBar.style.display = 'flex';
+
+  if (!data?.data) {
+    if (tbody) tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data available'; }
+    restoreScroll();
+    return;
+  }
+
+  renderRegimeBanner(data.marketRegime);
+
+  const horizon = window.stateManager?.get('intradayHorizon') || 'DEFAULT';
+  const marketOpen = window.stateManager?.get('marketOpen');
+  const rcEl = document.getElementById('rowCount');
+  const closedSuffix = marketOpen ? '' : ' (last scan — market closed)';
+
+  if (horizon === 'DEFAULT') {
+    const picks = computeIntradayCandidates(data);
+    renderTopPicks(picks);
+    if (rcEl) {
+      const gate = data.marketRegime?.noTrade ? ' · regime unfavorable — bar raised' : '';
+      rcEl.textContent = `Intraday Opportunities: ${picks.length} · confirmed WATCH+ on both 5m and 15m${gate}${closedSuffix}`;
+    }
+
+    if (!picks.length) {
+      tbody.innerHTML = '';
+      if (empty) {
+        empty.classList.remove('loading');
+        empty.style.display = 'block';
+        empty.textContent = data.marketRegime?.noTrade
+          ? 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.'
+          : 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
+      }
+      restoreScroll();
+      return;
+    }
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+
+    tbody.innerHTML = picks.map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}`)).join('');
+    restoreScroll();
+    return;
+  }
+
+  // Fast Movers — a single-timeframe momentum ranking, not a timed
+  // prediction. hideTopPicks() rather than renderTopPicks([]) since these
+  // rows aren't the flagship dual-confirmed candidates the Top Picks
+  // banner is about.
+  hideTopPicks();
+  const rows = data.fastMovers?.[horizon] || [];
+  const label = HORIZON_LABELS[horizon] || horizon;
+  if (rcEl) {
+    rcEl.textContent = `Fast Movers — ${label} horizon: ${rows.length} · ranked by current momentum strength, not a timing prediction${closedSuffix}`;
+  }
+
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    if (empty) {
+      empty.classList.remove('loading');
+      empty.style.display = 'block';
+      empty.textContent = `No stocks currently clear the Opportunity Score bar on the ${label} timeframe alone. This is expected most of the time — quality setups are rare by design.`;
+    }
+    restoreScroll();
+    return;
+  }
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+
+  tbody.innerHTML = rows.map(p => renderIntradayRowHtml(p, `${label} horizon only — not confirmed on other timeframes`)).join('');
   restoreScroll();
 }
 

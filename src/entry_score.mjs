@@ -19,7 +19,12 @@ import { __dirname } from "./config.mjs";
 import { getProductionWeights, DEFAULT_WEIGHTS } from "./model_registry.mjs";
 import { getLatestFullUniverseSnapshot } from "./stage1_filter.mjs";
 
-const INTRADAY_TFS = ["5m", "15m", "30m"];
+// "10m" added alongside the original 5m/15m/30m so the Fast Movers horizon
+// filter (enrichOpportunities' `fastMovers` return) has a genuinely
+// independently-scored 10-minute timeframe to rank by, not an interpolation
+// between 5m and 15m.
+const INTRADAY_TFS = ["5m", "10m", "15m", "30m"];
+const FAST_MOVER_TFS = ["5m", "10m", "15m"];
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 
@@ -549,5 +554,35 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
         return (b.broaderTrendSupportive === true ? 1 : 0) - (a.broaderTrendSupportive === true ? 1 : 0);
     });
 
-    return opportunities.slice(0, 40);
+    // "Fast Movers" — the Intraday tab's per-horizon filter (5m/10m/15m).
+    // Deliberately a SEPARATE, looser list from the flagship Opportunities
+    // above: single-timeframe qualification only (no dual-timeframe
+    // confirmation), because the whole point is "which setups are showing
+    // the strongest momentum AT THIS SPECIFIC HORIZON right now" — ranked by
+    // real, already-computed sub-scores (ORB breakout, volume, relative
+    // strength), never a claim about WHEN a move will happen. No system can
+    // honestly predict a move landing inside an exact N-minute window from
+    // technical indicators alone, so this is framed as current momentum
+    // strength, not a timed forecast.
+    const fastMovers = {};
+    for (const tf of FAST_MOVER_TFS) {
+        fastMovers[tf] = (dataBuckets[`${tf}_ALL`] || [])
+            .filter(r => r.sector !== "INDEX" && (r.opportunityScore ?? 0) >= minScore)
+            .sort((a, b) => (b.opportunityScore - a.opportunityScore) || ((b.entryAttractiveness ?? 0) - (a.entryAttractiveness ?? 0)))
+            .slice(0, 15)
+            .map(r => ({
+                symbol: r.symbol, sector: r.sector, tf: r.tf,
+                price: r.price, priceSource: r.priceSource, priceTs: r.priceTs,
+                chgPct: r.chgPct, pctFromOpen: r.pctFromOpen,
+                opportunityScore: r.opportunityScore, opportunityBand: r.opportunityBand,
+                opportunityBreakdown: r.opportunityBreakdown, notes: r.opportunityNotes,
+                entryAttractiveness: r.entryAttractiveness, entryAttractivenessLabel: r.entryAttractivenessLabel,
+                entryAttractivenessNotes: r.entryAttractivenessNotes,
+                upside: r.upside, volSpike: r.volSpike,
+                orb: r.orb, structure: r.structure, // needed by attachCalibratedProbabilities' signalCombo lookup
+                priceHist: r.priceHist, ema21Hist: r.ema21Hist, ema50Hist: r.ema50Hist,
+            }));
+    }
+
+    return { opportunities: opportunities.slice(0, 40), fastMovers };
 }
