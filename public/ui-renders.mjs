@@ -158,6 +158,15 @@ function renderStocks(data) {
     return;
   }
 
+  // patchTable() below clears and reappends tbody's rows (stale-row cleanup
+  // + fragment swap) even in the "in-place patch" path — on a tall ALL/
+  // filter-chip view where the page itself (not just `.tw`) is what's
+  // actually scrolled, that reset/reappend can clamp window.scrollY to 0
+  // for a moment, and nothing was restoring it back. Same fix already
+  // applied to Intraday/Critical/Screeners (see captureScroll's own
+  // comment) — capture up front, restore on every exit path below.
+  const restoreScroll = captureScroll();
+
   if (!data?.data) {
     console.warn('[Render] ❌ No data.data available');
     if (empty) {
@@ -165,6 +174,7 @@ function renderStocks(data) {
       empty.style.display = 'block';
       empty.textContent = 'No data available';
     }
+    restoreScroll();
     return;
   }
 
@@ -287,14 +297,11 @@ function renderStocks(data) {
         empty.textContent = 'No results for current filter.';
       }
     }
+    restoreScroll();
     return;
   }
 
   if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
-
-  // Save scroll position
-  const tableContainer = document.querySelector('.tw');
-  const scrollPos = tableContainer ? tableContainer.scrollTop : 0;
 
   // Row/sub-row DOM id. FO always shows one row per symbol (single timeframe
   // slice), so symbol alone is unique there. Every other tab can show the
@@ -367,7 +374,7 @@ function renderStocks(data) {
       <td>
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
           <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</span>
-          <span class="muted-xl">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
+          <span class="muted-xl vwap-line">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
         </div>
       </td>
       <td><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
@@ -473,7 +480,7 @@ function renderStocks(data) {
           tagEl.className = `freshness-tag freshness-${cls}`;
           tagEl.textContent = `${label}${ageTxt}`;
         }
-        const vwapEl = cells[1]?.querySelector('.muted-xl');
+        const vwapEl = cells[1]?.querySelector('.vwap-line');
         if (vwapEl) {
           const vwapArrow = r.aboveVwap ? '▲' : '▼';
           const vwapPrice = `₹${(r.vwap || r.price).toFixed(1)}`;
@@ -560,8 +567,7 @@ function renderStocks(data) {
     tbody.appendChild(fragment);
   } // end patchTable()
 
-  // Restore scroll
-  if (tableContainer) tableContainer.scrollTop = scrollPos;
+  restoreScroll();
 
   // Reload expanded F&O row if exists
   if (stockFilter === 'FO' && window.foManager?.expandedSymbol) {
