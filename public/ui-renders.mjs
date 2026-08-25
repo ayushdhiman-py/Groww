@@ -24,6 +24,30 @@ function captureScroll() {
   };
 }
 
+// Paints the ↑/↓ (and multi-sort position number) onto whichever #tableHeader
+// <th> elements have a sort onclick handler matching a column currently in
+// sortStack — shared by renderStocks and renderIntraday so both tables'
+// clickable headers show the same feedback.
+function updateSortIndicators(sortStack) {
+  document.querySelectorAll('#tableHeader th').forEach(th => {
+    const onClick = th.getAttribute('onclick');
+    if (!onClick) return;
+    const colMatch = onClick.match(/'([^']+)'/);
+    if (!colMatch) return;
+    const col = colMatch[1];
+    const idx = sortStack?.findIndex(s => s.col === col);
+
+    th.querySelectorAll('.sort-meta').forEach(m => m.remove());
+    if (idx !== -1 && idx != null) {
+      const s = sortStack[idx];
+      const span = document.createElement('span');
+      span.className = 'sort-meta';
+      span.innerHTML = (sortStack.length > 1 ? (idx + 1) + ' ' : '') + (s.asc ? '↑' : '↓');
+      th.appendChild(span);
+    }
+  });
+}
+
 // Short, always-visible label per data_quality.mjs SOURCE value — no hover
 // needed to know what it means.
 const FRESHNESS_LABEL = { live: 'LIVE', delayed: 'DLY', estimated: 'EST', unavailable: 'N/A' };
@@ -208,8 +232,8 @@ function renderStocks(data) {
       <th onclick="window.sortManager.handleSort('emaGap', event)">EMA</th>
       <th onclick="window.sortManager.handleSort('volume', event)">Volume</th>
       <th onclick="window.sortManager.handleSort('macdVal', event)">MACD</th>
-      <th onclick="window.sortManager.handleSort('dayH', event)">Day Range</th>
-      <th onclick="window.sortManager.handleSort('w52H', event)">52W Range</th>
+      <th class="range-col" onclick="window.sortManager.handleSort('dayH', event)">Day Range</th>
+      <th class="range-col" onclick="window.sortManager.handleSort('w52H', event)">52W Range</th>
       <th onclick="window.sortManager.handleSort('techScore', event)">Score</th>
       <th onclick="window.sortManager.handleSort('rating', event)">Rating</th>
     </tr>`;
@@ -275,24 +299,7 @@ function renderStocks(data) {
     }
   }
 
-  // Update sort indicators in headers
-  document.querySelectorAll('#tableHeader th').forEach(th => {
-    const onClick = th.getAttribute('onclick');
-    if (!onClick) return;
-    const colMatch = onClick.match(/'([^']+)'/);
-    if (!colMatch) return;
-    const col = colMatch[1];
-    const idx = sortStack?.findIndex(s => s.col === col);
-
-    th.querySelectorAll('.sort-meta').forEach(m => m.remove());
-    if (idx !== -1) {
-      const s = sortStack[idx];
-      const span = document.createElement('span');
-      span.className = 'sort-meta';
-      span.innerHTML = (sortStack.length > 1 ? (idx + 1) + ' ' : '') + (s.asc ? '↑' : '↓');
-      th.appendChild(span);
-    }
-  });
+  updateSortIndicators(sortStack);
 
   // Handle empty state. If the scan actually produced rows but a client-side
   // filter (search box, indices toggle, dividend toggle) stripped all of
@@ -414,8 +421,8 @@ function renderStocks(data) {
         </div>
       </td>
       <td data-label="MACD"><div style="display:flex; justify-content:center;">${macdTxt}</div></td>
-      <td data-label="Day Range"><div>${generateRangeBar(r.dayL, r.dayH, r.price)}</div></td>
-      <td data-label="52W Range"><div>${generateRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div></td>
+      <td class="range-col" data-label="Day Range"><div>${generateRangeBar(r.dayL, r.dayH, r.price)}</div></td>
+      <td class="range-col" data-label="52W Range"><div>${generateRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div></td>
       <td data-label="Score">
         <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
           <span style="font-weight:800; font-family:var(--mono); font-size:15px; color:var(--text);">${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span></span>
@@ -663,6 +670,15 @@ function hideTopPicks() {
 // same visual language. `trioLabel` is the small caption under the
 // Opportunity score: the 5m/15m/30m breakdown for the flagship list, or
 // which single horizon this row was ranked under for Fast Movers.
+// Applies the user's clicked-column sort (if any) to a copy of `rows` —
+// used only for what the table body actually displays, never for deriving
+// summaries like the Top Picks banner (which should always reflect
+// Opportunity-Score strength, not whatever column the user last clicked).
+function applyIntradaySort(rows, sortStack) {
+  if (!sortStack?.length || !rows.length) return rows;
+  return [...rows].sort((a, b) => window.sortManager?.compare(a, b, sortStack) || 0);
+}
+
 function renderIntradayRowHtml(p, trioLabel) {
   const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(p.symbol.toUpperCase())}`;
   const cc = p.chgPct >= 0 ? 'up' : 'dn';
@@ -671,15 +687,25 @@ function renderIntradayRowHtml(p, trioLabel) {
   // The "why" — previously buried in a delayed native tooltip on the whole
   // row; printed directly under the symbol instead so it's visible without
   // hovering.
-  const whyTxt = (p.notes || []).slice(0, 2).join(' · ');
+  const whyTxt = (p.notes || []).slice(0, 4).join(' · ');
   const prob = p.calibratedProbability;
   const confHtml = prob?.available
     ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span><span class="muted-xl" style="font-size:8px;display:block;">n=${prob.sampleCount}</span>`
     : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
+  // VWAP / day-range / RSI — already computed server-side but not previously
+  // surfaced on this row at all; a second detail line under the symbol.
+  const detailParts = [];
+  if (p.vwap != null) detailParts.push(`VWAP ₹${(+p.vwap).toFixed(2)}`);
+  if (p.dayL != null && p.dayH != null) detailParts.push(`Day ₹${(+p.dayL).toFixed(1)}–₹${(+p.dayH).toFixed(1)}`);
+  if (p.rsi != null) detailParts.push(`RSI ${p.rsi}`);
+  if (p.atrPct != null) detailParts.push(`ATR ${p.atrPct}%`);
+  const detailTxt = detailParts.join(' · ');
   // Near-miss rows (p.qualifies === false, from intradayNearMiss or an
-  // unfiltered Fast Movers list) are shown dimmed with an explicit
-  // sub-threshold badge — visibility into "how close," never implying
-  // these are recommendations the way a qualifying row is.
+  // unfiltered Fast Movers list) get an explicit sub-threshold badge —
+  // visibility into "how close," never implying these are recommendations
+  // the way a qualifying row is. Deliberately NOT dimmed via opacity: most
+  // rows on a quiet day are near-miss, and fading the whole table made
+  // everything hard to read until hovering — the badge alone is enough.
   const isNearMiss = p.qualifies === false;
   const rowCls = isNearMiss ? 'main-row near-miss-row' : 'main-row';
   const nmBadge = isNearMiss
@@ -689,10 +715,11 @@ function renderIntradayRowHtml(p, trioLabel) {
       <td style="text-align:left;">
         <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
+        ${detailTxt ? `<div class="muted-xl why-line">${detailTxt}</div>` : ''}
         ${whyTxt ? `<div class="muted-xl why-line">${whyTxt}</div>` : ''}
       </td>
-      <td data-label="Price"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
-      <td data-label="Chart"><div style="cursor:pointer;opacity:0.85;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
+      <td data-label="Price"><div style="max-width:90px;"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span><div style="margin-top:2px;">${freshnessDot(p.priceSource, p.priceTs)}</div></div></td>
+      <td data-label="Chart"><div style="cursor:pointer;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td data-label="Opportunity">
         <div style="display:flex;flex-direction:column;align-items:center;gap:3px;">
           ${nmBadge}
@@ -710,22 +737,22 @@ function renderIntradayRowHtml(p, trioLabel) {
         </div>
       </td>
       <td data-label="Move From Open"><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
-      <td data-label="Est. Upside Zone">${upside.zoneLow != null ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span>` : '<span class="muted-xl">—</span>'}</td>
-      <td data-label="Remaining Upside">${upside.remainingPct != null ? `<span class="up">+${upside.remainingPct}%</span>` : '—'}</td>
-      <td data-label="Confidence">${confHtml}</td>
+      <td data-label="Upside Potential"><div style="max-width:120px;margin:0 auto;text-align:center;">${upside.zoneLow != null
+      ? `<span class="up" style="white-space:normal;">₹${upside.zoneLow}–₹${upside.zoneHigh}</span><span class="muted-xl" style="font-size:9px;display:block;">+${upside.remainingPct}% remaining</span>`
+      : '<span class="muted-xl">—</span>'}</div></td>
+      <td data-label="Confidence"><div style="max-width:100px;margin:0 auto;text-align:center;">${confHtml}</div></td>
       <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
 }
 
 const INTRADAY_TABLE_HEADER = `<tr>
-    <th style="text-align:left;">Stock / Sector</th>
-    <th>Price</th>
+    <th style="text-align:left;" onclick="window.sortManager.handleSort('symbol', event)">Stock / Sector</th>
+    <th onclick="window.sortManager.handleSort('price', event)">Price</th>
     <th>Chart</th>
-    <th>Opportunity <div class="th-sub">5m/15m breakdown</div></th>
-    <th>Entry Attractiveness</th>
-    <th>Move From Open</th>
-    <th>Est. Upside Zone</th>
-    <th>Remaining Upside <div class="th-sub">of estimated move left</div></th>
+    <th onclick="window.sortManager.handleSort('opportunityScore', event)">Opportunity <div class="th-sub">5m/15m breakdown</div></th>
+    <th onclick="window.sortManager.handleSort('entryAttractiveness', event)">Entry Attractiveness</th>
+    <th onclick="window.sortManager.handleSort('pctFromOpen', event)">Move From Open</th>
+    <th onclick="window.sortManager.handleSort('upside.remainingPct', event)">Upside Potential <div class="th-sub">zone &amp; remaining %</div></th>
     <th>Confidence</th>
     <th>Action</th>
   </tr>`;
@@ -745,6 +772,9 @@ function renderIntraday(data) {
 
   document.getElementById('tableHeader').innerHTML = INTRADAY_TABLE_HEADER;
   if (horizonBar) horizonBar.style.display = 'flex';
+
+  const sortStack = window.stateManager?.get('sortStack');
+  updateSortIndicators(sortStack);
 
   if (!data?.data) {
     if (tbody) tbody.innerHTML = '';
@@ -801,13 +831,13 @@ function renderIntraday(data) {
       if (rcEl) {
         rcEl.textContent = `Intraday Opportunities: 0 confirmed · showing ${nearMiss.length} closest sub-threshold candidate${nearMiss.length === 1 ? '' : 's'}${closedSuffix}`;
       }
-      tbody.innerHTML = nearMiss.map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'}`)).join('');
+      tbody.innerHTML = applyIntradaySort(nearMiss, sortStack).map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'}`)).join('');
       restoreScroll();
       return;
     }
     if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
-    tbody.innerHTML = picks.map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}`)).join('');
+    tbody.innerHTML = applyIntradaySort(picks, sortStack).map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}`)).join('');
     restoreScroll();
     return;
   }
@@ -840,7 +870,7 @@ function renderIntraday(data) {
   }
   if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
-  tbody.innerHTML = allRows.map(p => renderIntradayRowHtml(p, `${label} horizon only — not confirmed on other timeframes`)).join('');
+  tbody.innerHTML = applyIntradaySort(allRows, sortStack).map(p => renderIntradayRowHtml(p, `${label} horizon only — not confirmed on other timeframes`)).join('');
   restoreScroll();
 }
 

@@ -557,6 +557,8 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
                 opportunityBreakdown: r5.opportunityBreakdown,
                 upside: r5.upside, volSpike: r5.volSpike || r15.volSpike,
                 priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
+                dayH: r5.dayH, dayL: r5.dayL, vwap: r5.sessionVwap ?? r5.vwap,
+                rsi: r5.rsi, atrPct: r5.atrPct,
             });
             continue;
         }
@@ -586,6 +588,7 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
             priceHist: r5.priceHist, ema21Hist: r5.ema21Hist, ema50Hist: r5.ema50Hist,
             dayH: r5.dayH, dayL: r5.dayL, vwap: r5.sessionVwap ?? r5.vwap, chgPct: r5.chgPct,
             volSpike: r5.volSpike || r15.volSpike,
+            rsi: r5.rsi, atrPct: r5.atrPct,
         });
     }
 
@@ -638,6 +641,8 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
                 upside: r.upside, volSpike: r.volSpike,
                 orb: r.orb, structure: r.structure, // needed by attachCalibratedProbabilities' signalCombo lookup
                 priceHist: r.priceHist, ema21Hist: r.ema21Hist, ema50Hist: r.ema50Hist,
+                dayH: r.dayH, dayL: r.dayL, vwap: r.sessionVwap ?? r.vwap,
+                rsi: r.rsi, atrPct: r.atrPct,
                 qualifies: (r.opportunityScore ?? 0) >= minScore,
                 gapToQualify: (r.opportunityScore ?? 0) >= minScore ? 0 : minScore - r.opportunityScore,
             }));

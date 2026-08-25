@@ -479,6 +479,14 @@ export class SortManager {
     try {
       if (activeTab === 'PORTFOLIO') {
         window.portfolioManager?.loadAndRender();
+      } else if (activeTab === 'INTRADAY') {
+        const dataKey = window.dataManager.cacheKey('INTRADAY', 'INTRADAY');
+        const cached = window.dataManager.cache.get(dataKey);
+        if (cached?.data) {
+          window.renderIntraday(cached.data);
+        } else {
+          console.error('[Sort] ❌ No cached data available for intraday');
+        }
       } else if (activeTab === 'SECTORS') {
         // Sectors always use 1d_ALL data (daily timeframe)
         const dataKey = window.dataManager.cacheKey('1d', 'ALL');
@@ -510,11 +518,19 @@ export class SortManager {
     }
   }
 
+  // Reads a possibly-nested field (e.g. "upside.remainingPct") — needed for
+  // Intraday columns whose value lives inside a nested object rather than a
+  // flat top-level field like the Stocks tab's columns.
+  getField(obj, path) {
+    if (!path.includes('.')) return obj?.[path];
+    return path.split('.').reduce((o, k) => o?.[k], obj);
+  }
+
   // Sort comparison function
   compare(a, b, sortStack) {
     for (const sort of sortStack) {
-      let va = a[sort.col];
-      let vb = b[sort.col];
+      let va = this.getField(a, sort.col);
+      let vb = this.getField(b, sort.col);
 
       // Handle different data types
       if (sort.col === 'symbol' || sort.col === 'sector' || sort.col === 'name') {

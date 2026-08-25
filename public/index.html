@@ -1293,9 +1293,13 @@
       white-space: nowrap;
     }
 
-    /* Specific min-widths for range columns */
-    th:nth-child(7), td:nth-child(7), /* Day Range */
-    th:nth-child(8), td:nth-child(8)  /* 52W Range */ {
+    /* Specific min-widths for range columns — scoped to a class, not
+       position: the same #tableHeader/#tbody elements are reused across
+       tabs, and an nth-child selector here previously bled into whichever
+       column happened to land in position 7/8 on OTHER tabs (e.g.
+       Intraday's Upside Potential/Confidence), forcing them just as wide
+       as Stocks' actual Day Range/52W Range columns for no reason. */
+    th.range-col, td.range-col {
       min-width: 180px;
     }
 
@@ -1820,9 +1824,10 @@
     .bd-seg-label { font-size: 6px; color: var(--muted); font-family: var(--mono); }
 
     /* Near-miss / sub-threshold Intraday rows — visible so the tab is never
-       just a blank message, but visually distinct from a real qualifying row. */
-    .near-miss-row { opacity: 0.6; }
-    .near-miss-row:hover { opacity: 0.85; }
+       just a blank message. Distinguished via the badge below only, NOT
+       opacity: most rows on a quiet day are near-miss, and dimming the
+       whole row made all the main text hard to read until hovering. */
+    .near-miss-row { background: rgba(245, 158, 11, 0.025); }
     .nm-badge { display: inline-block; font-size: 7px; font-weight: 700; font-family: var(--mono); padding: 1px 4px; border-radius: 3px; letter-spacing: 0.02em; background: rgba(245, 158, 11, .15); color: var(--yellow); white-space: nowrap; }
 
     /* Column-header sub-captions — replace a hidden `title=` tooltip on the
@@ -1876,8 +1881,14 @@
 
 
     .sparkline {
-      width: 100%;
-      max-width: 110px;
+      /* Fixed, not width:100% — a wide table with many columns otherwise
+         crushes this column down to a sliver (the browser's table auto-
+         layout only respects a child's intrinsic size as a minimum when
+         that size isn't a percentage), which is what made the chart look
+         "very small". A fixed width forces the Chart column to keep this
+         much room, matching the header's onclick-free "Chart" label sizing. */
+      width: 110px;
+      min-width: 110px;
       height: 40px;
       display: block;
       margin-bottom: 4px;

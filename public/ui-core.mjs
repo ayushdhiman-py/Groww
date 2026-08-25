@@ -492,6 +492,8 @@ export class TabManager {
     const savedSort = tabSorts[this.sortKey(tab)];
     if (savedSort) {
       this.state.set('sortStack', [...savedSort]);
+    } else if (tab === 'INTRADAY') {
+      this.state.set('sortStack', [{ col: 'opportunityScore', asc: false }]);
     } else {
       this.state.set('sortStack', [{ col: 'techScore', asc: false }]);
     }
