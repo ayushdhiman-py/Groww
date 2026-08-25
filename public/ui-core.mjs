@@ -434,6 +434,12 @@ export class TabManager {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelector(`.tab[data-set="${newTab}"]`)?.classList.add('active');
 
+    // Horizontal-scroll scan-table mode is only for the high-cardinality
+    // "scan many stocks" tabs — see index.html's .tw-scan mobile CSS.
+    // Sectors/Portfolio/Critical/Model keep the card-per-row transform.
+    const SCAN_TABS = ['STOCKS', 'INTRADAY', 'QUALITY'];
+    document.getElementById('twWrap')?.classList.toggle('tw-scan', SCAN_TABS.includes(newTab));
+
     // The filter-chip bar only makes sense on the merged Stocks tab.
     const chipBar = document.getElementById('stockFilters');
     if (chipBar) chipBar.style.display = newTab === 'STOCKS' ? 'flex' : 'none';

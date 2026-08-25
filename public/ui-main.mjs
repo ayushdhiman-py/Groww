@@ -69,6 +69,8 @@ async function initApp() {
     closeModalChart(e);
   });
 
+  setupRowSheetAndScanHint();
+
   // Setup keyboard shortcuts
   setupKeyboardShortcuts();
 
@@ -424,6 +426,71 @@ async function fetchIndices() {
   } catch (e) {
     console.error('[Indices] Fetch error:', e);
   }
+}
+
+// ── Mobile row-detail bottom sheet + horizontal-scroll hint ───
+// Only relevant on the .tw-scan (Stocks/Intraday/Top 50) tables — see
+// index.html's mobile CSS. Desktop rows already show everything inline,
+// so this whole thing is a no-op above the mobile breakpoint.
+const MOBILE_SCAN_MQ = '(max-width: 768px)';
+
+function openRowSheet(trEl) {
+  if (!trEl || !window.matchMedia(MOBILE_SCAN_MQ).matches) return;
+  const cells = [...trEl.querySelectorAll('td')];
+  if (!cells.length) return;
+
+  const headerCells = [...document.querySelectorAll('#tableHeader th')];
+  const titleText = cells[0].querySelector('.sym')?.textContent?.trim()
+    || cells[0].textContent.trim().split('\n')[0].trim();
+
+  const titleEl = document.getElementById('rowSheetTitle');
+  if (titleEl) titleEl.textContent = titleText || '—';
+
+  const rows = cells.slice(1).map((td, i) => {
+    const label = td.getAttribute('data-label') || headerCells[i + 1]?.textContent?.trim() || '';
+    if (!label || !td.innerHTML.trim()) return '';
+    return `<div class="rs-row"><div class="rs-label">${label}</div><div class="rs-value">${td.innerHTML}</div></div>`;
+  }).join('');
+
+  const bodyEl = document.getElementById('rowSheetBody');
+  if (bodyEl) bodyEl.innerHTML = rows || '<div class="rs-row"><div class="rs-value">No further detail on this row.</div></div>';
+
+  document.getElementById('rowSheet')?.classList.add('open');
+  document.getElementById('rowSheetBackdrop')?.classList.add('open');
+}
+
+function closeRowSheet() {
+  document.getElementById('rowSheet')?.classList.remove('open');
+  document.getElementById('rowSheetBackdrop')?.classList.remove('open');
+}
+window.openRowSheet = openRowSheet;
+window.closeRowSheet = closeRowSheet;
+
+function setupRowSheetAndScanHint() {
+  const tbody = document.getElementById('tbody');
+  const twWrap = document.getElementById('twWrap');
+
+  // Event delegation — rows get replaced wholesale on every render, a
+  // single listener on the stable #tbody parent survives that.
+  tbody?.addEventListener('click', (e) => {
+    if (!twWrap?.classList.contains('tw-scan')) return;
+    if (!window.matchMedia(MOBILE_SCAN_MQ).matches) return;
+    // A click on an actual control inside the row (button/link/onclick
+    // chart cell) should do ITS OWN thing, not also open the sheet.
+    if (e.target.closest('button, a')) return;
+    const tr = e.target.closest('tr.main-row');
+    if (tr) openRowSheet(tr);
+  });
+
+  // Horizontal-scroll affordance: fade the right edge and show a text hint
+  // until the user has actually scrolled once, then get out of the way.
+  twWrap?.addEventListener('scroll', () => {
+    if (twWrap.scrollLeft > 8) {
+      twWrap.classList.add('scrolled');
+      const hint = document.getElementById('scanHint');
+      if (hint) hint.style.display = 'none';
+    }
+  }, { passive: true });
 }
 
 // ── Keyboard Shortcuts ───────────────────────────────────────

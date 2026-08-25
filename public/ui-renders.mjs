@@ -633,30 +633,50 @@ function renderTopPicks(picks) {
   if (!el) return;
   if (!picks || !picks.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
 
-  const top5 = picks.slice(0, 5);
-  const cards = top5.map(p => {
+  // A dense table, not a handful of pretty cards — every column here
+  // answers a specific question ("why is this ranked here") instead of
+  // just restating the score.
+  const top8 = picks.slice(0, 8);
+  const rows = top8.map((p, i) => {
     const upside = p.upside || {};
-    const targetTxt = upside.zoneLow != null ? `₹${upside.zoneLow}–₹${upside.zoneHigh}` : 'Insufficient data';
+    const targetTxt = upside.zoneLow != null ? `₹${upside.zoneLow}–₹${upside.zoneHigh}` : '—';
     const prob = p.calibratedProbability;
-    const probHtml = prob?.available
-      ? `<div class="tp-prob available">📊 Historically reached +1% in ${Math.round((prob.probReach1pct ?? 0) * 100)}% of ${prob.sampleCount} similar past setups</div>`
-      : `<div class="tp-prob unavailable">📊 Not enough historical data yet — rule-based confidence: ${upside.confidence || '—'}</div>`;
-    return `<div class="top-pick-card">
-      <div><span class="tp-sym">${p.symbol}</span><span class="tp-score" style="background:${bandColor(p.opportunityBand)}22;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span></div>
-      <div class="tp-row"><span>Buy near</span><b>₹${(p.price || 0).toFixed(2)}</b></div>
-      <div class="tp-row"><span>Target zone</span><b>${targetTxt}</b></div>
-      <div class="tp-row"><span>Remaining upside</span><b>${upside.remainingPct != null ? '+' + upside.remainingPct + '%' : '—'}</b></div>
-      ${probHtml}
-    </div>`;
+    const confTxt = prob?.available
+      ? `${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. (n=${prob.sampleCount})`
+      : `${upside.confidence || '—'} (rule-based)`;
+    const why = (p.notes || []).slice(0, 2).join(' · ') || '—';
+    const cc = p.chgPct >= 0 ? 'up' : 'dn';
+    const bc = bandColor(p.opportunityBand);
+    return `<tr>
+      <td class="num" style="color:var(--muted);">${i + 1}</td>
+      <td style="text-align:left;">
+        <span class="sym" style="font-size:13px;">${p.symbol}</span>
+        <span class="muted-xl" style="display:block;font-size:9px;text-transform:uppercase;">${p.sector || ''} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${(p.chgPct ?? 0).toFixed(2)}%</span></span>
+      </td>
+      <td><span style="font-weight:700;color:${bc};">${p.opportunityScore}</span> <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span></td>
+      <td class="num">₹${(p.price || 0).toFixed(2)}</td>
+      <td class="num">${targetTxt}</td>
+      <td class="num">${upside.remainingPct != null ? '+' + (+upside.remainingPct).toFixed(2) + '%' : '—'}</td>
+      <td><span class="muted-xl" style="font-size:10px;">${confTxt}</span></td>
+      <td style="text-align:left;"><span class="muted-xl why-line" style="opacity:1;max-width:260px;">${why}</span></td>
+    </tr>`;
   }).join('');
 
   el.style.display = 'block';
   el.innerHTML = `<div class="top-picks-wrap">
     <div class="top-picks-header">
-      <h3>🎯 Top 5 Right Now</h3>
+      <h3>🎯 Top Opportunities Right Now</h3>
       <span class="disclaimer">Estimates from current setup strength — not guarantees. Past performance ≠ future results.</span>
     </div>
-    <div class="top-picks-grid">${cards}</div>
+    <div class="tp-table-scroll">
+      <table class="tp-table">
+        <thead><tr>
+          <th>#</th><th style="text-align:left;">Stock</th><th>Score</th><th>Price</th>
+          <th>Target Zone</th><th>Upside</th><th>Confidence</th><th style="text-align:left;">Why</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
   </div>`;
 }
 
@@ -738,7 +758,7 @@ function renderIntradayRowHtml(p, trioLabel) {
       </td>
       <td data-label="Move From Open"><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
       <td data-label="Upside Potential"><div style="max-width:120px;margin:0 auto;text-align:center;">${upside.zoneLow != null
-      ? `<span class="up" style="white-space:normal;">₹${upside.zoneLow}–₹${upside.zoneHigh}</span><span class="muted-xl" style="font-size:9px;display:block;">+${upside.remainingPct}% remaining</span>`
+      ? `<span class="up" style="white-space:normal;">₹${upside.zoneLow}–₹${upside.zoneHigh}</span><span class="muted-xl" style="font-size:9px;display:block;">+${(+upside.remainingPct).toFixed(2)}% remaining</span>`
       : '<span class="muted-xl">—</span>'}</div></td>
       <td data-label="Confidence"><div style="max-width:100px;margin:0 auto;text-align:center;">${confHtml}</div></td>
       <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
@@ -894,8 +914,7 @@ function renderRegimeBanner(regime) {
 // scored, percentile-ranked, regime-adjusted, and deduped this list; this
 // just displays it, best-first.
 const QUALITY_TABLE_HEADER = `<tr>
-    <th style="text-align:left;">#</th>
-    <th style="text-align:left;">Stock / Sector</th>
+    <th style="text-align:left;">Rank / Stock</th>
     <th>Price</th>
     <th>Chart</th>
     <th>Score <div class="th-sub">weighted evidence</div></th>
@@ -909,9 +928,8 @@ function renderQualityRowHtml(c, rank) {
   const breadth = c.evidenceBreadth || {};
   const scoreColor = c.compositeScore >= 80 ? '#22c55e' : c.compositeScore >= 65 ? '#4ade80' : '#f59e0b';
   return `<tr class="main-row">
-      <td data-label="#"><span class="muted-xl" style="font-size:12px;">${rank}</span></td>
       <td style="text-align:left;">
-        <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${c.symbol}</a>${c.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
+        <div class="sym"><span class="muted-xl" style="font-family:var(--mono);margin-right:4px;">#${rank}</span><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${c.symbol}</a>${c.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
         <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${c.sector} · <span class="${cc}">${c.chgPct >= 0 ? '+' : ''}${c.chgPct.toFixed(2)}%</span></div>
       </td>
       <td data-label="Price"><span class="price-bold">₹${(c.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(c.priceSource, c.priceTs)}</td>

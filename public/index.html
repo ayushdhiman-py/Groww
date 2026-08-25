@@ -793,6 +793,15 @@
       box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
     }
 
+    /* Secondary nav row (Screeners/Sectors/Learning) — same tab styling
+       and colors as primary, just visually one notch quieter at rest so it
+       doesn't compete with "where should I look next." Still full-color
+       the instant one of these is actually active. */
+    .tabs-primary { margin-bottom: 8px; }
+    .tabs-secondary { padding: 3px; margin-bottom: 14px; box-shadow: none; opacity: 0.82; }
+    .tabs-secondary .tab { padding: 6px 14px; font-size: 11px; }
+    .tabs-secondary:hover { opacity: 1; }
+
     .tab {
       position: relative;
       display: flex;
@@ -1126,6 +1135,25 @@
     .top-pick-card .tp-prob { margin-top:8px; font-size:10px; padding:4px 6px; border-radius:6px; background:rgba(255,255,255,0.04); }
     .top-pick-card .tp-prob.available { color:#4ade80; }
     .top-pick-card .tp-prob.unavailable { color:var(--muted); }
+
+    /* Top Opportunities — a dense table instead of a handful of cards, so
+       "what's worth looking at right now" is scannable in one glance
+       instead of needing to scroll past 5 tall cards to compare them. */
+    .tp-table-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    .tp-table { width: 100%; border-collapse: collapse; background: var(--card); }
+    .tp-table th {
+      text-align: center; font-size: 9px; font-weight: 700; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em; font-family: var(--mono);
+      padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap;
+      background: var(--card2);
+    }
+    .tp-table td {
+      text-align: center; padding: 8px 10px; font-size: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap;
+    }
+    .tp-table tbody tr:last-child td { border-bottom: none; }
+    .tp-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .tp-table td.num { font-family: var(--mono); }
 
     /* Market regime banner */
     .regime-banner {
@@ -2111,6 +2139,11 @@
     .p-mid { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
     .p-lo { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 
+    /* Desktop default: hidden — see .tw-scan's mobile override below, where
+       it becomes the "swipe for more" affordance for the horizontal-scroll
+       scanner table. */
+    .scan-hint { display: none; }
+
     @media(max-width:1024px) {
       .wrap { padding: 12px; }
       .stats { gap: 6px; }
@@ -2155,17 +2188,19 @@
       .stock-chip { padding: 5px 10px; font-size: 10px; }
 
       /* ── Responsive table → card transform ──────────────────────────────
-         The Stocks/Intraday/Sectors tables (all share the same #tableHeader/
-         #tbody markup) and the Model tab's tables are too column-dense for
-         a phone screen at any font size. Rather than hiding columns (which
-         permanently hides real data) or leaving a silent horizontal-scroll
-         users won't find, each row becomes its own card and each cell
-         becomes a labeled line — every field from the desktop view stays
-         visible, just stacked instead of side-by-side. */
-      .tw { overflow-x: visible; border-radius: 10px; }
-      .tw table, .model-table { display: block; width: 100%; }
-      .tw thead, .model-table thead { display: none; }
-      .tw tbody, .model-table tbody { display: block; }
+         Applies to the LOW-cardinality tabs (Sectors/Portfolio/Critical/
+         Model) — a handful of rows each, where a full labeled card per row
+         reads better than a cramped scan table. The high-cardinality
+         "scan many stocks fast" tables (Stocks/Intraday/Top 50 — marked
+         .tw-scan, see below) get a horizontal-scroll table instead: a
+         scanner is inherently data-dense, and turning 80 stocks into 80
+         tall cards trades scanability for a false sense of mobile-
+         friendliness. Every field from the desktop view still stays
+         visible either way, just via a different mechanism. */
+      .tw:not(.tw-scan) { overflow-x: visible; border-radius: 10px; }
+      .tw:not(.tw-scan) table, .model-table { display: block; width: 100%; }
+      .tw:not(.tw-scan) thead, .model-table thead { display: none; }
+      .tw:not(.tw-scan) tbody, .model-table tbody { display: block; }
       /* #tbody { display: table-row-group !important; } (unconditional,
          desktop-only rendering fix elsewhere in this file) otherwise beats
          the rule above too — same specificity, !important, but declared
@@ -2174,9 +2209,9 @@
          tbody stays table-row-group here, its "display:block" child <tr>
          becomes an anonymous table object instead of a real block box, and
          never actually stretches to the card's full width. */
-      #tbody { display: block !important; }
+      .tw:not(.tw-scan) #tbody { display: block !important; }
 
-      .tw tbody tr:not(.sub-row), .model-table tbody tr {
+      .tw:not(.tw-scan) tbody tr:not(.sub-row), .model-table tbody tr {
         display: block;
         background: var(--card2);
         border: 1px solid var(--border);
@@ -2195,11 +2230,11 @@
          Opportunity breakdown bar) then inherits as a silently narrower
          "100%" than the actual visible card. Needs higher specificity than
          the plain-tag rule to win regardless of !important vs. source order. */
-      .tw tbody tr.main-row:not(.sub-row) {
+      .tw:not(.tw-scan) tbody tr.main-row:not(.sub-row) {
         display: block !important;
       }
 
-      .tw tbody tr:not(.sub-row) td, .model-table tbody tr td {
+      .tw:not(.tw-scan) tbody tr:not(.sub-row) td, .model-table tbody tr td {
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
@@ -2212,11 +2247,11 @@
         text-align: right;
         font-size: 11px;
       }
-      .tw tbody tr:not(.sub-row) td:last-child, .model-table tbody tr td:last-child { border-bottom: none; }
+      .tw:not(.tw-scan) tbody tr:not(.sub-row) td:last-child, .model-table tbody tr td:last-child { border-bottom: none; }
 
       /* First cell (symbol/sector, or a Sectors/Model row's title column)
          reads as the card's header, not a label:value line. */
-      .tw tbody tr:not(.sub-row) td:first-child, .model-table tbody tr td:first-child {
+      .tw:not(.tw-scan) tbody tr:not(.sub-row) td:first-child, .model-table tbody tr td:first-child {
         display: block !important;
         text-align: left !important;
         background: rgba(255, 255, 255, 0.025);
@@ -2225,7 +2260,7 @@
 
       /* Printed label for every other cell, taking the place of the now-
          hidden column header — see data-label attributes in ui-renders.mjs. */
-      .tw tbody tr:not(.sub-row) td[data-label]::before,
+      .tw:not(.tw-scan) tbody tr:not(.sub-row) td[data-label]::before,
       .model-table tbody tr td[data-label]::before {
         content: attr(data-label);
         font-size: 9px;
@@ -2238,9 +2273,48 @@
       }
 
       /* F&O expanded sub-row: same full-width card treatment as its parent
-         row, not the desktop table-row layout. */
+         row, not the desktop table-row layout — regardless of tw-scan,
+         since an expanded detail row is a special case either way. */
       .tw tbody tr.sub-row.active { display: block; }
       .tw tbody tr.sub-row td { display: block !important; width: 100% !important; padding: 0 !important; }
+
+      /* ── .tw-scan: horizontal-scroll terminal table for the high-
+         cardinality scanner tabs (Stocks/Intraday/Top 50) ─────────────────
+         Real table layout is kept (no card transform) — the header stays,
+         rows stay rows, and the table scrolls sideways for the analytical
+         columns while Rank/Symbol/Price/Chg stay pinned on the left via
+         position:sticky, so scanning many rows vertically never loses the
+         "which stock, what price" anchor. */
+      .tw.tw-scan { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; position: relative; }
+      .tw.tw-scan table { width: auto; min-width: 100%; }
+      .tw.tw-scan th, .tw.tw-scan td { white-space: nowrap; font-size: 11px; padding: 8px 10px; }
+      .tw.tw-scan thead th { position: sticky; top: 0; background: var(--card2); z-index: 3; }
+      .tw.tw-scan td:first-child, .tw.tw-scan th:first-child {
+        position: sticky; left: 0; z-index: 2; background: var(--card2);
+        box-shadow: 2px 0 6px rgba(0,0,0,0.35);
+        white-space: normal; max-width: 130px;
+      }
+      .tw.tw-scan td:nth-child(2), .tw.tw-scan th:nth-child(2) {
+        position: sticky; left: 130px; z-index: 2; background: var(--card2);
+        box-shadow: 2px 0 6px rgba(0,0,0,0.35);
+      }
+      .tw.tw-scan thead th:first-child, .tw.tw-scan thead th:nth-child(2) { z-index: 4; }
+      /* Scroll-for-more hint — a soft right-edge fade so a horizontally
+         scrollable table doesn't silently look "finished" at the viewport
+         edge. Hidden once the user has actually scrolled (JS toggles
+         .scrolled on .tw). */
+      .tw.tw-scan::after {
+        content: '';
+        position: absolute; top: 0; right: 0; bottom: 0; width: 18px;
+        background: linear-gradient(to right, transparent, rgba(0,0,0,0.35));
+        pointer-events: none; z-index: 1;
+      }
+      .tw.tw-scan.scrolled::after { opacity: 0; }
+      .scan-hint {
+        display: block;
+        font-size: 10px; color: var(--muted); text-align: center;
+        padding: 4px 0 8px;
+      }
 
       .checks { max-width: none; justify-content: flex-end; }
 
@@ -2434,6 +2508,61 @@
       background: rgba(255, 255, 255, 0.08);
       color: var(--text);
     }
+
+    /* ── Mobile row-detail bottom sheet ───────────────────────────────
+       Desktop never opens this (see ui-main.mjs's tap handler, gated on
+       viewport width) — everything it shows is already visible inline in
+       a desktop row, this is purely the mobile substitute for "hover the
+       row to see everything" once rows are compact & horizontally
+       scrollable. */
+    .row-sheet-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      z-index: 9998;
+    }
+    .row-sheet {
+      display: none;
+      position: fixed; left: 0; right: 0; bottom: 0;
+      max-height: 80vh;
+      background: var(--card2);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: 18px 18px 0 0;
+      z-index: 9999;
+      overflow-y: auto;
+      box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.5);
+    }
+    .row-sheet-backdrop.open, .row-sheet.open { display: block; }
+    .row-sheet-handle {
+      width: 36px; height: 4px; border-radius: 99px;
+      background: var(--border); margin: 10px auto 4px;
+    }
+    .row-sheet-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 16px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .row-sheet-title { font-size: 16px; font-weight: 700; font-family: var(--mono); }
+    .row-sheet-close {
+      background: transparent; border: none; color: var(--muted);
+      font-size: 22px; cursor: pointer; line-height: 1; padding: 4px 8px;
+    }
+    .row-sheet-body { padding: 10px 16px 26px; }
+    .rs-row {
+      display: flex; justify-content: space-between; align-items: flex-start;
+      gap: 12px; padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.04);
+      font-size: 12px;
+    }
+    .rs-row:last-child { border-bottom: none; }
+    .rs-label {
+      color: var(--muted); font-family: var(--mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.04em;
+      flex-shrink: 0; padding-top: 2px; min-width: 90px;
+    }
+    .rs-value { text-align: right; flex: 1; }
+    .rs-value .sym, .rs-value .price-bold { font-size: 13px; }
   </style>
 </head>
 
@@ -2548,10 +2677,14 @@
         <span id="scanProgressBadge" style="color:var(--muted);font-weight:500;margin-left:8px;"></span>
       </div>
 
-      <div class="tabs">
+      <!-- Primary — the tabs a trader actually lives in: scan, find
+           opportunities, act, track holdings. Secondary (below) is
+           everything else: still one click away, just not competing for
+           the same visual weight as "where do I look next." -->
+      <div class="tabs tabs-primary">
         <div class="tab active" data-set="STOCKS">
           <span class="tab-icon">⊞</span>
-          <span class="tab-label">Stocks</span>
+          <span class="tab-label">Scanner</span>
         </div>
         <div class="tab" data-set="INTRADAY">
           <span class="tab-icon">⚡</span>
@@ -2568,6 +2701,13 @@
           <span class="tab-label">Critical</span>
           <span class="tab-badge" id="badge-CRITICAL">—</span>
         </div>
+        <div class="tab" data-set="PORTFOLIO">
+          <span class="tab-icon">💼</span>
+          <span class="tab-label">Portfolio</span>
+          <span class="tab-badge" id="badge-PORTFOLIO">—</span>
+        </div>
+      </div>
+      <div class="tabs tabs-secondary">
         <div class="tab" data-set="SCREENERS">
           <span class="tab-icon">🔎</span>
           <span class="tab-label">Screeners</span>
@@ -2578,14 +2718,9 @@
           <span class="tab-label">Sectors</span>
           <span class="tab-badge" id="badge-SECTORS">—</span>
         </div>
-        <div class="tab" data-set="PORTFOLIO">
-          <span class="tab-icon">💼</span>
-          <span class="tab-label">Portfolio</span>
-          <span class="tab-badge" id="badge-PORTFOLIO">—</span>
-        </div>
         <div class="tab" data-set="MODEL">
           <span class="tab-icon">🧠</span>
-          <span class="tab-label">Model</span>
+          <span class="tab-label">Learning</span>
           <span class="tab-badge" id="badge-MODEL">—</span>
         </div>
       </div>
@@ -2631,7 +2766,7 @@
       <!-- Portfolio Summary Card (only visible on Portfolio tab) -->
       <div id="portfolioSummary" class="portfolio-summary" style="display:none;"></div>
 
-      <div class="tw">
+      <div class="tw tw-scan" id="twWrap">
         <table>
           <thead id="tableHeader">
             <tr>
@@ -2650,9 +2785,25 @@
           <tbody id="tbody"></tbody>
         </table>
       </div>
+      <div class="scan-hint" id="scanHint">‹ swipe for more columns ›</div>
       <div id="empty" class="empty" style="display:none">No results for current filter.</div>
     </div><!-- /wrap -->
   </div><!-- /APP -->
+
+  <!-- Mobile row-detail bottom sheet — tapping a row on a .tw-scan table
+       (Stocks/Intraday/Top 50) opens this instead of the row itself
+       expanding, since scan-table rows are deliberately compact. Populated
+       generically from whatever cells the tapped row has (see
+       ui-main.mjs's openRowSheet) — no per-tab custom markup needed. -->
+  <div id="rowSheetBackdrop" class="row-sheet-backdrop" onclick="window.closeRowSheet?.()"></div>
+  <div id="rowSheet" class="row-sheet" role="dialog" aria-modal="true">
+    <div class="row-sheet-handle"></div>
+    <div class="row-sheet-header">
+      <div id="rowSheetTitle" class="row-sheet-title">—</div>
+      <button class="row-sheet-close" onclick="window.closeRowSheet?.()">×</button>
+    </div>
+    <div id="rowSheetBody" class="row-sheet-body"></div>
+  </div>
 
   <div id="chartModal" class="modal-overlay" style="display:none;" onclick="closeModal(event)">
     <div class="modal-content" onclick="event.stopPropagation()">
