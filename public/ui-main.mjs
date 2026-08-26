@@ -408,7 +408,7 @@ async function fetchIndices() {
 
       html += `<div class='idx-card ${trendCls}'>
         <span class='idx-name'>${idx.symbol}</span>
-        <span class='idx-price'>₹${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+        <span class='idx-price'>₹${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${window.freshnessDot?.(idx.ltpSource, idx.ltpTs) || ''}
         ${deltaHtml}
       </div>`;
     });

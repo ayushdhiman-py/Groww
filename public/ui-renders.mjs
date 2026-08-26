@@ -1873,6 +1873,7 @@ function renderCritNotifBanner(trades) {
 }
 
 // Export to window
+window.freshnessDot = freshnessDot;
 window.renderStocks = renderStocks;
 window.renderSectors = renderSectors;
 window.renderIntraday = renderIntraday;
