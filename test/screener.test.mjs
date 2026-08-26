@@ -39,6 +39,21 @@ test("bullishCrossover/momentumBurst/rsiOversold DO include a stock whose DAILY 
     assert.equal(screenerState.rsiOversold[0].rsi, 20);
 });
 
+test("rsiOverbought mirrors rsiOversold's daily-only, standard-threshold behavior on the other side of RSI", () => {
+    const rowsByTf = {
+        "5m": [baseRow({ symbol: "NOISY5M", rsi: 90 })],
+        "15m": [],
+        "1d": [
+            baseRow({ symbol: "NOISY5M", rsi: 60 }),
+            baseRow({ symbol: "REALOVERBOUGHT", rsi: 75 }),
+        ],
+    };
+    computeScreenerCategories(rowsByTf);
+    assert.equal(screenerState.rsiOverbought.length, 1, "5m-only overbought RSI must not appear — daily RSI is 60, not >70");
+    assert.equal(screenerState.rsiOverbought[0].symbol, "REALOVERBOUGHT");
+    assert.equal(screenerState.rsiOverbought[0].rsi, 75);
+});
+
 test("volumeShockers stays sourced from 5m data (an intraday-relative-volume concept, left unchanged)", () => {
     const rowsByTf = {
         "5m": [baseRow({ symbol: "SPIKY5M", volSpike: true, volumeChange: 5000 })],

@@ -29,7 +29,7 @@ export let screenerState = {
     universeSize: SCREENER_UNIVERSE.length,
     gainers: [], losers: [], volumeShockers: [],
     high52w: [], low52w: [],
-    bullishCrossover: [], momentumBurst: [], rsiOversold: [],
+    bullishCrossover: [], momentumBurst: [], rsiOversold: [], rsiOverbought: [],
 };
 
 let scanning = false;
@@ -94,6 +94,14 @@ export function computeScreenerCategories(rowsByTf) {
         .filter(r => r.rsi !== null && r.rsi < 30)
         .sort((a, b) => a.rsi - b.rsi)
         .slice(0, TOP_N);
+    // Standard 70 threshold (mirrors rsiOversold's standard 30) — distinct
+    // from scanner.mjs's own unrelated ">80" per-row flag, which is a
+    // stricter "extreme" callout on individual rows, not this category's
+    // definition of "overbought."
+    const rsiOverbought = daily
+        .filter(r => r.rsi !== null && r.rsi > 70)
+        .sort((a, b) => b.rsi - a.rsi)
+        .slice(0, TOP_N);
 
     // `lastUpdated` is when this refresh cycle ran, not a claim that every
     // row is that fresh — rows reused from the main scan can be up to ~30s
@@ -109,7 +117,7 @@ export function computeScreenerCategories(rowsByTf) {
         dataAsOf,
         universeSize: SCREENER_UNIVERSE.length,
         gainers, losers, volumeShockers, high52w, low52w,
-        bullishCrossover, momentumBurst, rsiOversold,
+        bullishCrossover, momentumBurst, rsiOversold, rsiOverbought,
     };
 }
 

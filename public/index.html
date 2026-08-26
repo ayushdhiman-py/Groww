@@ -811,14 +811,7 @@
       box-shadow: 0 2px 16px rgba(0, 0, 0, 0.3);
     }
 
-    /* Secondary nav row (Screeners/Sectors/Learning) — same tab styling
-       and colors as primary, just visually one notch quieter at rest so it
-       doesn't compete with "where should I look next." Still full-color
-       the instant one of these is actually active. */
-    .tabs-primary { margin-bottom: 8px; }
-    .tabs-secondary { padding: 3px; margin-bottom: 14px; box-shadow: none; opacity: 0.82; }
-    .tabs-secondary .tab { padding: 6px 14px; font-size: 11px; }
-    .tabs-secondary:hover { opacity: 1; }
+    .tabs-primary { margin-bottom: 14px; }
 
     .tab {
       position: relative;
@@ -905,76 +898,6 @@
     .tab[data-set="STOCKS"].active .tab-icon {
       filter: drop-shadow(0 0 4px rgba(0, 212, 170, 0.7));
     }
-
-    /* ── Stock filter chips (All / Golden Cross / Buy / Sell / F&O) ──────
-       Replaces what used to be 4 separate tabs — same data, same colors,
-       switched instantly client-side with no fetch/loading flash. */
-    .stock-filters {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 5px;
-    }
-
-    .stock-chip {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 14px;
-      border-radius: 9px;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      font-size: 11px;
-      font-weight: 600;
-      font-family: var(--sans);
-      transition: all 0.15s ease-out;
-      user-select: none;
-      white-space: nowrap;
-      position: relative;
-    }
-
-    .stock-chip:hover:not(.active) {
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text);
-    }
-
-    .stock-chip .chip-badge {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-width: 16px;
-      height: 16px;
-      padding: 0 4px;
-      border-radius: 999px;
-      font-size: 9px;
-      font-weight: 700;
-      background: rgba(255, 255, 255, 0.08);
-      color: var(--muted);
-      font-family: var(--mono);
-    }
-
-    .stock-chip[data-filter="ALL"].active { background: rgba(0, 212, 170, 0.12); color: var(--accent); border-color: rgba(0, 212, 170, 0.3); }
-    .stock-chip[data-filter="ALL"].active .chip-badge { background: rgba(0, 212, 170, 0.2); color: var(--accent); }
-    .stock-chip[data-filter="GOLDEN"].active { background: rgba(167, 139, 250, 0.12); color: var(--purple); border-color: rgba(167, 139, 250, 0.3); }
-    .stock-chip[data-filter="GOLDEN"].active .chip-badge { background: rgba(167, 139, 250, 0.2); color: var(--purple); }
-    .stock-chip[data-filter="BUY"].active { background: rgba(34, 197, 94, 0.12); color: var(--green); border-color: rgba(34, 197, 94, 0.3); }
-    .stock-chip[data-filter="BUY"].active .chip-badge { background: rgba(34, 197, 94, 0.2); color: var(--green); }
-    .stock-chip[data-filter="SELL"].active { background: rgba(239, 68, 68, 0.1); color: var(--red); border-color: rgba(239, 68, 68, 0.3); }
-    .stock-chip[data-filter="SELL"].active .chip-badge { background: rgba(239, 68, 68, 0.18); color: var(--red); }
-    .stock-chip[data-filter="FO"].active { background: rgba(99, 102, 241, 0.12); color: #818cf8; border-color: rgba(99, 102, 241, 0.3); }
-    .stock-chip[data-filter="FO"].active .chip-badge { background: rgba(99, 102, 241, 0.2); color: #818cf8; }
-
-    /* Intraday horizon chips */
-    .horizon-chip[data-horizon="DEFAULT"].active { background: rgba(0, 212, 170, 0.12); color: var(--accent); border-color: rgba(0, 212, 170, 0.3); }
-    .horizon-chip[data-horizon="5m"].active,
-    .horizon-chip[data-horizon="10m"].active,
-    .horizon-chip[data-horizon="15m"].active { background: rgba(245, 158, 11, 0.12); color: var(--yellow); border-color: rgba(245, 158, 11, 0.3); }
 
     /* INTRADAY — orange */
     .tab[data-set="INTRADAY"].active {
@@ -1091,6 +1014,83 @@
       filter: drop-shadow(0 0 4px rgba(236, 72, 153, 0.7));
     }
 
+    /* GAINERS — green */
+    .tab[data-set="GAINERS"].active {
+      background: rgba(34, 197, 94, 0.12);
+      color: var(--green);
+      border-color: rgba(34, 197, 94, 0.3);
+      box-shadow: 0 0 18px rgba(34, 197, 94, 0.12), inset 0 1px 0 rgba(34, 197, 94, 0.15);
+    }
+    .tab[data-set="GAINERS"].active::after { width: 60%; background: var(--green); opacity: 1; }
+    .tab[data-set="GAINERS"].active .tab-badge { background: rgba(34, 197, 94, 0.2); color: var(--green); }
+    .tab[data-set="GAINERS"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(34, 197, 94, 0.7)); }
+
+    /* LOSERS — red */
+    .tab[data-set="LOSERS"].active {
+      background: rgba(239, 68, 68, 0.12);
+      color: var(--red);
+      border-color: rgba(239, 68, 68, 0.3);
+      box-shadow: 0 0 18px rgba(239, 68, 68, 0.12), inset 0 1px 0 rgba(239, 68, 68, 0.15);
+    }
+    .tab[data-set="LOSERS"].active::after { width: 60%; background: var(--red); opacity: 1; }
+    .tab[data-set="LOSERS"].active .tab-badge { background: rgba(239, 68, 68, 0.2); color: var(--red); }
+    .tab[data-set="LOSERS"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.7)); }
+
+    /* VOLSHOCK — amber */
+    .tab[data-set="VOLSHOCK"].active {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--yellow);
+      border-color: rgba(245, 158, 11, 0.3);
+      box-shadow: 0 0 18px rgba(245, 158, 11, 0.12), inset 0 1px 0 rgba(245, 158, 11, 0.15);
+    }
+    .tab[data-set="VOLSHOCK"].active::after { width: 60%; background: var(--yellow); opacity: 1; }
+    .tab[data-set="VOLSHOCK"].active .tab-badge { background: rgba(245, 158, 11, 0.2); color: var(--yellow); }
+    .tab[data-set="VOLSHOCK"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(245, 158, 11, 0.7)); }
+
+    /* RANGE52W — cyan */
+    .tab[data-set="RANGE52W"].active {
+      background: rgba(6, 182, 212, 0.12);
+      color: #06b6d4;
+      border-color: rgba(6, 182, 212, 0.3);
+      box-shadow: 0 0 18px rgba(6, 182, 212, 0.12), inset 0 1px 0 rgba(6, 182, 212, 0.15);
+    }
+    .tab[data-set="RANGE52W"].active::after { width: 60%; background: #06b6d4; opacity: 1; }
+    .tab[data-set="RANGE52W"].active .tab-badge { background: rgba(6, 182, 212, 0.2); color: #06b6d4; }
+    .tab[data-set="RANGE52W"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(6, 182, 212, 0.7)); }
+
+    /* BULLCROSS — purple */
+    .tab[data-set="BULLCROSS"].active {
+      background: rgba(167, 139, 250, 0.12);
+      color: var(--purple);
+      border-color: rgba(167, 139, 250, 0.3);
+      box-shadow: 0 0 18px rgba(167, 139, 250, 0.12), inset 0 1px 0 rgba(167, 139, 250, 0.15);
+    }
+    .tab[data-set="BULLCROSS"].active::after { width: 60%; background: var(--purple); opacity: 1; }
+    .tab[data-set="BULLCROSS"].active .tab-badge { background: rgba(167, 139, 250, 0.2); color: var(--purple); }
+    .tab[data-set="BULLCROSS"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(167, 139, 250, 0.7)); }
+
+    /* MOMENTUM — indigo */
+    .tab[data-set="MOMENTUM"].active {
+      background: rgba(99, 102, 241, 0.12);
+      color: #6366f1;
+      border-color: rgba(99, 102, 241, 0.3);
+      box-shadow: 0 0 18px rgba(99, 102, 241, 0.12), inset 0 1px 0 rgba(99, 102, 241, 0.15);
+    }
+    .tab[data-set="MOMENTUM"].active::after { width: 60%; background: #6366f1; opacity: 1; }
+    .tab[data-set="MOMENTUM"].active .tab-badge { background: rgba(99, 102, 241, 0.2); color: #6366f1; }
+    .tab[data-set="MOMENTUM"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(99, 102, 241, 0.7)); }
+
+    /* RSI — sky blue */
+    .tab[data-set="RSI"].active {
+      background: rgba(56, 189, 248, 0.12);
+      color: #38bdf8;
+      border-color: rgba(56, 189, 248, 0.3);
+      box-shadow: 0 0 18px rgba(56, 189, 248, 0.12), inset 0 1px 0 rgba(56, 189, 248, 0.15);
+    }
+    .tab[data-set="RSI"].active::after { width: 60%; background: #38bdf8; opacity: 1; }
+    .tab[data-set="RSI"].active .tab-badge { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+    .tab[data-set="RSI"].active .tab-icon { filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.7)); }
+
     /* MODEL — violet */
     .tab[data-set="MODEL"].active {
       background: rgba(139, 92, 246, 0.12);
@@ -1194,30 +1194,34 @@
       background: rgba(239,68,68,0.25); color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 11px;
     }
 
-    /* Critical trade cards */
-    /* Shared card chrome — reused by Portfolio holdings and Screener cards
-       (previously fully inline-styled, no shared class at all), matching
-       the look .crit-card/.model-card already use. */
+    /* Shared card chrome — reused by Portfolio holdings (previously fully
+       inline-styled, no shared class at all), matching the look
+       .model-card already uses. */
     .card {
       background: var(--panel2, rgba(255,255,255,0.03));
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: var(--r-md);
       padding: var(--sp-4);
     }
-    .crit-grid { display: flex; flex-direction: column; gap: 10px; padding: 4px; }
-    .crit-card {
-      background: var(--panel2, rgba(255,255,255,0.03));
-      border: 1px solid rgba(255,255,255,0.08);
-      border-radius: 10px;
-      padding: 14px 16px;
+
+    /* Critical trade rows — real table rows (see renderCritical), state
+       color-coded via a left border on the first cell (a plain border-left
+       on <tr> itself doesn't render under border-collapse:collapse). */
+    tr.main-row.state-strong-hold td:first-child, tr.main-row.state-hold td:first-child { border-left: 3px solid var(--green); }
+    tr.main-row.state-momentum-weakening td:first-child, tr.main-row.state-profit-protection td:first-child { border-left: 3px solid var(--yellow); }
+    tr.main-row.state-strong-exit-warning td:first-child, tr.main-row.state-thesis-invalidated td:first-child { border-left: 3px solid var(--red); }
+
+    /* Screener-tab section divider row (52W High/Low, RSI Oversold/
+       Overbought each show two labeled groups in one continuous table). */
+    tr.screener-divider td {
+      text-align: left;
+      background: rgba(255, 255, 255, 0.03);
+      font-family: var(--sans);
+      padding-top: 12px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
     }
-    .crit-card.state-strong-hold, .crit-card.state-hold { border-left: 3px solid var(--green); }
-    .crit-card.state-momentum-weakening, .crit-card.state-profit-protection { border-left: 3px solid var(--yellow); }
-    .crit-card.state-strong-exit-warning, .crit-card.state-thesis-invalidated { border-left: 3px solid var(--red); }
-    .crit-card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
     .crit-health-badge { font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 12px; }
-    .crit-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; font-size: 11px; margin-bottom: 8px; }
-    .crit-metrics .m-label { color: var(--muted); font-size: 9px; text-transform: uppercase; }
     .crit-warnings { font-size: 11px; color: var(--yellow); margin-top: 4px; }
     .crit-notif { font-size: 11px; padding: 4px 8px; border-radius: 6px; margin-top: 4px; }
     .crit-notif.severity-danger { background: rgba(239,68,68,0.12); color: var(--red); }
@@ -2166,106 +2170,24 @@
          the user might never discover. Tabs get a real 44px tap target;
          desktop density (base rule, above this query) is untouched. */
       .tabs { padding: 4px; gap: var(--sp-2); row-gap: var(--sp-2); flex-wrap: wrap; }
-      .tabs-primary .tab, .tabs-secondary .tab {
+      .tabs-primary .tab {
         padding: 0 var(--sp-3); font-size: 10px; white-space: nowrap;
         min-height: var(--tap-min); display: flex; align-items: center; flex: 0 0 auto;
       }
       .tab .tab-icon { font-size: 12px; }
       .tab .tab-badge { min-width: 16px; height: 16px; font-size: 8px; }
-      .stock-filters { padding: 4px; gap: 4px; flex-wrap: wrap; }
-      .stock-chip { padding: 5px 10px; font-size: var(--fs-xs); position: relative; }
-      .stock-chip::after {
-        content: ''; position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%);
-        width: max(100%, var(--tap-min)); height: max(100%, var(--tap-min));
-      }
 
-      /* ── Responsive table → card transform ──────────────────────────────
-         Applies to EVERY tab on mobile, including the high-cardinality
-         scan tables (Stocks/Intraday/Top 50, marked .tw-scan for desktop
-         purposes only now). These used to get a horizontal-scroll table
-         with sticky pinned columns instead — pinning part of a row while
-         the rest scrolls under a thumb reads as broken on a touch screen,
-         not as an intentional affordance, so every tab now gets the same
-         full-width labeled card per row. Every field from the desktop view
-         still stays visible, just stacked instead of scrolled. */
-      .tw { overflow-x: visible; border-radius: 10px; }
-      .tw table, .model-table { display: block; width: 100%; }
-      .tw thead, .model-table thead { display: none; }
-      .tw tbody, .model-table tbody { display: block; }
-      /* #tbody { display: table-row-group !important; } (unconditional,
-         desktop-only rendering fix elsewhere in this file) otherwise beats
-         the rule above too — same specificity, !important, but declared
-         earlier in the file, so this later declaration at equal
-         specificity is what actually wins it back for mobile. Without it
-         tbody stays table-row-group here, its "display:block" child <tr>
-         becomes an anonymous table object instead of a real block box, and
-         never actually stretches to the card's full width. */
-      .tw #tbody { display: block !important; }
-
-      .tw tbody tr:not(.sub-row), .model-table tbody tr {
-        display: block;
-        background: var(--card2);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        margin-bottom: 10px;
-        overflow: hidden;
-      }
-
-      /* `tbody tr.main-row { display: table-row !important; }` (added
-         earlier as a desktop rendering fix, unconditional/!important)
-         otherwise beats the block-display rule above on mobile too — the
-         row LOOKS card-like since every td inside is independently
-         flexed/blocked, but the tr's own box stays sized under table
-         auto-layout instead of the full card width, which any
-         percentage-width child (like the Opportunity breakdown bar) then
-         inherits as a silently narrower "100%" than the actual visible
-         card. Needs higher specificity than the plain-tag rule to win
-         regardless of !important vs. source order. */
-      .tw tbody tr.main-row:not(.sub-row) {
-        display: block !important;
-      }
-
-      .tw tbody tr:not(.sub-row) td, .model-table tbody tr td {
-        display: flex !important;
-        flex-direction: row !important;
-        align-items: center !important;
-        justify-content: space-between;
-        gap: 10px;
-        width: 100% !important;
-        padding: 10px 12px !important;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-        white-space: normal;
-        text-align: right;
-        font-size: 11px;
-      }
-      .tw tbody tr:not(.sub-row) td:last-child, .model-table tbody tr td:last-child { border-bottom: none; }
-
-      /* First cell (symbol/sector, or a Sectors/Model row's title column)
-         reads as the card's header, not a label:value line. */
-      .tw tbody tr:not(.sub-row) td:first-child, .model-table tbody tr td:first-child {
-        display: block !important;
-        text-align: left !important;
-        background: rgba(255, 255, 255, 0.025);
-        font-weight: 700;
-      }
-
-      /* Printed label for every other cell, taking the place of the now-
-         hidden column header — see data-label attributes in ui-renders.mjs. */
-      .tw tbody tr:not(.sub-row) td[data-label]::before,
-      .model-table tbody tr td[data-label]::before {
-        content: attr(data-label);
-        font-size: 9px;
-        font-weight: 700;
-        color: var(--muted);
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        font-family: var(--mono);
-        flex-shrink: 0;
-      }
-
-      /* F&O expanded sub-row: same full-width card treatment as its parent row. */
-      .tw tbody tr.sub-row.active { display: block; }
-      .tw tbody tr.sub-row td { display: block !important; width: 100% !important; padding: 0 !important; }
+      /* ── Mobile table handling ───────────────────────────────────────────
+         Every tab is a REAL table, identical to desktop — same rows, same
+         columns, nothing turned into a stacked card. On a narrow screen the
+         table just scrolls horizontally as one unit, the same way an
+         overflowing table scrolls in a desktop browser — no column is
+         pinned/sticky, so nothing appears "stuck" while the rest of the
+         row moves under it. */
+      .tw, .model-tw { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }
+      .tw table, .model-table { width: auto; min-width: 100%; }
+      .tw th, .tw td, .model-table th, .model-table td { white-space: nowrap; font-size: 11px; padding: 8px 10px; }
+      .tw thead th, .model-table thead th { position: sticky; top: 0; background: var(--card2); z-index: 3; }
 
       .checks { max-width: none; justify-content: flex-end; }
 
@@ -2297,19 +2219,6 @@
       /* Rating badges */
       .rat-badge { font-size: 9px; padding: 2px 6px; }
       .flag-group { font-size: 9px; }
-
-      /* Opportunity Score breakdown bar (Intraday) — desktop caps this at
-         130px to fit a narrow table column, but a mobile row is its own
-         full-width card with plenty of room. Two things were fighting
-         this: the cap itself, AND the value container (.opp-cell) not
-         actually stretching to fill the row (a flex item shrinks to its
-         content's width by default, so .bd-bar's width:100% was 100% of
-         its own circular shrink-to-fit size) — together, 8 segments'
-         worth of labels (PA/OPEN/VWAP/ORB/VOL/RS/CONF/FLOW) rendered
-         almost edge-to-edge with no gap between them. */
-      .tw tbody tr:not(.sub-row) td .opp-cell { flex: 1; width: 100%; }
-      .bd-bar { max-width: 280px; gap: 4px; }
-      .bd-seg-label { font-size: 7px; }
 
       /* Index cards — stack price/change vertically instead of side by
          side, so a wide value ("Rs 57,460.70") never collides with the
@@ -2357,8 +2266,8 @@
       /* Tabs — still wrap (from the 768px rule above), just tighter */
       .tab { padding: 6px 8px; font-size: 9px; }
 
-      /* Table cards — tighter padding/font at this width; nothing hidden */
-      .tw tbody tr:not(.sub-row) td, .model-table tbody tr td { padding: 8px 10px !important; font-size: 10px; }
+      /* Tighter cell padding/font at this width */
+      .tw td, .model-table td { padding: 8px 10px; font-size: 10px; }
 
       .sym { font-size: 11px; }
       .tf-purple { font-size: var(--fs-xs); }
@@ -2629,90 +2538,59 @@
            opportunities, act, track holdings. Secondary (below) is
            everything else: still one click away, just not competing for
            the same visual weight as "where do I look next." -->
+      <!-- Flat top-level tab list — no chip-based sub-navigation. Each tab
+           is a full, self-contained view. -->
       <div class="tabs tabs-primary">
         <div class="tab active" data-set="STOCKS">
           <span class="tab-icon">⊞</span>
-          <span class="tab-label">Scanner</span>
+          <span class="tab-label">All Stocks</span>
         </div>
         <div class="tab" data-set="INTRADAY">
           <span class="tab-icon">⚡</span>
           <span class="tab-label">Intraday</span>
           <span class="tab-badge" id="badge-INTRADAY">—</span>
         </div>
-        <div class="tab" data-set="QUALITY">
-          <span class="tab-icon">🏅</span>
-          <span class="tab-label">Top 50</span>
-          <span class="tab-badge" id="badge-QUALITY">—</span>
-        </div>
         <div class="tab" data-set="CRITICAL">
           <span class="tab-icon">🎯</span>
           <span class="tab-label">Critical</span>
           <span class="tab-badge" id="badge-CRITICAL">—</span>
         </div>
-        <div class="tab" data-set="PORTFOLIO">
-          <span class="tab-icon">💼</span>
-          <span class="tab-label">Portfolio</span>
-          <span class="tab-badge" id="badge-PORTFOLIO">—</span>
+        <div class="tab" data-set="GAINERS">
+          <span class="tab-icon">📈</span>
+          <span class="tab-label">Top Gainers</span>
+          <span class="tab-badge" id="badge-GAINERS">—</span>
+        </div>
+        <div class="tab" data-set="LOSERS">
+          <span class="tab-icon">📉</span>
+          <span class="tab-label">Top Losers</span>
+          <span class="tab-badge" id="badge-LOSERS">—</span>
+        </div>
+        <div class="tab" data-set="VOLSHOCK">
+          <span class="tab-icon">💥</span>
+          <span class="tab-label">Volume Shockers</span>
+          <span class="tab-badge" id="badge-VOLSHOCK">—</span>
+        </div>
+        <div class="tab" data-set="RANGE52W">
+          <span class="tab-icon">📊</span>
+          <span class="tab-label">52 Week High/Low</span>
+          <span class="tab-badge" id="badge-RANGE52W">—</span>
+        </div>
+        <div class="tab" data-set="BULLCROSS">
+          <span class="tab-icon">✦</span>
+          <span class="tab-label">Bullish Crossover</span>
+          <span class="tab-badge" id="badge-BULLCROSS">—</span>
+        </div>
+        <div class="tab" data-set="MOMENTUM">
+          <span class="tab-icon">🔥</span>
+          <span class="tab-label">Momentum Burst</span>
+          <span class="tab-badge" id="badge-MOMENTUM">—</span>
+        </div>
+        <div class="tab" data-set="RSI">
+          <span class="tab-icon">🔄</span>
+          <span class="tab-label">RSI Oversold/Overbought</span>
+          <span class="tab-badge" id="badge-RSI">—</span>
         </div>
       </div>
-      <div class="tabs tabs-secondary">
-        <div class="tab" data-set="SCREENERS">
-          <span class="tab-icon">🔎</span>
-          <span class="tab-label">Screeners</span>
-          <span class="tab-badge" id="badge-SCREENERS">—</span>
-        </div>
-        <div class="tab" data-set="SECTORS">
-          <span class="tab-icon">▦</span>
-          <span class="tab-label">Sectors</span>
-          <span class="tab-badge" id="badge-SECTORS">—</span>
-        </div>
-        <div class="tab" data-set="MODEL">
-          <span class="tab-icon">🧠</span>
-          <span class="tab-label">Learning</span>
-          <span class="tab-badge" id="badge-MODEL">—</span>
-        </div>
-      </div>
-
-      <!-- Stock filter chips — All/Golden Cross/Buy/Sell/F&O were separate
-           tabs; now chips over the same cached fetch (visible only on Stocks). -->
-      <div class="stock-filters" id="stockFilters">
-        <div class="stock-chip active" data-filter="ALL" onclick="window.tabManager.switchStockFilter('ALL')">
-          <span>All Stocks</span><span class="chip-badge" id="badge-ALL">—</span>
-        </div>
-        <div class="stock-chip" data-filter="GOLDEN" onclick="window.tabManager.switchStockFilter('GOLDEN')">
-          <span>✦ Golden Cross</span><span class="chip-badge" id="badge-GOLDEN">—</span>
-        </div>
-        <div class="stock-chip" data-filter="BUY" onclick="window.tabManager.switchStockFilter('BUY')">
-          <span>▲ Buy</span><span class="chip-badge" id="badge-BUY">—</span>
-        </div>
-        <div class="stock-chip" data-filter="SELL" onclick="window.tabManager.switchStockFilter('SELL')">
-          <span>▼ Sell</span><span class="chip-badge" id="badge-SELL">—</span>
-        </div>
-        <div class="stock-chip" data-filter="FO" onclick="window.tabManager.switchStockFilter('FO')">
-          <span>◈ F&amp;O</span><span class="chip-badge" id="badge-FO">30</span>
-        </div>
-      </div>
-
-      <!-- Intraday horizon chips — Default (dual-timeframe-confirmed
-           Opportunities) vs Fast Movers (single-timeframe momentum ranking
-           for that horizon). Visible only on the Intraday tab. -->
-      <div class="stock-filters horizon-filters" id="intradayHorizons" style="display:none;">
-        <div class="stock-chip horizon-chip active" data-horizon="DEFAULT" onclick="window.tabManager.switchIntradayHorizon('DEFAULT')">
-          <span>Best Setups (5m+15m confirmed)</span>
-        </div>
-        <div class="stock-chip horizon-chip" data-horizon="5m" onclick="window.tabManager.switchIntradayHorizon('5m')">
-          <span>⚡ Fast Movers · 5 min</span>
-        </div>
-        <div class="stock-chip horizon-chip" data-horizon="10m" onclick="window.tabManager.switchIntradayHorizon('10m')">
-          <span>⚡ Fast Movers · 10 min</span>
-        </div>
-        <div class="stock-chip horizon-chip" data-horizon="15m" onclick="window.tabManager.switchIntradayHorizon('15m')">
-          <span>⚡ Fast Movers · 15 min</span>
-        </div>
-      </div>
-
-      <!-- Portfolio Summary Card (only visible on Portfolio tab) -->
-      <div id="portfolioSummary" class="portfolio-summary" style="display:none;"></div>
 
       <div class="tw tw-scan" id="twWrap">
         <table>

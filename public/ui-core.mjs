@@ -7,14 +7,13 @@ export class StateManager {
   constructor() {
     this.state = {
       activeTab: 'STOCKS',
-      // Sub-filter within the STOCKS tab (All/Golden Cross/Buy/Sell/F&O) —
-      // these used to be separate tabs; now they're chips over the same
-      // cached data, switched without a tab-switch/fetch/loading-flash.
-      stockFilter: localStorage.getItem('scanner_stockFilter') || 'ALL',
-      // Intraday tab: 'DEFAULT' = the flagship dual-timeframe-confirmed
-      // Opportunities list; '5m'/'10m'/'15m' = Fast Movers, a single-
-      // timeframe momentum ranking for that horizon (see ui-renders.mjs).
-      intradayHorizon: localStorage.getItem('scanner_intradayHorizon') || 'DEFAULT',
+      // No filter-chip UI exists anymore (All Stocks/Intraday are flat
+      // tabs, no sub-navigation) — always ALL/DEFAULT, not read from
+      // localStorage, so a pre-existing stale value from before the chips
+      // were removed can't silently filter these tabs with no way to
+      // change it back.
+      stockFilter: 'ALL',
+      intradayHorizon: 'DEFAULT',
       timeframe: localStorage.getItem('scanner_tf') || '15m', // Changed default to 15m
       sortStack: [{ col: 'techScore', asc: false }],
       tabSorts: {}, // Per-tab sort state: { STOCKS::ALL: [...], STOCKS::GOLDEN: [...], INTRADAY: [...], ... }
@@ -377,6 +376,10 @@ export class RenderEngine {
 // PHASE 2: TAB & NAVIGATION MANAGERS
 // ============================================================
 
+// Tabs backed by the single shared /api/screener fetch (see ui-renders.mjs's
+// renderScreenerCategory for the tab -> data-key mapping).
+export const SCREENER_TABS = ['GAINERS', 'LOSERS', 'VOLSHOCK', 'RANGE52W', 'BULLCROSS', 'MOMENTUM', 'RSI'];
+
 // ── 4. TAB MANAGER ───────────────────────────────────────────
 export class TabManager {
   constructor(stateManager, dataManager, renderEngine) {
@@ -434,22 +437,6 @@ export class TabManager {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelector(`.tab[data-set="${newTab}"]`)?.classList.add('active');
 
-    // Horizontal-scroll scan-table mode is only for the high-cardinality
-    // "scan many stocks" tabs — see index.html's .tw-scan mobile CSS.
-    // Sectors/Portfolio/Critical/Model keep the card-per-row transform.
-    const SCAN_TABS = ['STOCKS', 'INTRADAY', 'QUALITY'];
-    document.getElementById('twWrap')?.classList.toggle('tw-scan', SCAN_TABS.includes(newTab));
-
-    // The filter-chip bar only makes sense on the merged Stocks tab.
-    const chipBar = document.getElementById('stockFilters');
-    if (chipBar) chipBar.style.display = newTab === 'STOCKS' ? 'flex' : 'none';
-
-    // The horizon-chip bar only makes sense on the Intraday tab; renderIntraday()
-    // shows it again on every render, this just hides it immediately when
-    // navigating away instead of waiting for the next tab's first render.
-    const horizonBar = document.getElementById('intradayHorizons');
-    if (horizonBar && newTab !== 'INTRADAY') horizonBar.style.display = 'none';
-
     // Clear table and show loading state
     this.showLoadingState();
 
@@ -474,19 +461,12 @@ export class TabManager {
 
   // Cleanup when leaving a tab
   async cleanupTab(tab) {
-    if (tab === 'PORTFOLIO') {
-      // Portfolio cleanup handled by PortfolioManager
-      window.portfolioManager?.stopRefresh();
-      const summaryEl = document.getElementById('portfolioSummary');
-      if (summaryEl) summaryEl.style.display = 'none';
-    }
-
     if (tab === 'INTRADAY') {
       window.hideTopPicks?.();
     }
 
     if (tab === 'STOCKS') {
-      // Clear any expanded F&O row regardless of which chip was active
+      // Clear any expanded F&O row
       window.foManager?.collapseAll();
     }
   }
@@ -505,47 +485,29 @@ export class TabManager {
     }
 
     // Load appropriate data based on tab
-    if (tab === 'PORTFOLIO') {
-      await window.portfolioManager?.loadAndRender();
-    } else if (tab === 'SECTORS') {
-      // Sectors always use daily data (1d_ALL) — force a real fetch like
-      // every other tab, so switching here can't silently serve up to 30s
-      // of stale cached /api/state data on tab entry.
-      const data = await this.data.fetchState('1d', 'ALL', true);
-      if (data) {
-        window.renderSectors(data);
-      } else {
-        console.error('[TabManager] Failed to fetch sectors data');
-      }
-    } else if (tab === 'INTRADAY') {
+    if (tab === 'INTRADAY') {
       // Intraday always needs both 5m and 15m regardless of the timeframe
       // dropdown — /api/state returns the full scan state either way.
       const data = await this.data.fetchState('INTRADAY', 'INTRADAY', true);
       if (data) {
         window.renderIntraday(data);
         window.updateBadges?.(data);
+        window.updateLastUpdatedBadge?.(data);
       } else {
         console.error('[TabManager] Failed to fetch intraday data');
       }
-    } else if (tab === 'QUALITY') {
-      // Same full /api/state snapshot as every other tab — qualityList is
-      // just another field on it, computed once per scan cycle server-side.
-      const data = await this.data.fetchState('QUALITY', 'QUALITY', true);
-      if (data) {
-        window.renderQuality(data);
-        window.updateBadges?.(data);
-      } else {
-        console.error('[TabManager] Failed to fetch quality-list data');
-      }
-    } else if (tab === 'SCREENERS') {
+    } else if (SCREENER_TABS.includes(tab)) {
+      // Top Gainers/Losers/Volume Shockers/52W High-Low/Bullish Crossover/
+      // Momentum Burst/RSI Oversold-Overbought — one shared market-wide
+      // screener fetch, each tab just renders a different slice of it.
       const data = await this.data.fetchScreener();
-      window.renderScreeners(data);
-      if (data) window.updateBadges?.(null, data);
+      window.renderScreenerCategory(tab, data);
+      if (data) {
+        window.updateBadges?.(null, data);
+        window.updateLastUpdatedBadge?.(data);
+      }
     } else if (tab === 'CRITICAL') {
       await window.criticalManager?.fetchAndRender();
-    } else if (tab === 'MODEL') {
-      const data = await this.data.fetchLearningOverview();
-      window.renderModel(data);
     } else {
       await this.loadScannerData();
     }
@@ -576,65 +538,10 @@ export class TabManager {
       if (typeof window.updateBadges === 'function') {
         window.updateBadges(data);
       }
+
+      window.updateLastUpdatedBadge?.(data);
     } else {
       console.error(`[TabManager] ❌ Failed to fetch scanner data for tab=${tab}, timeframe=${timeframe}`);
-    }
-  }
-
-  // Switch the STOCKS-tab filter chip (All/Golden Cross/Buy/Sell/F&O). These
-  // used to be separate tabs, each redundantly re-fetching the identical
-  // /api/state blob just to read a different bucket out of it — now it's one
-  // fetch per (timeframe, STOCKS) and the chip only changes which bucket
-  // renderStocks() reads, so switching is instant with no loading flash.
-  switchStockFilter(newFilter) {
-    const oldFilter = this.state.get('stockFilter');
-    if (oldFilter === newFilter) return;
-
-    if (oldFilter === 'FO') window.foManager?.collapseAll();
-
-    // Save sort for the outgoing chip
-    const tabSorts = this.state.get('tabSorts');
-    tabSorts[`STOCKS::${oldFilter}`] = [...this.state.get('sortStack')];
-
-    this.state.set('stockFilter', newFilter);
-    this.state.persist();
-
-    // Restore (or default) sort for the incoming chip
-    const savedSort = tabSorts[`STOCKS::${newFilter}`];
-    this.state.set('sortStack', savedSort ? [...savedSort] : [{ col: newFilter === 'FO' ? 'volumeChange' : 'techScore', asc: false }]);
-    this.state.set('tabSorts', tabSorts);
-
-    document.querySelectorAll('.stock-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === newFilter));
-
-    // Re-render from the already-cached blob — no network fetch needed.
-    const timeframe = this.state.get('timeframe');
-    const dataKey = this.data.cacheKey(timeframe, 'STOCKS');
-    const cached = this.data.cache.get(dataKey);
-    if (cached?.data) {
-      window.renderStocks(cached.data);
-      window.updateBadges?.(cached.data);
-    } else {
-      this.loadScannerData();
-    }
-  }
-
-  // Switch the Intraday tab's horizon chip (Default / 5 min / 10 min /
-  // 15 min Fast Movers) — same cached /api/state blob, just a different
-  // pre-computed list (data.intradayOpportunities vs data.fastMovers[tf]),
-  // so switching is instant with no re-fetch, same pattern as
-  // switchStockFilter().
-  switchIntradayHorizon(newHorizon) {
-    const oldHorizon = this.state.get('intradayHorizon');
-    if (oldHorizon === newHorizon) return;
-
-    this.state.set('intradayHorizon', newHorizon);
-    this.state.persist();
-
-    document.querySelectorAll('.horizon-chip').forEach(c => c.classList.toggle('active', c.dataset.horizon === newHorizon));
-
-    const cached = this.data.cache.get(this.data.cacheKey('INTRADAY', 'INTRADAY'));
-    if (cached?.data) {
-      window.renderIntraday(cached.data);
     }
   }
 

@@ -2,7 +2,7 @@
 // PHASE 3: REAL-TIME UPDATES & USER INTERACTIONS
 // ============================================================
 
-import { StateManager, DataManager, RenderEngine, TabManager, TimeframeManager } from './ui-core.mjs';
+import { StateManager, DataManager, RenderEngine, TabManager, TimeframeManager, SCREENER_TABS } from './ui-core.mjs';
 
 // Re-export TabManager and TimeframeManager from ui-core.mjs
 export { TabManager, TimeframeManager };
@@ -22,12 +22,14 @@ export class LivePriceUpdater {
     if (this.intervalId) return;
 
     this.intervalId = setInterval(async () => {
-      // Skip if tab is hidden, market closed, or on Portfolio/Sectors
+      // Skip if tab is hidden, market closed, or on a screener tab (those
+      // don't use this cache — /api/screener refreshes on its own ~15min
+      // cycle, not per-tick LTP patching).
       if (document.hidden) return;
       if (!this.state.get('marketOpen')) return;
 
       const activeTab = this.state.get('activeTab');
-      if (activeTab === 'PORTFOLIO' || activeTab === 'SECTORS') return;
+      if (activeTab === 'CRITICAL' || SCREENER_TABS.includes(activeTab)) return;
 
       await this.update();
     }, 3000);

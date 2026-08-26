@@ -2,7 +2,7 @@
 // MAIN INTEGRATION FILE - Wires everything together
 // ============================================================
 
-import { StateManager, DataManager, RenderEngine } from './ui-core.mjs';
+import { StateManager, DataManager, RenderEngine, SCREENER_TABS } from './ui-core.mjs';
 import { TabManager, TimeframeManager, LivePriceUpdater, PortfolioManager, SortManager, SearchFilter, FOManager, IntervalManager, CriticalManager, ModelManager } from './ui-managers.mjs';
 import './ui-renders.mjs';
 
@@ -56,8 +56,6 @@ async function initApp() {
 
   const divToggle = document.getElementById('divTgl');
   if (divToggle) divToggle.checked = currentState.showDividend;
-
-  document.querySelectorAll('.horizon-chip').forEach(c => c.classList.toggle('active', c.dataset.horizon === currentState.intradayHorizon));
 
   tabManager.init();
   sortManager.init();
@@ -156,12 +154,13 @@ function startBackgroundTasks() {
   // Full state reload (every 30s)
   intervalManager.add('fullReload', async () => {
     const activeTab = stateManager.get('activeTab');
-    if (activeTab === 'PORTFOLIO' || activeTab === 'CRITICAL' || activeTab === 'MODEL') return; // handled by their own managers / refresh on their own once-daily cadence
-    if (activeTab === 'SCREENERS') {
+    if (activeTab === 'CRITICAL') return; // CriticalManager polls on its own 8s cadence
+    if (SCREENER_TABS.includes(activeTab)) {
       const screenerData = await dataManager.fetchScreener();
       if (screenerData) {
-        window.renderScreeners(screenerData);
+        window.renderScreenerCategory(activeTab, screenerData);
         updateBadges(null, screenerData);
+        updateLastUpdatedBadge(screenerData);
       }
       return;
     }
@@ -171,8 +170,6 @@ function startBackgroundTasks() {
     window.renderRegimeBanner?.(data.marketRegime);
     if (activeTab === 'INTRADAY') {
       window.renderIntraday(data);
-    } else if (activeTab === 'SECTORS') {
-      window.renderSectors(data);
     } else {
       renderStocks(data);
     }
@@ -298,26 +295,23 @@ async function pollStatus() {
       scanDataInterval = setInterval(async () => {
         const activeTab = stateManager.get('activeTab');
         // These tabs each have their own independent data source/refresh
-        // path (CriticalManager's 8s poll, Screeners' own ~15min cycle,
-        // Portfolio/Model's own managers) — fetching /api/state and falling
-        // through to renderStocks() for them would overwrite their correct
-        // view with the generic stocks table every 3s while a scan is
-        // running (this was a real, visible bug: a Critical trade card
-        // flickering into "No results for current filter" every few
-        // seconds during market hours).
+        // path (CriticalManager's 8s poll, the screener tabs' own ~15min
+        // cycle) — fetching /api/state and falling through to renderStocks()
+        // for them would overwrite their correct view with the generic
+        // stocks table every 3s while a scan is running (this was a real,
+        // visible bug: a Critical trade card flickering into "No results
+        // for current filter" every few seconds during market hours).
         if (activeTab === 'CRITICAL') {
           window.criticalManager?.fetchAndRender();
           return;
         }
-        if (activeTab === 'PORTFOLIO' || activeTab === 'MODEL' || activeTab === 'SCREENERS') return;
+        if (SCREENER_TABS.includes(activeTab)) return;
 
         const st = await dataManager.fetchState(stateManager.get('timeframe'), activeTab, true);
         if (st?.lastUpdated && st.lastUpdated !== lastUpdatedTs) {
           lastUpdatedTs = st.lastUpdated;
           if (activeTab === 'INTRADAY') {
             window.renderIntraday(st);
-          } else if (activeTab === 'SECTORS') {
-            window.renderSectors(st);
           } else {
             renderStocks(st);
           }
@@ -338,7 +332,19 @@ async function pollStatus() {
       const activeTab = stateManager.get('activeTab');
       if (activeTab === 'CRITICAL') {
         window.criticalManager?.fetchAndRender();
-      } else if (activeTab !== 'MODEL' && activeTab !== 'PORTFOLIO' && activeTab !== 'SCREENERS') {
+      } else if (SCREENER_TABS.includes(activeTab)) {
+        const screenerData = await dataManager.fetchScreener();
+        if (screenerData) {
+          window.renderScreenerCategory(activeTab, screenerData);
+          updateBadges(null, screenerData);
+        }
+      } else if (activeTab === 'INTRADAY') {
+        const data = await dataManager.fetchState(timeframe, activeTab, true);
+        if (data) {
+          window.renderIntraday(data);
+          updateBadges(data);
+        }
+      } else {
         const data = await dataManager.fetchState(timeframe, activeTab, true);
         if (data) {
           renderStocks(data);
@@ -524,50 +530,43 @@ function setupKeyboardShortcuts() {
         break;
       case '4':
         e.preventDefault();
-        document.querySelector('[data-set="SCREENERS"]')?.click();
+        document.querySelector('[data-set="GAINERS"]')?.click();
         break;
       case '5':
         e.preventDefault();
-        document.querySelector('[data-set="SECTORS"]')?.click();
+        document.querySelector('[data-set="LOSERS"]')?.click();
         break;
       case '6':
         e.preventDefault();
-        document.querySelector('[data-set="PORTFOLIO"]')?.click();
+        document.querySelector('[data-set="VOLSHOCK"]')?.click();
         break;
       case '7':
         e.preventDefault();
-        document.querySelector('[data-set="MODEL"]')?.click();
+        document.querySelector('[data-set="RANGE52W"]')?.click();
+        break;
+      case '8':
+        e.preventDefault();
+        document.querySelector('[data-set="BULLCROSS"]')?.click();
+        break;
+      case '9':
+        e.preventDefault();
+        document.querySelector('[data-set="MOMENTUM"]')?.click();
+        break;
+      case '0':
+        e.preventDefault();
+        document.querySelector('[data-set="RSI"]')?.click();
         break;
     }
   });
 }
 
-// ── Manual Load Function (for refresh button) ────────────────
+// ── Manual Load Function (for refresh button) ─────────────────
+// Delegates to TabManager.loadTabData, which already knows the correct
+// fetch/render path per tab (and force-fetches) — this used to duplicate
+// that dispatch here, out of sync with the actual tab set (it called
+// renderStocks for Intraday, since it had never been taught that tab).
 async function manualLoad() {
-  const activeTab = stateManager.get('activeTab');
-  if (activeTab === 'MODEL') {
-    const data = await dataManager.fetchLearningOverview();
-    window.renderModel(data);
-    return;
-  }
-  if (activeTab === 'CRITICAL') {
-    await window.criticalManager?.fetchAndRender();
-    return;
-  }
-  const timeframe = stateManager.get('timeframe');
-  const data = await dataManager.fetchState(timeframe, activeTab, true);
-
-  if (data) {
-    if (activeTab === 'PORTFOLIO') {
-      await portfolioManager.loadAndRender(true);
-    } else if (activeTab === 'SECTORS') {
-      renderSectors(data);
-    } else {
-      renderStocks(data);
-      updateBadges(data);
-      updateLastUpdatedBadge(data);
-    }
-  }
+  await tabManager.loadTabData(stateManager.get('activeTab'));
 }
 
 // ── Start the app ────────────────────────────────────────────

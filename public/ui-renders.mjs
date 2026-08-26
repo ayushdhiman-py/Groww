@@ -1007,36 +1007,57 @@ const SCREENER_SECTIONS = [
   { key: 'bullishCrossover', title: 'Bullish Crossover', icon: '✦', color: '#a78bfa', meta: r => ({ label: 'EMA Gap', value: `${(r.emaGap || 0).toFixed(2)}%`, cls: 'up' }) },
   { key: 'momentumBurst', title: 'Momentum Burst', icon: '🔥', color: '#fb923c', meta: r => ({ label: 'MACD', value: (r.macdVal ?? 0).toFixed(2), cls: 'up' }) },
   { key: 'rsiOversold', title: 'RSI Oversold', icon: '🔄', color: '#38bdf8', meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
+  { key: 'rsiOverbought', title: 'RSI Overbought', icon: '🔺', color: '#ef4444', meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
 ];
 
-function screenerCardHtml(section, rows) {
-  const nseUrl = sym => `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(sym.toUpperCase())}`;
-  const rowsHtml = rows.length
-    ? rows.slice(0, 8).map(r => {
-        const m = section.meta(r);
-        return `<div style="display:grid; grid-template-columns:1fr 70px 55px auto; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid rgba(255,255,255,0.04);">
-          <a href="${nseUrl(r.symbol)}" target="_blank" rel="noopener noreferrer" style="color:var(--text); text-decoration:none; font-weight:600; font-size:11px; font-family:var(--mono);">${r.symbol}</a>
-          <span style="font-family:var(--mono); font-size:11px; text-align:right;">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</span>
-          <div style="cursor:pointer;" onclick="window.openModalChart('${r.symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>
-          <span class="${m.cls}" style="font-family:var(--mono); font-size:10px; text-align:right; white-space:nowrap;">${m.value}</span>
-        </div>`;
-      }).join('')
-    : `<div style="padding:14px 0; text-align:center; color:var(--muted); font-size:11px;">No stocks currently match.</div>`;
+// Each screener tab shows one or two SCREENER_SECTIONS entries as its full
+// content — 52 Week High/Low and RSI Oversold/Overbought are pairs shown
+// as two stacked labeled groups on one page (not a click-to-switch chip;
+// both are always visible, matching "no subtabs").
+const SCREENER_TAB_MAP = {
+  GAINERS: ['gainers'],
+  LOSERS: ['losers'],
+  VOLSHOCK: ['volumeShockers'],
+  RANGE52W: ['high52w', 'low52w'],
+  BULLCROSS: ['bullishCrossover'],
+  MOMENTUM: ['momentumBurst'],
+  RSI: ['rsiOversold', 'rsiOverbought'],
+};
 
-  return `<div class="card" style="min-width:280px; flex:1;">
-    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
-      <span style="font-size:14px;">${section.icon}</span>
-      <span style="font-size:12px; font-weight:700; color:${section.color};">${section.title}</span>
-      <span style="margin-left:auto; font-size:9px; color:var(--muted); font-family:var(--mono);">${rows.length}</span>
-    </div>
-    ${rowsHtml}
-  </div>`;
+const SCREENER_TABLE_HEADER = `<tr>
+  <th style="text-align:left;">Stock</th>
+  <th>Price</th>
+  <th>Chart</th>
+  <th>Value</th>
+</tr>`;
+
+function screenerRowHtml(r, meta) {
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(r.symbol.toUpperCase())}`;
+  const m = meta(r);
+  return `<tr class="main-row">
+    <td style="text-align:left;"><div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;">${r.symbol}</a></div></td>
+    <td><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</td>
+    <td><div style="cursor:pointer; display:flex; justify-content:center;" onclick="window.openModalChart('${r.symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div></td>
+    <td class="${m.cls}" style="font-weight:700;">${m.value}</td>
+  </tr>`;
 }
 
-function renderScreeners(data) {
+// Combined tabs (52W High/Low, RSI Oversold/Overbought) show both halves
+// as one continuous table under a shared header, separated by a labeled
+// divider row — not a click-to-switch chip, both stay always visible.
+function screenerDividerRow(section, count) {
+  return `<tr class="screener-divider"><td colspan="4"><span style="font-size:14px;">${section.icon}</span> <span style="color:${section.color}; font-weight:700;">${section.title}</span> <span class="muted-xl">(${count})</span></td></tr>`;
+}
+
+const SCREENER_EMPTY_ROW = `<tr><td colspan="4" style="text-align:center; color:var(--muted);">No stocks currently match.</td></tr>`;
+
+// Renders one screener tab's full content — Top Gainers/Losers/Volume
+// Shockers/52W High-Low/Bullish Crossover/Momentum Burst/RSI Oversold-
+// Overbought all share this, differing only in SCREENER_TAB_MAP[tab].
+function renderScreenerCategory(tab, data) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
-  document.getElementById('tableHeader').innerHTML = '';
+  document.getElementById('tableHeader').innerHTML = SCREENER_TABLE_HEADER;
   const restoreScroll = captureScroll();
 
   if (!data) {
@@ -1055,18 +1076,30 @@ function renderScreeners(data) {
     // whole set is as fresh as the cycle time.
     const asOfTs = data.dataAsOf ?? (data.lastUpdated ? Date.parse(data.lastUpdated) : null);
     const updated = asOfTs ? new Date(asOfTs).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit' }) : '—';
-    rcEl.textContent = `Screeners: Nifty ${data.universeSize || 500} · data as of ${updated} · refreshes ~every 15 min`;
+    rcEl.textContent = `Nifty ${data.universeSize || 500} · data as of ${updated} · refreshes ~every 15 min`;
   }
 
   if (empty) empty.style.display = 'none';
 
-  const cards = SCREENER_SECTIONS.map(s => screenerCardHtml(s, data[s.key] || [])).join('');
-  tbody.innerHTML = `<div style="padding:14px; display:flex; flex-wrap:wrap; gap:14px;">
-    <div style="width:100%; font-size:10px; color:var(--muted); padding:0 2px;">
-      ⚠️ These are calculated from live market data (price, volume, technical indicators) — not predictions, and not "most searched" lists (no market API exposes that; it's proprietary to each broker's app).
-    </div>
-    ${cards}
-  </div>`;
+  const keys = SCREENER_TAB_MAP[tab] || [];
+  const sections = keys.map(k => SCREENER_SECTIONS.find(s => s.key === k)).filter(Boolean);
+
+  let rowsHtml;
+  if (sections.length > 1) {
+    // Combined tab — divider row + rows per section.
+    rowsHtml = sections.map(s => {
+      const rows = data[s.key] || [];
+      return screenerDividerRow(s, rows.length) + (rows.length ? rows.map(r => screenerRowHtml(r, s.meta)).join('') : SCREENER_EMPTY_ROW);
+    }).join('');
+  } else if (sections[0]) {
+    // Single-category tab — no divider needed, the tab itself is the label.
+    const rows = data[sections[0].key] || [];
+    rowsHtml = rows.length ? rows.map(r => screenerRowHtml(r, sections[0].meta)).join('') : SCREENER_EMPTY_ROW;
+  } else {
+    rowsHtml = SCREENER_EMPTY_ROW;
+  }
+
+  tbody.innerHTML = rowsHtml;
   restoreScroll();
 }
 
@@ -1484,8 +1517,17 @@ function updateStatCards(data) {
 // ── HELPER: Update badges ────────────────────────────────────
 function updateBadges(data, screenerData) {
   if (screenerData) {
-    const el = document.getElementById('badge-SCREENERS');
-    if (el) el.textContent = screenerData.gainers?.length || '—';
+    const setScreenerBadge = (id, val) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = val === 0 ? '0' : (val || '—');
+    };
+    setScreenerBadge('badge-GAINERS', screenerData.gainers?.length);
+    setScreenerBadge('badge-LOSERS', screenerData.losers?.length);
+    setScreenerBadge('badge-VOLSHOCK', screenerData.volumeShockers?.length);
+    setScreenerBadge('badge-RANGE52W', (screenerData.high52w?.length || 0) + (screenerData.low52w?.length || 0));
+    setScreenerBadge('badge-BULLCROSS', screenerData.bullishCrossover?.length);
+    setScreenerBadge('badge-MOMENTUM', screenerData.momentumBurst?.length);
+    setScreenerBadge('badge-RSI', (screenerData.rsiOversold?.length || 0) + (screenerData.rsiOverbought?.length || 0));
   }
   if (!data?.data) return;
 
@@ -1531,14 +1573,7 @@ function updateBadges(data, screenerData) {
   const uniqueSell = new Set(sells.map(r => r.symbol)).size;
   const uniqueSectors = new Set(all.map(r => r.sector).filter(Boolean)).size;
 
-  setBadge('badge-GOLDEN', uniqueGolden);
-  setBadge('badge-ALL', uniqueAll);
-  setBadge('badge-BUY', uniqueBuy);
-  setBadge('badge-SELL', uniqueSell);
-  setBadge('badge-FO', 30);
-  setBadge('badge-SECTORS', uniqueSectors);
   setBadge('badge-INTRADAY', computeIntradayCandidates(data).length);
-  setBadge('badge-QUALITY', data.qualityList?.list?.length ?? 0);
 }
 
 // ── HELPER: Update last updated badge ────────────────────────
@@ -1589,12 +1624,8 @@ function updateScanProgressBadge(status) {
 function renderCurrentView() {
   const activeTab = window.stateManager.get('activeTab');
 
-  if (activeTab === 'PORTFOLIO') {
-    renderPortfolio(window.dataManager.portfolioCache?.data);
-    return;
-  }
-  if (activeTab === 'SCREENERS') {
-    renderScreeners(window.dataManager.screenerCache?.data);
+  if (activeTab in SCREENER_TAB_MAP) {
+    renderScreenerCategory(activeTab, window.dataManager.screenerCache?.data);
     return;
   }
 
@@ -1603,9 +1634,7 @@ function renderCurrentView() {
   const cached = window.dataManager.cache.get(dataKey);
   if (!cached?.data) return;
 
-  if (activeTab === 'SECTORS') {
-    renderSectors(cached.data);
-  } else if (activeTab === 'INTRADAY') {
+  if (activeTab === 'INTRADAY') {
     renderIntraday(cached.data);
   } else {
     renderStocks(cached.data);
@@ -1623,10 +1652,23 @@ function critStateColor(state) {
   return '#ef4444';
 }
 
+const CRITICAL_TABLE_HEADER = `<tr>
+  <th style="text-align:left;">Stock</th>
+  <th>Health</th>
+  <th>Live Price</th>
+  <th>P&amp;L</th>
+  <th>Peak</th>
+  <th>Giveback</th>
+  <th>Stop / Target</th>
+  <th>Deterioration</th>
+  <th>Trend</th>
+  <th>Actions</th>
+</tr>`;
+
 function renderCritical(payload) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
-  document.getElementById('tableHeader').innerHTML = '';
+  document.getElementById('tableHeader').innerHTML = CRITICAL_TABLE_HEADER;
 
   // Same wholesale-replacement scroll issue as renderIntraday — this tab
   // polls every ~8s, so without this a health-score update yanks the user
@@ -1649,7 +1691,7 @@ function renderCritical(payload) {
   }
   if (empty) empty.style.display = 'none';
 
-  const cards = trades.map(t => {
+  const rows = trades.map(t => {
     const health = t.lastHealth || {};
     const score = health.score ?? '—';
     const state = health.state || 'PENDING';
@@ -1659,7 +1701,7 @@ function renderCritical(payload) {
     const history = (t.minuteHistory || []).slice(-30);
     const historySpark = history.length >= 2
       ? generateSparkline(history.map(h => h.health), history.map(() => history[0]?.health ?? 50), history.map(() => history[0]?.health ?? 50))
-      : '<span class="muted-xl">Building history…</span>';
+      : '<span class="muted-xl">Building…</span>';
 
     const notifHtml = (t.notifications || []).slice(0, 4).map(n =>
       `<div class="crit-notif severity-${n.severity}">${n.type}: ${n.message}</div>`
@@ -1677,37 +1719,32 @@ function renderCritical(payload) {
       ? `<div class="crit-warnings">${health.warnings.slice(0, 4).join(' · ')}</div>`
       : '';
 
-    return `<div class="crit-card ${critStateClass(state)}">
-      <div class="crit-card-head">
-        <div>
-          <span class="sym" style="font-size:15px;">${t.symbol}</span>
-          <span class="muted-xl" style="margin-left:8px;">Qty ${t.quantity} @ ₹${t.entryPrice}</span>
+    const detailHtml = [warningsHtml, trapHtml, betterOppHtml, notifHtml].filter(Boolean).join('');
+
+    return `<tr class="main-row ${critStateClass(state)}">
+      <td style="text-align:left;">
+        <div class="sym">${t.symbol}</div>
+        <div class="muted-xl">Qty ${t.quantity} @ ₹${t.entryPrice}</div>
+      </td>
+      <td><span class="crit-health-badge" style="background:${critStateColor(state)}22;color:${critStateColor(state)};">${score} — ${state}</span></td>
+      <td>₹${health.price ?? '—'}</td>
+      <td class="${pnlCls}">₹${pnl.toFixed ? pnl.toFixed(2) : pnl} (${pnlPct >= 0 ? '+' : ''}${pnlPct}%)</td>
+      <td>₹${t.peakPrice}</td>
+      <td>${t.givebackPct != null ? t.givebackPct + '%' : '—'}</td>
+      <td>${t.stopLoss ?? '—'} / ${t.target ?? '—'}</td>
+      <td>${t.lastDeteriorationPattern || '—'}</td>
+      <td>${historySpark}</td>
+      <td>
+        <div class="crit-actions">
+          <button onclick="window.criticalManager?.promptEditLevels('${t.id}', ${t.stopLoss ?? 'null'}, ${t.target ?? 'null'})">Edit SL/Target</button>
+          <button onclick="window.criticalManager?.closeTrade('${t.id}')">Close Trade</button>
         </div>
-        <span class="crit-health-badge" style="background:${critStateColor(state)}22;color:${critStateColor(state)};">
-          ${score} — ${state}
-        </span>
-      </div>
-      <div class="crit-metrics">
-        <div><div class="m-label">Live Price</div><div>₹${health.price ?? '—'}</div></div>
-        <div><div class="m-label">P&amp;L</div><div class="${pnlCls}">₹${pnl.toFixed ? pnl.toFixed(2) : pnl} (${pnlPct >= 0 ? '+' : ''}${pnlPct}%)</div></div>
-        <div><div class="m-label">Peak Price</div><div>₹${t.peakPrice}</div></div>
-        <div><div class="m-label">Giveback</div><div>${t.givebackPct != null ? t.givebackPct + '%' : '—'}</div></div>
-        <div><div class="m-label">Stop / Target</div><div>${t.stopLoss ?? '—'} / ${t.target ?? '—'}</div></div>
-        <div><div class="m-label">Deterioration</div><div>${t.lastDeteriorationPattern || '—'}</div></div>
-      </div>
-      <div style="opacity:0.8;">${historySpark}</div>
-      ${warningsHtml}
-      ${trapHtml}
-      ${betterOppHtml}
-      ${notifHtml}
-      <div class="crit-actions" style="margin-top:10px;">
-        <button onclick="window.criticalManager?.promptEditLevels('${t.id}', ${t.stopLoss ?? 'null'}, ${t.target ?? 'null'})">Edit SL/Target</button>
-        <button onclick="window.criticalManager?.closeTrade('${t.id}')">Close Trade</button>
-      </div>
-    </div>`;
+      </td>
+    </tr>
+    ${detailHtml ? `<tr class="sub-row active"><td colspan="10"><div class="sub-wrap">${detailHtml}</div></td></tr>` : ''}`;
   }).join('');
 
-  tbody.innerHTML = `<div class="crit-grid">${cards}</div>`;
+  tbody.innerHTML = rows;
   restoreScroll();
 }
 
@@ -1877,7 +1914,7 @@ window.renderSectors = renderSectors;
 window.renderIntraday = renderIntraday;
 window.renderQuality = renderQuality;
 window.hideTopPicks = hideTopPicks;
-window.renderScreeners = renderScreeners;
+window.renderScreenerCategory = renderScreenerCategory;
 window.renderPortfolio = renderPortfolio;
 window.renderCritical = renderCritical;
 window.renderModel = renderModel;
