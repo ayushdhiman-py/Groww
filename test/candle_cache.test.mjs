@@ -2,7 +2,7 @@ import { test, mock, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import axios from "axios";
 import { _setMapsForTesting } from "../src/instruments.mjs";
-import { getOrFetchCandles, peekCandles, clearCandleCache, cacheStats, resampleFrom1m } from "../src/candle_cache.mjs";
+import { getOrFetchCandles, peekCandles, clearCandleCache, cacheStats } from "../src/candle_cache.mjs";
 
 afterEach(() => { mock.restoreAll(); clearCandleCache(); });
 
@@ -20,76 +20,20 @@ function mockCandleResponse(closes) {
     };
 }
 
-// Fixed session-aligned timestamps (9:15 IST = 03:45 UTC) instead of
-// Date.now()-relative ones, so resampling-bucket assertions are
-// deterministic regardless of what wall-clock second the suite runs at.
-const SESSION_OPEN_UTC = new Date("2026-01-05T03:45:00.000Z").getTime();
-function mockOneMinResponse(bars) {
-    return {
-        data: {
-            status: "success",
-            data: {
-                candles: bars.map((b, i) => [
-                    new Date(SESSION_OPEN_UTC + i * 60_000).toISOString(),
-                    b.o, b.h, b.l, b.c, b.v,
-                ]),
-            },
-        },
-    };
-}
-
-test("requesting a consolidated timeframe (5m) fetches the shared 1m base once, then serves the resampled result from cache within TTL", async () => {
+test("each timeframe is fetched and cached independently — no shared base", async () => {
     _setMapsForTesting([{ symbol: "TESTSYM", instrumentKey: "NSE_EQ|TEST" }]);
     let calls = 0;
-    const bars = Array.from({ length: 10 }, (_, i) => ({ o: 100 + i, h: 100 + i + 0.5, l: 100 + i - 0.5, c: 100 + i, v: 1000 }));
-    mock.method(axios, "get", async () => { calls++; return mockOneMinResponse(bars); });
-
-    const first = await getOrFetchCandles("TESTSYM", "5m");
-    assert.equal(calls, 1, "cold cache must fetch exactly once (the shared 1m base), not once per timeframe");
-    assert.equal(first.length, 2, "10 one-minute bars from session open bucket into exactly two 5-minute bars");
-
-    const second = await getOrFetchCandles("TESTSYM", "5m");
-    assert.equal(calls, 1, "a cache hit within TTL must not trigger another network request");
-    assert.deepEqual(second, first);
-
-    const stats = cacheStats();
-    assert.equal(stats.hits, 1);
-    assert.equal(stats.misses, 1);
-});
-
-test("1m/5m/10m/15m share ONE underlying fetch — the whole point of base consolidation", async () => {
-    _setMapsForTesting([{ symbol: "TESTSYM", instrumentKey: "NSE_EQ|TEST" }]);
-    let calls = 0;
-    const bars = Array.from({ length: 20 }, (_, i) => ({ o: 100 + i, h: 100 + i + 0.5, l: 100 + i - 0.5, c: 100 + i, v: 1000 }));
-    mock.method(axios, "get", async () => { calls++; return mockOneMinResponse(bars); });
+    mock.method(axios, "get", async () => { calls++; return mockCandleResponse([100 + calls]); });
 
     await getOrFetchCandles("TESTSYM", "1m");
     await getOrFetchCandles("TESTSYM", "5m");
     await getOrFetchCandles("TESTSYM", "10m");
     await getOrFetchCandles("TESTSYM", "15m");
-    assert.equal(calls, 1, "four consolidated timeframes for the same symbol must cost exactly one network call total");
-});
+    assert.equal(calls, 4, "four distinct timeframes for the same symbol must cost four separate network calls");
 
-test("resampleFrom1m aggregates OHLCV correctly into session-aligned 5-minute buckets", () => {
-    const bars = [
-        { ts: SESSION_OPEN_UTC + 0 * 60_000, open: 100, high: 101, low: 99, close: 100.5, volume: 10 },
-        { ts: SESSION_OPEN_UTC + 1 * 60_000, open: 100.5, high: 102, low: 100, close: 101, volume: 20 },
-        { ts: SESSION_OPEN_UTC + 2 * 60_000, open: 101, high: 101.5, low: 98, close: 99, volume: 30 },
-        { ts: SESSION_OPEN_UTC + 3 * 60_000, open: 99, high: 100, low: 97, close: 98, volume: 40 },
-        { ts: SESSION_OPEN_UTC + 4 * 60_000, open: 98, high: 99, low: 96, close: 97, volume: 50 },
-        // second 5-minute bucket
-        { ts: SESSION_OPEN_UTC + 5 * 60_000, open: 97, high: 98, low: 95, close: 96, volume: 5 },
-    ];
-    const resampled = resampleFrom1m(bars, 5 * 60_000);
-    assert.equal(resampled.length, 2);
-    assert.equal(resampled[0].ts, SESSION_OPEN_UTC);
-    assert.equal(resampled[0].open, 100, "open = first bar's open");
-    assert.equal(resampled[0].high, 102, "high = max across the bucket");
-    assert.equal(resampled[0].low, 96, "low = min across the bucket");
-    assert.equal(resampled[0].close, 97, "close = last bar's close");
-    assert.equal(resampled[0].volume, 150, "volume = sum across the bucket");
-    assert.equal(resampled[1].open, 97);
-    assert.equal(resampled[1].volume, 5);
+    const cached = await getOrFetchCandles("TESTSYM", "5m");
+    assert.equal(calls, 4, "a cache hit within TTL must not trigger another network request");
+    assert.ok(cached.length);
 });
 
 test("forceRefresh bypasses the cache even within TTL", async () => {
