@@ -27,6 +27,27 @@
       --purple: #a78bfa;
       --mono: 'JetBrains Mono', monospace;
       --sans: 'Sora', sans-serif;
+
+      /* Spacing (4px base) */
+      --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px;
+      --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-10: 40px;
+      /* Radius */
+      --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+      /* Fluid type (clamp: min, preferred, max — tuned 320px..1450px) */
+      --fs-xs: clamp(11px, 0.65rem + 0.15vw, 12px);
+      --fs-sm: clamp(12px, 0.7rem + 0.2vw, 13px);
+      --fs-base: clamp(13px, 0.75rem + 0.25vw, 14px);
+      --fs-md: clamp(14px, 0.8rem + 0.35vw, 16px);
+      --fs-lg: clamp(16px, 0.9rem + 0.6vw, 20px);
+      --fs-xl: clamp(20px, 1rem + 1.2vw, 28px);
+      /* Touch target minimum */
+      --tap-min: 44px;
+      /* Shadow */
+      --shadow-1: 0 2px 8px rgba(0,0,0,.35);
+      --shadow-2: 0 8px 32px rgba(0,0,0,.5);
+      /* .tw-scan sticky column 1 width — consumed by both its own max-width
+         and column 2's sticky `left` offset so they can't drift apart. */
+      --sticky-col1-w: 130px;
     }
 
     * {
@@ -918,6 +939,7 @@
       transition: all 0.15s ease-out;
       user-select: none;
       white-space: nowrap;
+      position: relative;
     }
 
     .stock-chip:hover:not(.active) {
@@ -1176,6 +1198,15 @@
     }
 
     /* Critical trade cards */
+    /* Shared card chrome — reused by Portfolio holdings and Screener cards
+       (previously fully inline-styled, no shared class at all), matching
+       the look .crit-card/.model-card already use. */
+    .card {
+      background: var(--panel2, rgba(255,255,255,0.03));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--r-md);
+      padding: var(--sp-4);
+    }
     .crit-grid { display: flex; flex-direction: column; gap: 10px; padding: 4px; }
     .crit-card {
       background: var(--panel2, rgba(255,255,255,0.03));
@@ -1226,6 +1257,7 @@
     .mc-modal-actions { display: flex; gap: 8px; margin-top: 16px; }
     .mc-modal-actions button {
       flex: 1; padding: 9px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600; font-size: 12px;
+      min-height: var(--tap-min);
     }
     .mc-modal-actions .mc-cancel { background: rgba(255,255,255,0.08); color: var(--text); }
     .mc-modal-actions .mc-submit { background: #ec4899; color: #fff; }
@@ -1823,7 +1855,7 @@
     /* Labeled check pills — which signal is which is printed directly, no
        hover/legend needed to decode a plain colored square. */
     .ck-pill {
-      font-size: 7px;
+      font-size: var(--fs-xs);
       font-weight: 700;
       font-family: var(--mono);
       padding: 2px 4px;
@@ -2062,20 +2094,6 @@
       from { opacity: 0; transform: translateY(-5px); }
       to { opacity: 1; transform: translateY(0); }
     }
-    .fn-content-wrap {
-      display: flex;
-      gap: 20px;
-      flex-wrap: wrap;
-    }
-    .fn-card {
-      background: rgba(0, 0, 0, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.05);
-      border-radius: 12px;
-      padding: 16px;
-      flex: 1;
-      min-width: 300px;
-      overflow-x: auto;
-    }
     .fn-header {
       display: flex;
       align-items: center;
@@ -2092,33 +2110,6 @@
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.1);
       color: var(--text);
-    }
-    .sub-t {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      font-size: 11px;
-    }
-    .sub-t th {
-      color: var(--muted);
-      text-align: left;
-      padding: 10px 6px;
-      font-family: var(--mono);
-      font-weight: 600;
-      text-transform: uppercase;
-      font-size: 9px;
-      border-bottom: 2px solid rgba(255, 255, 255, 0.05);
-      background: rgba(255, 255, 255, 0.01);
-      min-width: 0 !important;
-    }
-    .sub-t td {
-      padding: 8px 6px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-      vertical-align: middle;
-      min-width: 0 !important;
-    }
-    .sub-t tr:last-child td {
-      border-bottom: none;
     }
     .greek-pill {
       font-size: 10px;
@@ -2175,17 +2166,25 @@
       .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; padding: 10px 12px; font-size: 14px; }
       .controls-right { width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
       .custom-select-trigger { min-width: 100px; padding: 7px 10px; font-size: 12px; }
-      .controls-wrap .idx-tg, .controls-wrap .div-tg { padding: 5px 8px; height: 30px; font-size: 9px; }
-      
+      .controls-wrap .idx-tg, .controls-wrap .div-tg { padding: 5px 8px; min-height: var(--tap-min); font-size: 9px; }
+
       /* Tabs & filter chips — wrap onto multiple rows instead of scrolling
          off-screen, so every tab/chip stays visible without a swipe gesture
-         the user might never discover. */
-      .tabs { padding: 4px; gap: 4px; flex-wrap: wrap; }
-      .tab { padding: 6px 10px; font-size: 10px; white-space: nowrap; }
+         the user might never discover. Tabs get a real 44px tap target;
+         desktop density (base rule, above this query) is untouched. */
+      .tabs { padding: 4px; gap: var(--sp-2); row-gap: var(--sp-2); flex-wrap: wrap; }
+      .tabs-primary .tab, .tabs-secondary .tab {
+        padding: 0 var(--sp-3); font-size: 10px; white-space: nowrap;
+        min-height: var(--tap-min); display: flex; align-items: center; flex: 0 0 auto;
+      }
       .tab .tab-icon { font-size: 12px; }
       .tab .tab-badge { min-width: 16px; height: 16px; font-size: 8px; }
       .stock-filters { padding: 4px; gap: 4px; flex-wrap: wrap; }
-      .stock-chip { padding: 5px 10px; font-size: 10px; }
+      .stock-chip { padding: 5px 10px; font-size: var(--fs-xs); position: relative; }
+      .stock-chip::after {
+        content: ''; position: absolute; inset: 50% auto auto 50%; transform: translate(-50%, -50%);
+        width: max(100%, var(--tap-min)); height: max(100%, var(--tap-min));
+      }
 
       /* ── Responsive table → card transform ──────────────────────────────
          Applies to the LOW-cardinality tabs (Sectors/Portfolio/Critical/
@@ -2292,10 +2291,10 @@
       .tw.tw-scan td:first-child, .tw.tw-scan th:first-child {
         position: sticky; left: 0; z-index: 2; background: var(--card2);
         box-shadow: 2px 0 6px rgba(0,0,0,0.35);
-        white-space: normal; max-width: 130px;
+        white-space: normal; max-width: var(--sticky-col1-w);
       }
       .tw.tw-scan td:nth-child(2), .tw.tw-scan th:nth-child(2) {
-        position: sticky; left: 130px; z-index: 2; background: var(--card2);
+        position: sticky; left: var(--sticky-col1-w); z-index: 2; background: var(--card2);
         box-shadow: 2px 0 6px rgba(0,0,0,0.35);
       }
       .tw.tw-scan thead th:first-child, .tw.tw-scan thead th:nth-child(2) { z-index: 4; }
@@ -2347,9 +2346,6 @@
       .rat-badge { font-size: 9px; padding: 2px 6px; }
       .flag-group { font-size: 9px; }
 
-      /* Check pills */
-      .ck-pill { font-size: 7px; padding: 1px 3px; }
-
       /* Opportunity Score breakdown bar (Intraday) — desktop caps this at
          130px to fit a narrow table column, but a mobile row is its own
          full-width card with plenty of room. Two things were fighting
@@ -2371,12 +2367,7 @@
 
       /* F&O sub-row */
       .sub-wrap { padding: 12px; margin: 6px; border-radius: 8px; }
-      .fn-content-wrap { flex-direction: column; gap: 12px; }
-      .fn-card { min-width: 100%; padding: 12px; }
-      .sub-t { font-size: 10px; }
-      .sub-t th { padding: 8px 4px; font-size: 8px; }
-      .sub-t td { padding: 6px 4px; }
-      
+
       /* Legend */
       .legend { padding: 8px 12px; font-size: 10px; gap: 10px; }
       .lb { font-size: 9px; padding: 2px 5px; }
@@ -2429,8 +2420,8 @@
       
       /* Controls */
       .custom-select-trigger { min-width: 90px; padding: 6px 8px; font-size: 11px; }
-      .option { padding: 8px 10px; font-size: 11px; }
-      
+      .option { padding: 8px 10px; font-size: 11px; min-height: var(--tap-min); box-sizing: border-box; }
+
       /* Action buttons */
       .action-btn { padding: 5px 8px; font-size: 9px; gap: 3px; }
       .action-btn svg { width: 11px; height: 11px; }
@@ -2438,6 +2429,11 @@
       /* Portfolio */
       .ps-overview-stat .ps-value { font-size: 12px; }
       .ps-stat .ps-value { font-size: 10px; }
+
+      /* Mark Critical modal — previously had no mobile treatment at all */
+      .mc-modal { width: min(92vw, 320px); }
+      .mc-modal-actions { flex-direction: column; }
+      .mc-modal-actions button { width: 100%; }
     }
 
     /* Keyboard shortcut hints */

@@ -1023,7 +1023,7 @@ function screenerCardHtml(section, rows) {
       }).join('')
     : `<div style="padding:14px 0; text-align:center; color:var(--muted); font-size:11px;">No stocks currently match.</div>`;
 
-  return `<div style="background:var(--card2); border:1px solid var(--border); border-radius:12px; padding:14px; min-width:280px; flex:1;">
+  return `<div class="card" style="min-width:280px; flex:1;">
     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
       <span style="font-size:14px;">${section.icon}</span>
       <span style="font-size:12px; font-weight:700; color:${section.color};">${section.title}</span>
@@ -1134,13 +1134,7 @@ function renderSectors(data) {
   </tr>`;
 
   // Update sort indicators
-  document.querySelectorAll('#tableHeader th').forEach(th => {
-    let text = th.innerText.replace(/ ▲| ▼/g, '');
-    if (th.getAttribute('onclick').includes(`'${sortBy}'`)) {
-      const arrow = sortObj.asc ? ' ▲' : ' ▼';
-      th.innerHTML = th.innerHTML.replace(text, text + arrow);
-    }
-  });
+  updateSortIndicators(window.stateManager.get('sortStack'));
 
   // Build HTML
   const tbody = document.getElementById('tbody');
@@ -1261,7 +1255,7 @@ function renderPortfolio(data) {
       const pnlTxt = hasPrice ? `${pnl >= 0 ? '+' : ''}₹${pnl.toFixed(2)}` : '—';
       const pnlPctTxt = hasPrice ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : 'price unavailable';
 
-      html += `<div style="background:rgba(255,255,255,0.02); border:1px solid ${pnlColor}30; border-radius:10px; padding:10px 14px; margin-bottom:6px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
+      html += `<div class="card" style="background:rgba(255,255,255,0.02); border-color:${pnlColor}30; padding:10px 14px; margin-bottom:6px; display:grid; grid-template-columns:1fr auto; gap:6px; align-items:center;">
         <div>
           <div style="font-weight:700; font-family:var(--mono); font-size:12px; color:var(--text);">${h.trading_symbol}</div>
           <div style="display:flex; gap:12px; margin-top:3px; font-size:9px; color:var(--muted);">
