@@ -426,7 +426,7 @@ function renderStocks(data) {
       <td class="range-col" data-label="Day Range"><div>${generateRangeBar(r.dayL, r.dayH, r.price)}</div></td>
       <td class="range-col" data-label="52W Range"><div>${generateRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div></td>
       <td data-label="Score">
-        <div style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px;">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">
           <span style="font-weight:800; font-family:var(--mono); font-size:15px; color:var(--text);">${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span></span>
           <div class="checks">${boxes}</div>
         </div>
