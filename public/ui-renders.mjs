@@ -394,27 +394,29 @@ function renderStocks(data) {
 
     return `<tr class='main-row ${(r.goldenCross ? 'gc-row' : '')}' id="row-${rowKey}">
       <td style="text-align:left;">
-        <div class='sym'>${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
-        <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
-        ${r.dividend ? `<div class='dividend-info' style="margin-top:2px; font-family:var(--mono);">💰 <span class="${r.dividend.colorClass}">${r.dividend.displayText}</span> <span style="opacity:0.6;">(${r.dividend.yield.toFixed(2)}% yield)</span></div>` : ''}
+        <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:nowrap;">
+          <div class='sym'>${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
+          <span class='muted-xl' style="text-transform:uppercase; white-space:nowrap;">${r.sector} · <span class='${cc}'>${fullChg}</span></span>
+          ${r.dividend ? `<span class='dividend-info' style="font-family:var(--mono); white-space:nowrap;">💰 <span class="${r.dividend.colorClass}">${r.dividend.displayText}</span></span>` : ''}
+        </div>
       </td>
       <td data-label="CMP">
-        <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+        <div style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px;">
           <span><span class="price-bold">₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(r.priceSource, r.priceTs, candleFreshnessNote(r))}</span>
           <span class="muted-xl vwap-line">VWAP <span class="${r.aboveVwap ? 'up' : 'dn'}">${r.aboveVwap ? '▲' : '▼'}</span> ₹${(r.vwap || r.price).toFixed(1)}</span>
         </div>
       </td>
       <td data-label="Chart"><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
       <td data-label="EMA">
-        <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+        <div style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px;">
           <div>${statusTxt}</div>
           <div class="muted-xl ${cc}" style="font-weight:600;">Gap ${Math.abs(r.emaGap || 0).toFixed(2)}%</div>
         </div>
       </td>
       <td data-label="Volume">
-        <div style="display:flex; flex-direction:column; align-items:center; gap:5px;">
+        <div style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px;">
           <div class="${r.volSpike ? 'vol-spike-⚡' : ''}" style="font-size:13px; font-weight:700; font-family:var(--mono); color:${r.volSpike ? 'var(--yellow)' : 'var(--text)'};">${r.volSpike ? '⚡ ' : ''}${formatVolume(r.volume)}</div>
-          <div style="width:88px; height:7px; background:rgba(255,255,255,0.07); border-radius:6px; overflow:hidden;">
+          <div style="width:60px; height:7px; background:rgba(255,255,255,0.07); border-radius:6px; overflow:hidden;">
             <div class="vol-bar-fill ${r.volSpike ? 'vb-spike' : 'vb-normal'}" style="width:${volBarPct}%; height:100%; border-radius:6px; transition:width 0.4s ease;"></div>
           </div>
           <div class="${(r.volumeChange || 0) >= 0 ? 'up' : 'dn'}" style="font-size:10px; font-family:var(--mono);">${(r.volumeChange || 0) >= 0 ? '+' : ''}${formatVolume(r.volumeChange)} ${(r.volumeChange || 0) >= 0 ? '↑' : '↓'}</div>
@@ -424,13 +426,13 @@ function renderStocks(data) {
       <td class="range-col" data-label="Day Range"><div>${generateRangeBar(r.dayL, r.dayH, r.price)}</div></td>
       <td class="range-col" data-label="52W Range"><div>${generateRangeBar((r.w52L || r.weekL || 0), (r.w52H || r.weekH || 0), r.price)}</div></td>
       <td data-label="Score">
-        <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px;">
           <span style="font-weight:800; font-family:var(--mono); font-size:15px; color:var(--text);">${r.techScore}<span style="color:var(--muted); font-weight:400; font-size:10px;">/7</span></span>
           <div class="checks">${boxes}</div>
         </div>
       </td>
       <td data-label="Rating">
-        <div style="display:flex; flex-direction:column; align-items:center; gap:6px;">
+        <div style="display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px;">
           <div class="rat-badge ${ratCls}">${r.rating}</div>
           <div class="flag-group">
             <span class="up" style="font-weight:700; font-size:11px;">⚑${r.techScore}</span>
@@ -651,7 +653,7 @@ function renderTopPicks(picks) {
       <td class="num" style="color:var(--muted);">${i + 1}</td>
       <td style="text-align:left;">
         <span class="sym" style="font-size:13px;">${p.symbol}</span>
-        <span class="muted-xl" style="display:block;font-size:9px;text-transform:uppercase;">${p.sector || ''} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${(p.chgPct ?? 0).toFixed(2)}%</span></span>
+        <span class="muted-xl" style="text-transform:uppercase;">${p.sector || ''} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${(p.chgPct ?? 0).toFixed(2)}%</span></span>
       </td>
       <td><span style="font-weight:700;color:${bc};">${p.opportunityScore}</span> <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span></td>
       <td class="num">₹${(p.price || 0).toFixed(2)}</td>
@@ -710,7 +712,7 @@ function renderIntradayRowHtml(p, trioLabel) {
   const whyTxt = (p.notes || []).slice(0, 4).join(' · ');
   const prob = p.calibratedProbability;
   const confHtml = prob?.available
-    ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span><span class="muted-xl" style="font-size:8px;display:block;">n=${prob.sampleCount}</span>`
+    ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span> <span class="muted-xl" style="font-size:8px;">n=${prob.sampleCount}</span>`
     : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
   // VWAP / day-range / RSI — already computed server-side but not previously
   // surfaced on this row at all; a second detail line under the symbol.
@@ -733,34 +735,36 @@ function renderIntradayRowHtml(p, trioLabel) {
     : '';
   return `<tr class="${rowCls}">
       <td style="text-align:left;">
-        <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
-        <div class="muted-xl" style="text-transform:uppercase;font-size:9px;margin-top:3px;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></div>
-        ${detailTxt ? `<div class="muted-xl why-line">${detailTxt}</div>` : ''}
-        ${whyTxt ? `<div class="muted-xl why-line">${whyTxt}</div>` : ''}
+        <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:nowrap;">
+          <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
+          <span class="muted-xl" style="text-transform:uppercase; white-space:nowrap;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></span>
+          ${detailTxt ? `<span class="muted-xl why-line">${detailTxt}</span>` : ''}
+          ${whyTxt ? `<span class="muted-xl why-line">${whyTxt}</span>` : ''}
+        </div>
       </td>
-      <td data-label="Price"><div style="max-width:90px;"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span><div style="margin-top:2px;">${freshnessDot(p.priceSource, p.priceTs)}</div></div></td>
+      <td data-label="Price"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
       <td data-label="Chart"><div style="cursor:pointer;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
       <td data-label="Opportunity">
-        <div class="opp-cell" style="display:flex;flex-direction:column;align-items:center;gap:3px;">
+        <div class="opp-cell" style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;">
           ${nmBadge}
           <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
-          <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span>
+          <span class="muted-xl">${p.opportunityBand}</span>
           ${renderBreakdownBar(p.opportunityBreakdown)}
           <span class="muted-xl" style="font-size:8px;">${trioLabel}</span>
         </div>
       </td>
       <td data-label="Entry Attractiveness">
-        <div style="display:flex;flex-direction:column;align-items:center;">
+        <div style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;">
           <span style="font-weight:700;">${p.entryAttractiveness}</span>
-          <span class="muted-xl" style="font-size:9px;">${p.entryAttractivenessLabel || ''}</span>
-          ${p.entryAttractivenessNotes?.[0] ? `<span class="muted-xl" style="font-size:8px;max-width:110px;white-space:normal;text-align:center;line-height:1.3;">${p.entryAttractivenessNotes[0]}</span>` : ''}
+          <span class="muted-xl">${p.entryAttractivenessLabel || ''}</span>
+          ${p.entryAttractivenessNotes?.[0] ? `<span class="muted-xl" style="font-size:8px;max-width:150px;white-space:normal;text-align:left;line-height:1.3;">${p.entryAttractivenessNotes[0]}</span>` : ''}
         </div>
       </td>
       <td data-label="Move From Open"><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
-      <td data-label="Upside Potential"><div style="max-width:120px;margin:0 auto;text-align:center;">${upside.zoneLow != null
-      ? `<span class="up" style="white-space:normal;">₹${upside.zoneLow}–₹${upside.zoneHigh}</span><span class="muted-xl" style="font-size:9px;display:block;">+${(+upside.remainingPct).toFixed(2)}% remaining</span>`
-      : '<span class="muted-xl">—</span>'}</div></td>
-      <td data-label="Confidence"><div style="max-width:100px;margin:0 auto;text-align:center;">${confHtml}</div></td>
+      <td data-label="Upside Potential">${upside.zoneLow != null
+      ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span> <span class="muted-xl">+${(+upside.remainingPct).toFixed(2)}% remaining</span>`
+      : '<span class="muted-xl">—</span>'}</td>
+      <td data-label="Confidence">${confHtml}</td>
       <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
 }
@@ -1723,8 +1727,10 @@ function renderCritical(payload) {
 
     return `<tr class="main-row ${critStateClass(state)}">
       <td style="text-align:left;">
-        <div class="sym">${t.symbol}</div>
-        <div class="muted-xl">Qty ${t.quantity} @ ₹${t.entryPrice}</div>
+        <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:nowrap;">
+          <div class="sym">${t.symbol}</div>
+          <span class="muted-xl" style="white-space:nowrap;">Qty ${t.quantity} @ ₹${t.entryPrice}</span>
+        </div>
       </td>
       <td><span class="crit-health-badge" style="background:${critStateColor(state)}22;color:${critStateColor(state)};">${score} — ${state}</span></td>
       <td>₹${health.price ?? '—'}</td>

@@ -1324,7 +1324,7 @@
       letter-spacing: .1em;
       text-transform: uppercase;
       color: var(--muted);
-      padding: 12px 14px;
+      padding: 8px 14px;
       border-bottom: 1px solid var(--border);
       cursor: pointer;
       font-family: var(--mono);
@@ -1347,7 +1347,7 @@
     }
 
     tbody td {
-      padding: 14px 14px;
+      padding: 8px 14px;
       border-bottom: 1px solid rgba(255, 255, 255, 0.03);
       font-size: 12px;
       vertical-align: middle;
@@ -2165,11 +2165,15 @@
       .custom-select-trigger { min-width: 100px; padding: 7px 10px; font-size: 12px; }
       .controls-wrap .idx-tg, .controls-wrap .div-tg { padding: 5px 8px; min-height: var(--tap-min); font-size: 9px; }
 
-      /* Tabs & filter chips — wrap onto multiple rows instead of scrolling
-         off-screen, so every tab/chip stays visible without a swipe gesture
-         the user might never discover. Tabs get a real 44px tap target;
+      /* Tabs — one horizontally-scrollable strip instead of wrapping onto
+         multiple rows, so the tab bar doesn't eat vertical space that could
+         otherwise show more table rows. Tabs get a real 44px tap target;
          desktop density (base rule, above this query) is untouched. */
-      .tabs { padding: 4px; gap: var(--sp-2); row-gap: var(--sp-2); flex-wrap: wrap; }
+      .tabs {
+        padding: 4px; gap: var(--sp-2); flex-wrap: nowrap;
+        overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      }
+      .tabs::-webkit-scrollbar { display: none; }
       .tabs-primary .tab {
         padding: 0 var(--sp-3); font-size: 10px; white-space: nowrap;
         min-height: var(--tap-min); display: flex; align-items: center; flex: 0 0 auto;
@@ -2186,7 +2190,7 @@
          row moves under it. */
       .tw, .model-tw { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }
       .tw table, .model-table { width: auto; min-width: 100%; }
-      .tw th, .tw td, .model-table th, .model-table td { white-space: nowrap; font-size: 11px; padding: 8px 10px; }
+      .tw th, .tw td, .model-table th, .model-table td { white-space: nowrap; font-size: 11px; padding: 6px 10px; }
       .tw thead th, .model-table thead th { position: sticky; top: 0; background: var(--card2); z-index: 3; }
 
       .checks { max-width: none; justify-content: flex-end; }
@@ -2267,7 +2271,7 @@
       .tab { padding: 6px 8px; font-size: 9px; }
 
       /* Tighter cell padding/font at this width */
-      .tw td, .model-table td { padding: 8px 10px; font-size: 10px; }
+      .tw td, .model-table td { padding: 5px 10px; font-size: 10px; }
 
       .sym { font-size: 11px; }
       .tf-purple { font-size: var(--fs-xs); }
