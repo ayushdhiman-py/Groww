@@ -87,10 +87,33 @@ export function resampleFrom1m(oneMinCandles, bucketMs) {
         }));
 }
 
+// Bounded LRU — the 1m base entry alone holds ~20 days of 1-minute bars
+// (~7,500 candles/symbol, a few MB each). Left unbounded, this map grows
+// toward the full ~500-symbol universe over a trading day and OOMs Render's
+// free-tier 512Mi instance. 150 entries covers a full stage-2 cycle (~80
+// symbols) plus headroom for rotation between cycles, capping the cache's
+// own footprint well under the instance limit.
+const MAX_ENTRIES = 150;
 const cache = new Map(); // `${symbol}|${tf}` -> { candles, fetchedAt, tf } — holds the 1m_base entries plus 30m/1h/1d
 let hits = 0, misses = 0;
 
 const key = (symbol, tf) => `${symbol}|${tf}`;
+
+function cacheGet(k) {
+    if (!cache.has(k)) return undefined;
+    const v = cache.get(k);
+    cache.delete(k);
+    cache.set(k, v); // re-insert: Map iteration order tracks LRU order
+    return v;
+}
+
+function cacheSet(k, v) {
+    cache.delete(k);
+    cache.set(k, v);
+    if (cache.size > MAX_ENTRIES) {
+        cache.delete(cache.keys().next().value); // evict least-recently-used
+    }
+}
 
 /**
  * Cache-only read — NEVER triggers a network fetch. Returns null if nothing
@@ -99,11 +122,11 @@ const key = (symbol, tf) => `${symbol}|${tf}`;
  */
 export function peekCandles(symbol, tf) {
     if (CONSOLIDATED_TFS.has(tf)) {
-        const base = cache.get(baseKey(symbol));
+        const base = cacheGet(baseKey(symbol));
         if (!base) return null;
         return { candles: resampleFrom1m(base.candles, BUCKET_MS[tf]), fetchedAt: base.fetchedAt, tf };
     }
-    return cache.get(key(symbol, tf)) || null;
+    return cacheGet(key(symbol, tf)) || null;
 }
 
 /**
@@ -121,7 +144,7 @@ export async function getOrFetchCandles(symbol, tf, { forceRefresh = false, rang
 
     if (CONSOLIDATED_TFS.has(tf)) {
         const bk = baseKey(symbol);
-        const entry = cache.get(bk);
+        const entry = cacheGet(bk);
         const ttl = TTL_MS[BASE_TF];
         if (!forceRefresh && entry && Date.now() - entry.fetchedAt < ttl) {
             hits++;
@@ -135,7 +158,7 @@ export async function getOrFetchCandles(symbol, tf, { forceRefresh = false, rang
                 { from: new Date(Date.now() - BASE_DAYS * 86400000), to: new Date() },
                 { priority }
             );
-            cache.set(bk, { candles: base, fetchedAt: Date.now(), tf: BASE_TF });
+            cacheSet(bk, { candles: base, fetchedAt: Date.now(), tf: BASE_TF });
             return resampleFrom1m(base, BUCKET_MS[tf]);
         } catch (e) {
             // Base fetch failed — fall back to asking Upstox for exactly the
@@ -150,7 +173,7 @@ export async function getOrFetchCandles(symbol, tf, { forceRefresh = false, rang
     }
 
     const k = key(symbol, tf);
-    const entry = cache.get(k);
+    const entry = cacheGet(k);
     const ttl = TTL_MS[tf] ?? 300_000;
     if (!forceRefresh && entry && Date.now() - entry.fetchedAt < ttl) {
         hits++;
@@ -159,7 +182,7 @@ export async function getOrFetchCandles(symbol, tf, { forceRefresh = false, rang
 
     misses++;
     const candles = await fetchCandlesRaw(symbol, tf, null, { priority });
-    cache.set(k, { candles, fetchedAt: Date.now(), tf });
+    cacheSet(k, { candles, fetchedAt: Date.now(), tf });
     return candles;
 }
 
