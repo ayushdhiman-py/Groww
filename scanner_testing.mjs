@@ -4,7 +4,7 @@ import { fileURLToPath } from "url";
 import { createHash } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
 import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
-import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow } from "./src/scanner.mjs";
+import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow, markIntradayActive } from "./src/scanner.mjs";
 import { cacheStats } from "./src/candle_cache.mjs";
 import { startOptionsFeed, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
 import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick, forceFeedRestart } from "./src/feed.mjs";
@@ -105,6 +105,18 @@ app.get("/api/status", (_, res) => {
         instrumentMaster: { loaded: isInstrumentMasterLoaded(), stale: isInstrumentMasterStale() },
         candleCache: cacheStats(),
     });
+});
+
+// Intraday tab active-heartbeat — the frontend calls this while the
+// Intraday tab is visible and active (see public/ui-managers.mjs's
+// LivePriceUpdater) so the backend's Actionable Intraday layer
+// (trade plan/position sizing/Actionable Quality Score — see
+// src/scanner.mjs's isIntradayHeartbeatFresh) only runs when someone is
+// actually looking at it, and stops within ~20s of the tab going inactive.
+// No auth required — this carries no data, just a liveness ping.
+app.post("/api/intraday/heartbeat", (_, res) => {
+    markIntradayActive();
+    res.json({ ok: true });
 });
 
 // Manual on-demand refresh of a single symbol — force-bypasses the candle

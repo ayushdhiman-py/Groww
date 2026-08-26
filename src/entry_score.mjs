@@ -317,7 +317,12 @@ function scoreConfirmation(row) {
 }
 
 // ── Gates (multiplicative, not additive) ──────────────────────────────────────
-function liquidityGate(row) {
+// Exported (in addition to being used internally below) so
+// actionable_score.mjs can reconstruct a guaranteed-DEFAULT_WEIGHTS
+// Opportunity Score for the Intraday Actionable-Quality layer — same gate
+// math, without depending on getProductionWeights(). See that file's
+// deterministicOpportunityScore().
+export function liquidityGate(row) {
     const traded = (row.volume || 0) * (row.price || 0);
     let multiplier = 1.0;
     const notes = [];
@@ -344,7 +349,7 @@ function liquidityGate(row) {
     return { multiplier, note: notes.length ? notes.join("; ") : null };
 }
 
-function atrGate(row) {
+export function atrGate(row) {
     if (row.atrPct == null) return { multiplier: 0.9, note: "ATR unavailable — precautionary discount" };
     if (row.atrPct < 1.2) return { multiplier: 0.6, note: `ATR ${row.atrPct}% — limited intraday movement capacity` };
     return { multiplier: 1.0, note: null };
@@ -648,5 +653,11 @@ export function enrichOpportunities(dataBuckets, minScore = 70) {
             }));
     }
 
-    return { opportunities: opportunities.slice(0, 40), fastMovers, nearMiss: nearMiss.slice(0, 8) };
+    // `allRanked` = the SAME sorted array `opportunities` is sliced from,
+    // exposed unsliced. Additive only — every existing consumer of
+    // `opportunities`/`fastMovers`/`nearMiss` is untouched; this exists so
+    // src/actionable_score.mjs can apply remaining-move/R:R down-ranking
+    // across the full dual-timeframe-confirmed candidate set instead of an
+    // arbitrarily pre-truncated top-40.
+    return { opportunities: opportunities.slice(0, 40), allRanked: opportunities, fastMovers, nearMiss: nearMiss.slice(0, 8) };
 }

@@ -29,10 +29,27 @@ export class LivePriceUpdater {
       if (!this.state.get('marketOpen')) return;
 
       const activeTab = this.state.get('activeTab');
+
+      // Intraday active-heartbeat — reuses this already-running, already
+      // document.hidden-gated 3s loop instead of adding a second interval.
+      // Backend's Actionable Intraday layer (trade plan/sizing/score) only
+      // recomputes while a heartbeat has landed recently; see
+      // scanner_testing.mjs's POST /api/intraday/heartbeat.
+      if (activeTab === 'INTRADAY') this.sendIntradayHeartbeat();
+
       if (activeTab === 'CRITICAL' || SCREENER_TABS.includes(activeTab)) return;
 
       await this.update();
     }, 3000);
+  }
+
+  async sendIntradayHeartbeat() {
+    try {
+      await fetch('/api/intraday/heartbeat', { method: 'POST' });
+    } catch (e) {
+      // Best-effort — a missed heartbeat just means the backend's Actionable
+      // Intraday layer stays paused a little longer, never a hard failure.
+    }
   }
 
   stop() {

@@ -613,6 +613,16 @@ function renderStocks(data) {
 // strongest CURRENT multi-factor confluence as a starting point for the
 // user's own risk management, not a guarantee.
 function computeIntradayCandidates(data) {
+  // intradayActionable (src/actionable_score.mjs) is the new
+  // Actionable-Quality layer: score >= 75, ranked, max 50, on top of
+  // trade-plan/R:R/remaining-move/trap-risk validation — the real
+  // deliverable. It's `null` (not `[]`) until the backend has computed it
+  // at least once (server just booted, or before the Intraday tab's first
+  // heartbeat lands) — an actual computed-and-empty result (nothing
+  // cleared the bar this cycle) must NOT fall back to the older, looser
+  // intradayOpportunities list, or "0 qualify" would silently turn into
+  // "here are some that don't."
+  if (Array.isArray(data?.intradayActionable)) return data.intradayActionable;
   return data?.intradayOpportunities || [];
 }
 
@@ -765,8 +775,54 @@ function renderIntradayRowHtml(p, trioLabel) {
       ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span> <span class="muted-xl">+${(+upside.remainingPct).toFixed(2)}% remaining</span>`
       : '<span class="muted-xl">—</span>'}</td>
       <td data-label="Confidence">${confHtml}</td>
+      ${renderActionableCellsHtml(p)}
       <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
     </tr>`;
+}
+
+// New Actionable-Quality columns (src/actionable_score.mjs). Rows from the
+// new intradayActionable list carry tradePlan/positionSizing/etc; older-
+// shape rows (near-miss, Fast Movers — still the pre-existing
+// intradayOpportunities-derived shape) simply don't, and render '—'
+// throughout rather than breaking.
+function renderActionableCellsHtml(p) {
+  const tp = p.tradePlan, ps = p.positionSizing;
+  const dash = '<span class="muted-xl">—</span>';
+
+  const actScoreHtml = p.actionableScore != null
+    ? `<span style="font-weight:700;color:${bandColor(p.actionableScore >= 90 ? 'VERY STRONG' : p.actionableScore >= 80 ? 'STRONG' : 'WATCH')};">${p.actionableScore}</span>`
+    : dash;
+  const directionHtml = p.direction ? `<span class="up" style="font-weight:700;">${p.direction}</span>` : dash;
+  const planHtml = tp
+    ? `<span class="muted-xl" style="font-size:10px;line-height:1.5;white-space:normal;display:block;text-align:left;">Entry ₹${tp.entryLow}–₹${tp.entryHigh}<br>SL ₹${tp.stopLoss} · T1 ₹${tp.target1} · T2 ₹${tp.target2}</span>`
+    : dash;
+  const rrHtml = tp?.riskReward != null ? `<span style="font-weight:600;">1:${tp.riskReward}</span>` : dash;
+  const expMoveHtml = tp?.expectedMovePct != null ? `<span class="up">+${(+tp.expectedMovePct).toFixed(2)}%</span>` : dash;
+  const positionHtml = (ps && ps.quantity > 0)
+    ? `<span class="muted-xl" style="font-size:10px;line-height:1.5;white-space:normal;display:block;text-align:left;">Qty ${ps.quantity} · ₹${ps.capitalDeployed.toLocaleString('en-IN')} deployed<br>Max loss ₹${ps.maxLoss.toLocaleString('en-IN')} · Exp. profit ₹${ps.expectedProfit.toLocaleString('en-IN')}</span>`
+    : dash;
+  const hp = p.calibratedProbability;
+  const histHtml = hp?.available
+    ? `<span class="muted-xl" style="font-size:10px;line-height:1.5;white-space:normal;display:block;text-align:left;">Target +1%: ${Math.round((hp.probReach1pct ?? 0) * 100)}%<br>Adverse: ${hp.probMajorAdverse != null ? Math.round(hp.probMajorAdverse * 100) + '%' : '—'} (n=${hp.sampleCount})</span>`
+    : dash;
+  const trapColors = { HIGH: '#ef4444', MEDIUM: '#f59e0b', LOW: '#22c55e' };
+  const trapHtml = p.operatorTrapRisk
+    ? `<span style="font-weight:700;color:${trapColors[p.operatorTrapRisk] || 'inherit'};" title="${(p.trapFlags || []).join('; ')}">${p.operatorTrapRisk}</span>`
+    : dash;
+  const warningsHtml = (p.actionableWarnings || []).length
+    ? `<span class="muted-xl why-line" style="font-size:9px;white-space:normal;max-width:200px;display:inline-block;text-align:left;line-height:1.3;">${p.actionableWarnings.slice(0, 3).join(' · ')}</span>`
+    : dash;
+
+  return `
+      <td data-label="Actionable Score">${actScoreHtml}</td>
+      <td data-label="Direction">${directionHtml}</td>
+      <td data-label="Trade Plan">${planHtml}</td>
+      <td data-label="R:R">${rrHtml}</td>
+      <td data-label="Expected Move %">${expMoveHtml}</td>
+      <td data-label="Position Sizing">${positionHtml}</td>
+      <td data-label="Historical Probability">${histHtml}</td>
+      <td data-label="Trap Risk">${trapHtml}</td>
+      <td data-label="Warnings" style="text-align:left;">${warningsHtml}</td>`;
 }
 
 const INTRADAY_TABLE_HEADER = `<tr>
@@ -778,6 +834,15 @@ const INTRADAY_TABLE_HEADER = `<tr>
     <th onclick="window.sortManager.handleSort('pctFromOpen', event)">Move From Open</th>
     <th onclick="window.sortManager.handleSort('upside.remainingPct', event)">Upside Potential <div class="th-sub">zone &amp; remaining %</div></th>
     <th>Confidence</th>
+    <th onclick="window.sortManager.handleSort('actionableScore', event)">Actionable Score <div class="th-sub">75+ only, max 50</div></th>
+    <th>Direction</th>
+    <th style="text-align:left;">Trade Plan <div class="th-sub">Entry / SL / T1 / T2</div></th>
+    <th onclick="window.sortManager.handleSort('tradePlan.riskReward', event)">R:R</th>
+    <th>Expected Move %</th>
+    <th style="text-align:left;">Position Sizing <div class="th-sub">Qty / Capital / Max Loss / Exp. Profit</div></th>
+    <th style="text-align:left;">Historical Probability <div class="th-sub">Target / Adverse</div></th>
+    <th>Trap Risk</th>
+    <th style="text-align:left;">Warnings</th>
     <th>Action</th>
   </tr>`;
 

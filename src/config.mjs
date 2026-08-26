@@ -81,3 +81,14 @@ export const TF_DAYS = {
     "1m": 5, "5m": 10, "10m": 15, "15m": 20,
     "30m": 30, "1h": 60, "1d": 365
 };
+
+// ── Intraday Actionable-Quality layer (src/trade_plan.mjs, position_sizing.mjs,
+// actionable_score.mjs) — tunable via env vars, sane defaults otherwise.
+// Capital is a configured ASSUMPTION for sizing math, never a live broker
+// balance read (see position_sizing.mjs).
+export const DEFAULT_CAPITAL_INR = Number(process.env.DEFAULT_CAPITAL_INR) || 750000;
+export const MAX_RISK_PCT_PER_TRADE = Number(process.env.MAX_RISK_PCT_PER_TRADE) || 1;
+export const MAX_CAPITAL_ALLOCATION_PCT_PER_TRADE = Number(process.env.MAX_CAPITAL_ALLOCATION_PCT_PER_TRADE) || 20;
+export const MIN_RR_RATIO = Number(process.env.MIN_RR_RATIO) || 1.3;
+export const MIN_ACTIONABLE_SCORE_FLOOR = Number(process.env.MIN_ACTIONABLE_SCORE_FLOOR) || 75;
+export const MAX_DISPLAYED_OPPORTUNITIES = Number(process.env.MAX_DISPLAYED_OPPORTUNITIES) || 50;

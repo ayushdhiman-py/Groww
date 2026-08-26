@@ -16,6 +16,7 @@ import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } fro
 import { captureQualifyingSnapshots, LEARNING_CAPTURE_MIN_SCORE } from "./learning_capture.mjs";
 import { buildQualityList } from "./quality_filter.mjs";
 import { attachCalibratedProbabilities } from "./learning_stats.mjs";
+import { buildActionableIntraday } from "./actionable_score.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -41,8 +42,28 @@ export function getState() {
 export function emptyState() {
     const data = {};
     for (const tf of Object.keys(TF_MAP)) { data[`${tf}_BUY`] = []; data[`${tf}_SELL`] = []; data[`${tf}_ALL`] = []; data[`${tf}_GOLDEN`] = []; }
-    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], intradayNearMiss: [], intradayMinScore: null, fastMovers: { "5m": [], "10m": [], "15m": [] }, qualityList: { list: [], meta: null } };
+    // intradayActionable: null (not [])  distinguishes "not computed yet"
+    // (first boot, or before any heartbeat has arrived) from a real "zero
+    // candidates cleared the 75+ bar this cycle" result — the frontend
+    // treats these differently (see public/ui-renders.mjs's
+    // computeIntradayCandidates).
+    return { lastUpdated: null, dataAsOf: null, data, errors: [], universe: UNIVERSE.length, marketRegime: null, intradayOpportunities: [], intradayNearMiss: [], intradayMinScore: null, fastMovers: { "5m": [], "10m": [], "15m": [] }, qualityList: { list: [], meta: null }, intradayActionable: null };
 }
+
+// ── Intraday tab active-heartbeat ──────────────────────────────────────────
+// The Actionable Intraday layer (trade plan + capital-aware position sizing
+// + Actionable Quality Score, src/actionable_score.mjs) is the one
+// genuinely new, non-trivial per-cycle computation this feature adds —
+// everything else it reuses (Opportunity Score, Upside Potential, candle
+// cache, Stage-1/Stage-2 scan) already runs every cycle regardless, for
+// other tabs. scanner_testing.mjs's POST /api/intraday/heartbeat calls
+// markIntradayActive() while the frontend's Intraday tab is visible and
+// active; a stale heartbeat means nobody is currently looking at it, so
+// this cycle skips recomputing it instead of running it in the background.
+let lastIntradayActiveAt = 0;
+const INTRADAY_HEARTBEAT_TIMEOUT_MS = 20_000; // a few missed 3s frontend ticks tolerated before treating the tab as inactive
+export function markIntradayActive() { lastIntradayActiveAt = Date.now(); }
+function isIntradayHeartbeatFresh() { return Date.now() - lastIntradayActiveAt < INTRADAY_HEARTBEAT_TIMEOUT_MS; }
 
 // The oldest priceTs among rows currently in state — an honest "as of"
 // distinct from `lastUpdated` (which just says when the scan cycle synced,
@@ -606,7 +627,7 @@ export async function scanAll() {
             // monitoring should update progressively.
             next.marketRegime = computeMarketRegime(next.data, snapshot, getAtrPctSnapshot());
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
-            const { opportunities, fastMovers, nearMiss } = enrichOpportunities(next.data, minOppScore);
+            const { opportunities, allRanked, fastMovers, nearMiss } = enrichOpportunities(next.data, minOppScore);
             next.intradayOpportunities = opportunities;
             next.intradayNearMiss = nearMiss;
             next.intradayMinScore = minOppScore;
@@ -621,6 +642,27 @@ export async function scanAll() {
             attachCalibratedProbabilities(next.intradayOpportunities, next.marketRegime);
             attachCalibratedProbabilities(next.intradayNearMiss, next.marketRegime);
             Object.values(next.fastMovers).forEach(rows => attachCalibratedProbabilities(rows, next.marketRegime));
+
+            // ── Actionable Intraday layer (BUY-only) — trade plan, capital-
+            // aware sizing, and a genuinely new Actionable Quality Score on
+            // top of the unchanged Opportunity Score above (never touches
+            // entry_score.mjs's scoring/bands/weights or
+            // model_registry.mjs's production weights). Runs on the FULL
+            // dual-timeframe-confirmed candidate set (`allRanked`), not just
+            // the top-40 `opportunities` slice, so remaining-move/R:R
+            // down-ranking has real headroom. Gated behind the Intraday
+            // tab's active heartbeat — see isIntradayHeartbeatFresh's doc.
+            if (isIntradayHeartbeatFresh()) {
+                attachCalibratedProbabilities(allRanked, next.marketRegime);
+                const row5BySymbol = new Map((next.data["5m_ALL"] || []).map(r => [r.symbol, r]));
+                next.intradayActionable = buildActionableIntraday(allRanked, row5BySymbol);
+            } else {
+                // Nobody is currently viewing the Intraday tab — hold the
+                // last computed list rather than recomputing it (no new
+                // work this cycle) or blanking it (a user switching back
+                // mid-cycle shouldn't see an empty table for no reason).
+                next.intradayActionable = state.intradayActionable ?? null;
+            }
 
             // Learning-layer snapshot capture. Deliberately uses a fixed,
             // low, regime-independent floor (LEARNING_CAPTURE_MIN_SCORE) —
