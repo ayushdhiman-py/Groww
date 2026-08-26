@@ -102,19 +102,6 @@ async function loadInitialData() {
     renderStocks(data);
     window.renderRegimeBanner?.(data.marketRegime);
 
-    // Update universe count
-    const sU = document.getElementById('sU');
-    if (sU) {
-      sU.textContent = data?.universe || '—';
-    } else {
-      console.warn('[App] Universe element (#sU) not found!');
-    }
-
-    // Update stat cards (Golden, Buy, Sell, etc.)
-    if (typeof window.updateStatCards === 'function') {
-      window.updateStatCards(data);
-    }
-
     // Update badges
     updateBadges(data);
     updateLastUpdatedBadge(data);
@@ -382,9 +369,9 @@ async function fetchIndices() {
     rows.forEach(idx => {
       const ltp = idx.ltp;
       if (!ltp) {
-        html += `<div class='sc' style='opacity:0.4'>
-          <div class='scl'>${idx.symbol}</div>
-          <div class='scv sm'>--</div></div>`;
+        html += `<div class='idx-card idx-loading'>
+          <span class='idx-name'>${idx.symbol}</span>
+          <span class='idx-price'>--</span></div>`;
         return;
       }
 
@@ -407,25 +394,23 @@ async function fetchIndices() {
       }
 
       const isUp = idx.chgPct === null ? null : idx.chgPct >= 0;
-      const cl = isUp === null ? 'a' : (isUp ? 'g' : 'r');
+      const trendCls = isUp === null ? '' : (isUp ? 'up' : 'down');
       const sgn = isUp ? '+' : '';
-      const arr = isUp ? '^' : 'v';
-      const rgba = isUp ? '34,197,94' : '239,68,68';
+      const arr = isUp ? '▲' : '▼';
 
       const showChange = idx.chgPct !== null && idx.priceChange !== null;
-      const pctHtml = showChange
-        ? `<div class='idx-change'>
-            <span style='font-size:11px;font-weight:700;color:rgb(${rgba})'>${arr} ${idx.priceChange >= 0 ? '+' : ''}${idx.priceChange.toFixed(2)}</span>
-            <span style='font-size:9px;background:rgba(${rgba},0.15);padding:1px 5px;border-radius:4px;color:rgb(${rgba})'>${sgn}${idx.chgPct.toFixed(2)}%</span>
-          </div>`
+      const deltaHtml = showChange
+        ? `<span class='idx-delta'>
+            <span>${arr} ${idx.priceChange >= 0 ? '+' : ''}${idx.priceChange.toFixed(2)}</span>
+            <span class='idx-pct'>${sgn}${idx.chgPct.toFixed(2)}%</span>
+          </span>`
         : '';
 
-      html += `<div class='sc'>
-        <div class='scl'>${idx.symbol}</div>
-        <div class='scv ${cl} idx-value' style='font-size:14px;'>
-          <span class='idx-price'>Rs ${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
-          ${pctHtml}
-        </div></div>`;
+      html += `<div class='idx-card ${trendCls}'>
+        <span class='idx-name'>${idx.symbol}</span>
+        <span class='idx-price'>₹${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>
+        ${deltaHtml}
+      </div>`;
     });
 
     ctr.innerHTML = html;
@@ -435,14 +420,12 @@ async function fetchIndices() {
 }
 
 // ── Mobile row-detail bottom sheet ──────────────────────────────
-// Previously auto-opened on row tap for the .tw-scan (Stocks/Intraday/
-// Top 50) tables, back when those used a sticky-column horizontal-scroll
-// table on mobile that hid most fields off-screen. All tabs now render
-// as full labeled cards on mobile (every field already visible inline),
-// so the auto-open trigger was removed — it would just pop up a
-// redundant sheet duplicating what's already on screen. openRowSheet/
-// closeRowSheet are left in place, unused, in case a future "view full
-// detail" affordance wants them.
+// Previously auto-opened on row tap, back when mobile tables collapsed
+// into stacked cards and most fields were hidden off-screen. Every tab
+// is a real table now (same as desktop, horizontal scroll for overflow),
+// so every field is already visible without a tap — the auto-open
+// trigger was removed. openRowSheet/closeRowSheet are left in place,
+// unused, in case a future "view full detail" affordance wants them.
 const MOBILE_SCAN_MQ = '(max-width: 768px)';
 
 function openRowSheet(trEl) {

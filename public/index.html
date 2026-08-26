@@ -361,37 +361,6 @@
     }
 
     /* stat cards */
-    .stats {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-      margin-bottom: 14px;
-    }
-
-    .sc {
-      flex: 1;
-      min-width: 90px;
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 11px 13px;
-    }
-
-    .scl {
-      font-size: 9px;
-      color: var(--muted);
-      font-family: var(--mono);
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      margin-bottom: 4px;
-    }
-
-    .scv {
-      font-size: 20px;
-      font-weight: 700;
-      font-family: var(--mono);
-    }
-
     .g {
       color: var(--green);
     }
@@ -412,17 +381,47 @@
       color: var(--purple);
     }
 
-    .scv.sm {
+    /* Index capsules (NIFTY/BANKNIFTY/etc.) — the one KPI strip left at the
+       top of the page, so it gets a distinct, more deliberate look than a
+       plain stat card: a rounded pill with a soft directional tint. */
+    .idx-strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; }
+    .idx-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: linear-gradient(135deg, var(--card), var(--card2));
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      padding: 10px 20px;
+      box-shadow: var(--shadow-1);
+      transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .idx-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); }
+    .idx-card.up { border-color: rgba(34, 197, 94, 0.35); }
+    .idx-card.down { border-color: rgba(239, 68, 68, 0.35); }
+    .idx-card.idx-loading { opacity: 0.45; }
+    .idx-name {
+      font-family: var(--sans);
+      font-weight: 700;
       font-size: 11px;
       color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      white-space: nowrap;
     }
-
-    /* Index cards (NIFTY/BANKNIFTY/etc.) — price + change block. Row layout
-       on desktop; stacks vertically on narrow cards (see mobile override)
-       so the change badge never collides with the price. */
-    .idx-value { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
-    .idx-price { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .idx-change { display: flex; flex-direction: column; align-items: flex-end; margin-left: auto; flex-shrink: 0; }
+    .idx-price {
+      font-family: var(--mono);
+      font-weight: 800;
+      font-size: 17px;
+      color: var(--text);
+      white-space: nowrap;
+    }
+    .idx-delta { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .idx-card.up .idx-delta { color: var(--green); }
+    .idx-card.down .idx-delta { color: var(--red); }
+    .idx-pct { padding: 2px 9px; border-radius: var(--r-pill); font-size: 11px; }
+    .idx-card.up .idx-pct { background: rgba(34, 197, 94, 0.15); }
+    .idx-card.down .idx-pct { background: rgba(239, 68, 68, 0.15); }
 
     /* ── Unified Controls Bar (same width as table) ────────────────── */
     .controls-wrap {
@@ -2134,9 +2133,9 @@
 
     @media(max-width:1024px) {
       .wrap { padding: 12px; }
-      .stats { gap: 6px; }
-      .sc { min-width: 100px; padding: 10px 12px; }
-      .scv { font-size: 18px; }
+      .idx-strip { gap: 8px; }
+      .idx-card { padding: 9px 16px; }
+      .idx-price { font-size: 15px; }
       .tab { padding: 7px 14px; font-size: 11px; }
       .tw { overflow-x: auto; -webkit-overflow-scrolling: touch; }
     }
@@ -2151,13 +2150,8 @@
       .top-actions { justify-content: center; flex-wrap: wrap; }
       .action-btn { padding: 6px 10px; font-size: 10px; }
       .action-btn svg { width: 12px; height: 12px; }
-      
-      /* Stats */
-      .stats { gap: 5px; }
-      .sc { min-width: 70px; padding: 8px 10px; flex: 1 1 calc(20% - 5px); }
-      .scv { font-size: 16px; }
-      .scl { font-size: 8px; }
-      
+
+
       /* Controls */
       .controls-wrap { flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; }
       .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; padding: 10px 12px; font-size: 14px; }
@@ -2222,11 +2216,11 @@
       .rat-badge { font-size: 9px; padding: 2px 6px; }
       .flag-group { font-size: 9px; }
 
-      /* Index cards — stack price/change vertically instead of side by
-         side, so a wide value ("Rs 57,460.70") never collides with the
-         change badge in a ~1/3-width mobile stat card. */
-      .idx-value { flex-direction: column; align-items: flex-start; gap: 3px; }
-      .idx-change { flex-direction: row; align-items: center; gap: 6px; margin-left: 0; }
+      /* Index capsules — tighter on mobile; the strip itself already wraps
+         (flex-wrap on .idx-strip), so each capsule just gets smaller. */
+      .idx-card { padding: 8px 14px; gap: 8px; }
+      .idx-price { font-size: 14px; }
+      .idx-name { font-size: 10px; }
 
       /* F&O sub-row */
       .sub-wrap { padding: 12px; margin: 6px; border-radius: 8px; }
@@ -2259,12 +2253,7 @@
       .lt { font-size: 18px; }
       .lsub { font-size: 12px; }
       .lc { padding: 24px 20px; max-width: 95%; }
-      
-      /* Stats - 2 per row */
-      .sc { min-width: 60px; padding: 6px 8px; flex: 1 1 calc(33.33% - 5px); }
-      .scv { font-size: 14px; }
-      .scl { font-size: 7px; }
-      
+
       /* Tabs — still wrap (from the 768px rule above), just tighter */
       .tab { padding: 6px 8px; font-size: 9px; }
 
@@ -2451,42 +2440,7 @@
         </div>
       </div>
 
-      <div class="stats">
-        <div class="sc">
-          <div class="scl">Universe</div>
-          <div class="scv a" id="sU">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">🟣 Golden</div>
-          <div class="scv p" id="sG">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">▲ BUY</div>
-          <div class="scv g" id="sB">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">▼ SELL</div>
-          <div class="scv r" id="sS">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">Vol Spikes</div>
-          <div class="scv y" id="sSp">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">Strong Buy</div>
-          <div class="scv g" id="sSB">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">Watchlist</div>
-          <div class="scv y" id="sWL">--</div>
-        </div>
-        <div class="sc">
-          <div class="scl">Errors</div>
-          <div class="scv r" id="sE">--</div>
-        </div>
-      </div>
-      
-      <div class="stats" id="indexCardsContainer" style="margin-top: -6px; margin-bottom: 14px;"></div>
+      <div class="idx-strip" id="indexCardsContainer"></div>
 
       <div id="regimeBanner" class="regime-banner" style="display:none;"></div>
       <div id="topPicksBanner" style="display:none;"></div>

@@ -1476,48 +1476,6 @@ function closeModalChart(event) {
   }
 }
 
-// ── HELPER: Update stat cards (top row) ──────────────────────
-function updateStatCards(data) {
-  if (!data?.data) return;
-
-  const timeframe = window.stateManager.get('timeframe');
-
-  // Collect all stocks based on timeframe
-  let allStocks = [];
-  if (timeframe === 'ALL') {
-    ['1m', '5m', '10m', '15m', '30m', '1h', '1d'].forEach(t => {
-      allStocks.push(...(data.data[`${t}_ALL`] || []));
-    });
-  } else {
-    allStocks = data.data[`${timeframe}_ALL`] || [];
-  }
-
-  // Calculate stats
-  const goldenCount = allStocks.filter(r => r.goldenCross).length;
-  const buyCount = allStocks.filter(r => r.signal === 'BUY').length;
-  const sellCount = allStocks.filter(r => r.signal === 'SELL').length;
-  const volSpikeCount = allStocks.filter(r => r.volSpike).length;
-  const strongBuyCount = allStocks.filter(r => r.rating === 'STRONG BUY').length;
-  const watchlistCount = allStocks.filter(r => r.rating === 'MODERATE').length;
-  const errorCount = data.errors?.length || 0;
-
-  // Update DOM
-  const setStat = (id, val) => {
-    const el = document.getElementById(id);
-    if (el) {
-      el.textContent = val;
-    }
-  };
-
-  setStat('sG', goldenCount);
-  setStat('sB', buyCount);
-  setStat('sS', sellCount);
-  setStat('sSp', volSpikeCount);
-  setStat('sSB', strongBuyCount);
-  setStat('sWL', watchlistCount);
-  setStat('sE', errorCount);
-}
-
 // ── HELPER: Update badges ────────────────────────────────────
 function updateBadges(data, screenerData) {
   if (screenerData) {
@@ -1930,7 +1888,6 @@ window.renderOptionChain = renderOptionChain;
 window.openModalChart = openModalChart;
 window.closeModalChart = closeModalChart;
 window.updateBadges = updateBadges;
-window.updateStatCards = updateStatCards;
 window.updateLastUpdatedBadge = updateLastUpdatedBadge;
 window.updateScanProgressBadge = updateScanProgressBadge;
 window.renderCurrentView = renderCurrentView;

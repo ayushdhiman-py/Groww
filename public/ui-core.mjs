@@ -523,17 +523,6 @@ export class TabManager {
     if (data) {
       window.renderStocks(data);
 
-      // Update universe count
-      const sU = document.getElementById('sU');
-      if (sU) {
-        sU.textContent = data?.universe || '—';
-      }
-
-      // Update stat cards (Golden, Buy, Sell, Vol Spikes, etc.)
-      if (typeof window.updateStatCards === 'function') {
-        window.updateStatCards(data);
-      }
-
       // Update badges with fresh data
       if (typeof window.updateBadges === 'function') {
         window.updateBadges(data);
