@@ -149,3 +149,38 @@ export function selectStage2Symbols(snapshot, { activeCriticalSymbols = [], topN
 
     return [...new Set([...always, ...top, ...rotation])].slice(0, cap);
 }
+
+/**
+ * Selection policy for the Intraday Actionable-Quality layer's candidate
+ * pool (src/actionable_score.mjs) — DELIBERATELY INDEPENDENT of
+ * selectStage2Symbols() above, over the SAME full-universe snapshot.
+ *
+ * Why a separate function instead of reusing selectStage2Symbols(): that
+ * function's top-N slot budget is diluted by always-include (INDEX symbols
+ * + active Critical trades) and a fairness-rotation slice that picks
+ * oldest-scanned-first rather than by current cheap signal — both correct
+ * for Stage-2's own general-scan purpose, but they mean a stock with a
+ * genuinely strong CURRENT cheapScore can still miss Stage-2's shortlist on
+ * a given cycle for reasons that have nothing to do with its current
+ * intraday potential. This function ranks purely by cheapScore (already
+ * computed by computeFullUniverseSnapshot for the ENTIRE universe, zero
+ * extra fetches — SOURCE = EXISTING LOCAL CODE) so a stock's presence in
+ * the Intraday candidate pool depends only on its own current signal, never
+ * on whether Stage-2 happened to pick it.
+ *
+ * This is a CHEAP PRE-FILTER, not a final ranking — callers still run the
+ * full deep-analysis pipeline (buildSignal, trade_plan, actionable_score)
+ * on whatever this returns; a symbol surviving this filter is not yet an
+ * "opportunity," only a candidate worth the expensive analysis.
+ */
+export function selectIntradayCandidates(snapshot, { topN = 80 } = {}) {
+    const eligible = [...snapshot.values()].filter(r =>
+        r.sector !== "INDEX" &&           // Intraday ranks individual stocks, not the indices themselves (entry_score.mjs already excludes INDEX rows the same way)
+        r.priceFreshness !== "UNAVAILABLE" && // no live price at all yet — nothing to act on
+        r.cheapScore > 0                  // BUY-only engine: only genuinely positive current momentum/volume/change signal is worth a deep scan
+    );
+    return eligible
+        .sort((a, b) => b.cheapScore - a.cheapScore)
+        .slice(0, topN)
+        .map(r => r.symbol);
+}

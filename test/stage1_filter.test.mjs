@@ -1,12 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectStage2Symbols } from "../src/stage1_filter.mjs";
+import { selectStage2Symbols, selectIntradayCandidates } from "../src/stage1_filter.mjs";
 
 function fakeSnapshot(rows) {
     return new Map(rows.map(r => [r.symbol, {
         symbol: r.symbol, sector: r.sector ?? "OTHER", cheapScore: r.cheapScore ?? 0,
         chgPctCheap: null, aboveVwapCheap: null, pctFromOpenCheap: null, relVolumeCheap: null,
-        priceFreshness: "LIVE", candleAgeMs: 0, lastDeepScanAt: r.lastDeepScanAt ?? 0,
+        priceFreshness: r.priceFreshness ?? "LIVE", candleAgeMs: 0, lastDeepScanAt: r.lastDeepScanAt ?? 0,
     }]));
 }
 
@@ -58,4 +58,64 @@ test("selectStage2Symbols never exceeds `cap` even if always-include + top + rot
     const snapshot = fakeSnapshot(rows);
     const selected = selectStage2Symbols(snapshot, { topN: 15, rotationSize: 15, cap: 10 });
     assert.ok(selected.length <= 10);
+});
+
+// ── selectIntradayCandidates — the Intraday-only cheap pre-filter, deliberately
+// independent of selectStage2Symbols() over the same full-universe snapshot. ──
+
+test("selectIntradayCandidates excludes INDEX-sector symbols", () => {
+    const snapshot = fakeSnapshot([
+        { symbol: "NIFTY", sector: "INDEX", cheapScore: 999 },
+        { symbol: "GOODCO", sector: "OTHER", cheapScore: 10 },
+    ]);
+    const selected = selectIntradayCandidates(snapshot, { topN: 10 });
+    assert.ok(!selected.includes("NIFTY"));
+    assert.ok(selected.includes("GOODCO"));
+});
+
+test("selectIntradayCandidates excludes non-positive cheap scores (BUY-only pre-filter)", () => {
+    const snapshot = fakeSnapshot([
+        { symbol: "FLAT", cheapScore: 0 },
+        { symbol: "DOWN", cheapScore: -5 },
+        { symbol: "UP", cheapScore: 5 },
+    ]);
+    const selected = selectIntradayCandidates(snapshot, { topN: 10 });
+    assert.deepEqual(selected, ["UP"]);
+});
+
+test("selectIntradayCandidates excludes symbols with no live price yet", () => {
+    const snapshot = fakeSnapshot([
+        { symbol: "NOPRICE", cheapScore: 50, priceFreshness: "UNAVAILABLE" },
+        { symbol: "HASPRICE", cheapScore: 5 },
+    ]);
+    const selected = selectIntradayCandidates(snapshot, { topN: 10 });
+    assert.deepEqual(selected, ["HASPRICE"]);
+});
+
+test("selectIntradayCandidates ranks by cheapScore descending and respects topN", () => {
+    const rows = [];
+    for (let i = 0; i < 20; i++) rows.push({ symbol: `S${i}`, cheapScore: i + 1 });
+    const snapshot = fakeSnapshot(rows);
+    const selected = selectIntradayCandidates(snapshot, { topN: 5 });
+    assert.deepEqual(selected, ["S19", "S18", "S17", "S16", "S15"]);
+});
+
+// ── The actual architectural fix being tested: a stock Stage-2 doesn't pick
+// (its own topN/rotation/cap policy is unrelated to current cheap signal
+// strength) must still be reachable through the Intraday-specific pool. ──
+test("a symbol excluded from a small Stage-2 shortlist is still reachable via selectIntradayCandidates", () => {
+    const rows = [];
+    for (let i = 0; i < 200; i++) rows.push({ symbol: `S${i}`, cheapScore: i }); // S199 has the best cheap score
+    const snapshot = fakeSnapshot(rows);
+
+    // A small Stage-2 shortlist (as this cycle's actual selectStage2Symbols
+    // call might produce, e.g. narrow topN + small cap) excludes most of them.
+    const stage2 = selectStage2Symbols(snapshot, { topN: 2, rotationSize: 0, cap: 2 });
+    assert.equal(stage2.length, 2);
+    assert.ok(!stage2.includes("S150")); // a genuinely strong candidate Stage-2's own cap left out
+
+    // The Intraday-specific pool, ranked purely by current cheap signal, can
+    // still surface it regardless of what Stage-2 selected.
+    const intradayPool = selectIntradayCandidates(snapshot, { topN: 100 });
+    assert.ok(intradayPool.includes("S150"));
 });

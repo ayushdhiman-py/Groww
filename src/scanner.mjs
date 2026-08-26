@@ -3,7 +3,7 @@ import { getOrFetchCandles } from "./candle_cache.mjs";
 import { isolateTodaySession } from "./session_candles.mjs";
 import { ema, macd, rsi, vwap, vwapSeries, historicalVolatility, atr, emaSlopePct } from "./indicators.mjs";
 import { analyzeStructure, detectBreakout, detectRetest, detectRejection, detectConsolidation } from "./price_action.mjs";
-import { TF_MAP } from "./config.mjs";
+import { TF_MAP, INTRADAY_PREFILTER_TOP_N } from "./config.mjs";
 import { UNIVERSE, getSector } from "./universe.mjs";
 import { getLtpWithFreshness } from "./feed.mjs";
 import { historical, UNAVAILABLE, isMarketOpen as _isMarketOpen } from "./data_quality.mjs";
@@ -12,7 +12,7 @@ import { fetchDividend, formatDividendInfo } from "./dividend.mjs";
 import { enrichOpportunities } from "./entry_score.mjs";
 import { computeMarketRegime, regimeMinOpportunityScore } from "./market_regime.mjs";
 import { listCriticalTrades } from "./critical_trades.mjs";
-import { computeFullUniverseSnapshot, selectStage2Symbols, markDeepScanned } from "./stage1_filter.mjs";
+import { computeFullUniverseSnapshot, selectStage2Symbols, selectIntradayCandidates, markDeepScanned } from "./stage1_filter.mjs";
 import { captureQualifyingSnapshots, LEARNING_CAPTURE_MIN_SCORE } from "./learning_capture.mjs";
 import { buildQualityList } from "./quality_filter.mjs";
 import { attachCalibratedProbabilities } from "./learning_stats.mjs";
@@ -560,7 +560,22 @@ export async function scanAll() {
         lastCycleDurationMs: scanProgress?.lastCycleDurationMs ?? null,
     };
 
+    // Captured BEFORE `next` (which starts with intradayActionable: null,
+    // from emptyState()) gets repeatedly published to `state` during the
+    // loop's sync ticks below — otherwise "hold the last-known result while
+    // the Intraday tab is inactive" would read back the null this cycle's
+    // own `next` already clobbered `state` with, not the real prior value.
+    const previousIntradayActionable = state.intradayActionable ?? null;
+
     const next = { ...emptyState(), data: JSON.parse(JSON.stringify(state.data)) };
+    // Carried forward as the default for the WHOLE cycle (the loop below
+    // publishes `next` to `state` many times as Stage-2 progresses, well
+    // before the Intraday-specific block after the loop gets a chance to
+    // run) — without this, the Intraday tab would see intradayActionable
+    // flip to null (and silently fall back to the older, non-actionable-
+    // filtered list — see public/ui-renders.mjs's computeIntradayCandidates)
+    // for the ENTIRE Stage-2 scan duration every cycle, not just briefly.
+    next.intradayActionable = previousIntradayActionable;
 
     try {
         const sortFn = (a, b) => {
@@ -627,7 +642,7 @@ export async function scanAll() {
             // monitoring should update progressively.
             next.marketRegime = computeMarketRegime(next.data, snapshot, getAtrPctSnapshot());
             const minOppScore = regimeMinOpportunityScore(next.marketRegime);
-            const { opportunities, allRanked, fastMovers, nearMiss } = enrichOpportunities(next.data, minOppScore);
+            const { opportunities, fastMovers, nearMiss } = enrichOpportunities(next.data, minOppScore);
             next.intradayOpportunities = opportunities;
             next.intradayNearMiss = nearMiss;
             next.intradayMinScore = minOppScore;
@@ -643,26 +658,10 @@ export async function scanAll() {
             attachCalibratedProbabilities(next.intradayNearMiss, next.marketRegime);
             Object.values(next.fastMovers).forEach(rows => attachCalibratedProbabilities(rows, next.marketRegime));
 
-            // ── Actionable Intraday layer (BUY-only) — trade plan, capital-
-            // aware sizing, and a genuinely new Actionable Quality Score on
-            // top of the unchanged Opportunity Score above (never touches
-            // entry_score.mjs's scoring/bands/weights or
-            // model_registry.mjs's production weights). Runs on the FULL
-            // dual-timeframe-confirmed candidate set (`allRanked`), not just
-            // the top-40 `opportunities` slice, so remaining-move/R:R
-            // down-ranking has real headroom. Gated behind the Intraday
-            // tab's active heartbeat — see isIntradayHeartbeatFresh's doc.
-            if (isIntradayHeartbeatFresh()) {
-                attachCalibratedProbabilities(allRanked, next.marketRegime);
-                const row5BySymbol = new Map((next.data["5m_ALL"] || []).map(r => [r.symbol, r]));
-                next.intradayActionable = buildActionableIntraday(allRanked, row5BySymbol);
-            } else {
-                // Nobody is currently viewing the Intraday tab — hold the
-                // last computed list rather than recomputing it (no new
-                // work this cycle) or blanking it (a user switching back
-                // mid-cycle shouldn't see an empty table for no reason).
-                next.intradayActionable = state.intradayActionable ?? null;
-            }
+            // Actionable Intraday layer (src/actionable_score.mjs) runs ONCE,
+            // after the main Stage-2 loop below — not per sync-tick — since
+            // it needs its own delta-scan pass to complete first. See the
+            // block after this `for` loop.
 
             // Learning-layer snapshot capture. Deliberately uses a fixed,
             // low, regime-independent floor (LEARNING_CAPTURE_MIN_SCORE) —
@@ -704,6 +703,70 @@ export async function scanAll() {
         const lastCycleDurationMs = Date.now() - cycleStartedAt;
         scanProgress = { ...scanProgress, stage: "idle", lastCycleDurationMs };
         process.stdout.write(`\r\x1b[K✅ Scan complete | Time: ${new Date().toLocaleTimeString()} | Total Errors: ${state.errors.length} | Regime: ${next.marketRegime?.regime} | Cycle: ${(lastCycleDurationMs / 1000).toFixed(1)}s | Stage-2: ${stage2Symbols.length} symbols\n`);
+
+        // ── Intraday Actionable-Quality layer (BUY-only) — runs ONCE per
+        // cycle, after Stage-2 finishes, gated behind the Intraday tab's
+        // active heartbeat. See isIntradayHeartbeatFresh's doc: this is the
+        // one genuinely new, non-trivial per-cycle computation this feature
+        // adds; nothing here touches All Stocks/other tabs' own data paths
+        // (stage2Symbols, scanProgress, refreshQuoteMap/applyRowSpread
+        // above are all untouched by this block).
+        //
+        // Candidate SELECTION is deliberately decoupled from Stage-2's own
+        // shortlist (selectStage2Symbols) — that shortlist's slots are
+        // diluted by always-include (INDEX/Critical trades) and an
+        // oldest-first fairness rotation, both correct for its own general
+        // purpose but unrelated to which stocks show strong CURRENT
+        // intraday potential. selectIntradayCandidates() (stage1_filter.mjs)
+        // ranks the SAME already-computed full-universe cheap snapshot
+        // independently, so a stock isn't excluded from Intraday merely
+        // because Stage-2 didn't pick it this cycle.
+        if (isIntradayHeartbeatFresh()) {
+            const intradayPoolStartedAt = Date.now();
+            const intradayCandidatePool = selectIntradayCandidates(snapshot, { topN: INTRADAY_PREFILTER_TOP_N });
+            const stage2Set = new Set(stage2Symbols);
+            // Only the INCREMENTAL symbols the general Stage-2 pass didn't
+            // already deep-scan this cycle need a dedicated scan — reuses
+            // the exact same scanSymbol()/getOrFetchCandles()/candle-cache/
+            // rate-limiter path as Stage-2 above; no second fetch mechanism.
+            const deltaSymbols = intradayCandidatePool.filter(s => !stage2Set.has(s));
+
+            for (const sym of deltaSymbols) {
+                try {
+                    await scanSymbol(sym, next.data, next.errors, `[intraday-delta/${sym}]`, getLtpWithFreshness(sym));
+                    markDeepScanned(sym);
+                } catch (e) {
+                    console.error(`\n❌ Intraday delta-scan error for ${sym}:`, e.message);
+                }
+            }
+            const intradayDeltaScanMs = Date.now() - intradayPoolStartedAt;
+
+            // Re-derive the Opportunity Score pass so the delta-scanned
+            // symbols' rows are actually included this time — reuses the
+            // exact same enrichOpportunities() call as above; only the
+            // (locally-scoped) `allRanked` result is used here, so
+            // next.intradayOpportunities/nearMiss/fastMovers (already set
+            // above, from the Stage-2-only pass) are left exactly as they
+            // were — this block only widens the Actionable layer's input.
+            const minOppScoreForActionable = regimeMinOpportunityScore(next.marketRegime);
+            const { allRanked } = enrichOpportunities(next.data, minOppScoreForActionable);
+            attachCalibratedProbabilities(allRanked, next.marketRegime);
+            const row5BySymbol = new Map((next.data["5m_ALL"] || []).map(r => [r.symbol, r]));
+            next.intradayActionable = buildActionableIntraday(allRanked, row5BySymbol);
+
+            console.log(`[Intraday] Pre-filter pool: ${intradayCandidatePool.length} · delta-scanned (not in Stage-2): ${deltaSymbols.length} in ${intradayDeltaScanMs}ms · allRanked candidates: ${allRanked.length} · actionable (>=75, top 50): ${next.intradayActionable.length}`);
+
+            next.lastUpdated = new Date().toISOString();
+            next.dataAsOf = computeDataAsOf(next.data);
+            state = JSON.parse(JSON.stringify(next));
+        } else {
+            // Nobody is currently viewing the Intraday tab this cycle —
+            // next.intradayActionable already carries previousIntradayActionable
+            // forward (set right after `next` was created, above) and every
+            // sync-tick publish during the loop already used that value, so
+            // there is genuinely no new work to do here: no recompute, no
+            // blanking, the last-known result just stays as-is.
+        }
 
         // Fetch dividend data in background after scan completes
         fetchDividendsInBackground(next.data);
