@@ -45,9 +45,6 @@
       /* Shadow */
       --shadow-1: 0 2px 8px rgba(0,0,0,.35);
       --shadow-2: 0 8px 32px rgba(0,0,0,.5);
-      /* .tw-scan sticky column 1 width — consumed by both its own max-width
-         and column 2's sticky `left` offset so they can't drift apart. */
-      --sticky-col1-w: 130px;
     }
 
     * {
@@ -2131,11 +2128,6 @@
     .p-mid { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
     .p-lo { background: rgba(239, 68, 68, 0.15); color: var(--red); }
 
-    /* Desktop default: hidden — see .tw-scan's mobile override below, where
-       it becomes the "swipe for more" affordance for the horizontal-scroll
-       scanner table. */
-    .scan-hint { display: none; }
-
     @media(max-width:1024px) {
       .wrap { padding: 12px; }
       .stats { gap: 6px; }
@@ -2188,19 +2180,18 @@
       }
 
       /* ── Responsive table → card transform ──────────────────────────────
-         Applies to the LOW-cardinality tabs (Sectors/Portfolio/Critical/
-         Model) — a handful of rows each, where a full labeled card per row
-         reads better than a cramped scan table. The high-cardinality
-         "scan many stocks fast" tables (Stocks/Intraday/Top 50 — marked
-         .tw-scan, see below) get a horizontal-scroll table instead: a
-         scanner is inherently data-dense, and turning 80 stocks into 80
-         tall cards trades scanability for a false sense of mobile-
-         friendliness. Every field from the desktop view still stays
-         visible either way, just via a different mechanism. */
-      .tw:not(.tw-scan) { overflow-x: visible; border-radius: 10px; }
-      .tw:not(.tw-scan) table, .model-table { display: block; width: 100%; }
-      .tw:not(.tw-scan) thead, .model-table thead { display: none; }
-      .tw:not(.tw-scan) tbody, .model-table tbody { display: block; }
+         Applies to EVERY tab on mobile, including the high-cardinality
+         scan tables (Stocks/Intraday/Top 50, marked .tw-scan for desktop
+         purposes only now). These used to get a horizontal-scroll table
+         with sticky pinned columns instead — pinning part of a row while
+         the rest scrolls under a thumb reads as broken on a touch screen,
+         not as an intentional affordance, so every tab now gets the same
+         full-width labeled card per row. Every field from the desktop view
+         still stays visible, just stacked instead of scrolled. */
+      .tw { overflow-x: visible; border-radius: 10px; }
+      .tw table, .model-table { display: block; width: 100%; }
+      .tw thead, .model-table thead { display: none; }
+      .tw tbody, .model-table tbody { display: block; }
       /* #tbody { display: table-row-group !important; } (unconditional,
          desktop-only rendering fix elsewhere in this file) otherwise beats
          the rule above too — same specificity, !important, but declared
@@ -2209,9 +2200,9 @@
          tbody stays table-row-group here, its "display:block" child <tr>
          becomes an anonymous table object instead of a real block box, and
          never actually stretches to the card's full width. */
-      .tw:not(.tw-scan) #tbody { display: block !important; }
+      .tw #tbody { display: block !important; }
 
-      .tw:not(.tw-scan) tbody tr:not(.sub-row), .model-table tbody tr {
+      .tw tbody tr:not(.sub-row), .model-table tbody tr {
         display: block;
         background: var(--card2);
         border: 1px solid var(--border);
@@ -2221,20 +2212,20 @@
       }
 
       /* `tbody tr.main-row { display: table-row !important; }` (added
-         earlier as a desktop rendering fix, unconditional/!important, and
-         Intraday rows are the only ones carrying .main-row) otherwise beats
-         the block-display rule above on mobile too — the row LOOKS
-         card-like since every td inside is independently flexed/blocked,
-         but the tr's own box stays sized under table auto-layout instead of
-         the full card width, which any percentage-width child (like the
-         Opportunity breakdown bar) then inherits as a silently narrower
-         "100%" than the actual visible card. Needs higher specificity than
-         the plain-tag rule to win regardless of !important vs. source order. */
-      .tw:not(.tw-scan) tbody tr.main-row:not(.sub-row) {
+         earlier as a desktop rendering fix, unconditional/!important)
+         otherwise beats the block-display rule above on mobile too — the
+         row LOOKS card-like since every td inside is independently
+         flexed/blocked, but the tr's own box stays sized under table
+         auto-layout instead of the full card width, which any
+         percentage-width child (like the Opportunity breakdown bar) then
+         inherits as a silently narrower "100%" than the actual visible
+         card. Needs higher specificity than the plain-tag rule to win
+         regardless of !important vs. source order. */
+      .tw tbody tr.main-row:not(.sub-row) {
         display: block !important;
       }
 
-      .tw:not(.tw-scan) tbody tr:not(.sub-row) td, .model-table tbody tr td {
+      .tw tbody tr:not(.sub-row) td, .model-table tbody tr td {
         display: flex !important;
         flex-direction: row !important;
         align-items: center !important;
@@ -2247,11 +2238,11 @@
         text-align: right;
         font-size: 11px;
       }
-      .tw:not(.tw-scan) tbody tr:not(.sub-row) td:last-child, .model-table tbody tr td:last-child { border-bottom: none; }
+      .tw tbody tr:not(.sub-row) td:last-child, .model-table tbody tr td:last-child { border-bottom: none; }
 
       /* First cell (symbol/sector, or a Sectors/Model row's title column)
          reads as the card's header, not a label:value line. */
-      .tw:not(.tw-scan) tbody tr:not(.sub-row) td:first-child, .model-table tbody tr td:first-child {
+      .tw tbody tr:not(.sub-row) td:first-child, .model-table tbody tr td:first-child {
         display: block !important;
         text-align: left !important;
         background: rgba(255, 255, 255, 0.025);
@@ -2260,7 +2251,7 @@
 
       /* Printed label for every other cell, taking the place of the now-
          hidden column header — see data-label attributes in ui-renders.mjs. */
-      .tw:not(.tw-scan) tbody tr:not(.sub-row) td[data-label]::before,
+      .tw tbody tr:not(.sub-row) td[data-label]::before,
       .model-table tbody tr td[data-label]::before {
         content: attr(data-label);
         font-size: 9px;
@@ -2272,54 +2263,9 @@
         flex-shrink: 0;
       }
 
-      /* F&O expanded sub-row: same full-width card treatment as its parent
-         row, not the desktop table-row layout — regardless of tw-scan,
-         since an expanded detail row is a special case either way. */
+      /* F&O expanded sub-row: same full-width card treatment as its parent row. */
       .tw tbody tr.sub-row.active { display: block; }
       .tw tbody tr.sub-row td { display: block !important; width: 100% !important; padding: 0 !important; }
-
-      /* ── .tw-scan: horizontal-scroll terminal table for the high-
-         cardinality scanner tabs (Stocks/Intraday/Top 50) ─────────────────
-         Real table layout is kept (no card transform) — the header stays,
-         rows stay rows, and the table scrolls sideways for the analytical
-         columns while Rank/Symbol/Price/Chg stay pinned on the left via
-         position:sticky, so scanning many rows vertically never loses the
-         "which stock, what price" anchor. */
-      .tw.tw-scan { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; position: relative; }
-      .tw.tw-scan table { width: auto; min-width: 100%; }
-      .tw.tw-scan th, .tw.tw-scan td { white-space: nowrap; font-size: 11px; padding: 8px 10px; }
-      .tw.tw-scan thead th { position: sticky; top: 0; background: var(--card2); z-index: 3; }
-      .tw.tw-scan td:first-child, .tw.tw-scan th:first-child {
-        position: sticky; left: 0; z-index: 2; background: var(--card2);
-        box-shadow: 2px 0 6px rgba(0,0,0,0.35);
-        white-space: normal; max-width: var(--sticky-col1-w);
-      }
-      /* .dividend-info's own base rule sets white-space:nowrap (fine on a
-         wide desktop table); inside the width-constrained sticky column it
-         must wrap like everything else here, or it overflows into the
-         adjacent sticky column exactly like .sym used to. */
-      .tw.tw-scan td:first-child .dividend-info { white-space: normal; }
-      .tw.tw-scan td:nth-child(2), .tw.tw-scan th:nth-child(2) {
-        position: sticky; left: var(--sticky-col1-w); z-index: 2; background: var(--card2);
-        box-shadow: 2px 0 6px rgba(0,0,0,0.35);
-      }
-      .tw.tw-scan thead th:first-child, .tw.tw-scan thead th:nth-child(2) { z-index: 4; }
-      /* Scroll-for-more hint — a soft right-edge fade so a horizontally
-         scrollable table doesn't silently look "finished" at the viewport
-         edge. Hidden once the user has actually scrolled (JS toggles
-         .scrolled on .tw). */
-      .tw.tw-scan::after {
-        content: '';
-        position: absolute; top: 0; right: 0; bottom: 0; width: 18px;
-        background: linear-gradient(to right, transparent, rgba(0,0,0,0.35));
-        pointer-events: none; z-index: 1;
-      }
-      .tw.tw-scan.scrolled::after { opacity: 0; }
-      .scan-hint {
-        display: block;
-        font-size: 10px; color: var(--muted); text-align: center;
-        padding: 4px 0 8px;
-      }
 
       .checks { max-width: none; justify-content: flex-end; }
 
@@ -2787,16 +2733,14 @@
           <tbody id="tbody"></tbody>
         </table>
       </div>
-      <div class="scan-hint" id="scanHint">‹ swipe for more columns ›</div>
       <div id="empty" class="empty" style="display:none">No results for current filter.</div>
     </div><!-- /wrap -->
   </div><!-- /APP -->
 
-  <!-- Mobile row-detail bottom sheet — tapping a row on a .tw-scan table
-       (Stocks/Intraday/Top 50) opens this instead of the row itself
-       expanding, since scan-table rows are deliberately compact. Populated
-       generically from whatever cells the tapped row has (see
-       ui-main.mjs's openRowSheet) — no per-tab custom markup needed. -->
+  <!-- Mobile row-detail bottom sheet — markup kept but currently unused
+       (see ui-main.mjs's setupRowSheetAndScanHint comment). Populated
+       generically from whatever cells a row has (see openRowSheet) if
+       something calls it again. -->
   <div id="rowSheetBackdrop" class="row-sheet-backdrop" onclick="window.closeRowSheet?.()"></div>
   <div id="rowSheet" class="row-sheet" role="dialog" aria-modal="true">
     <div class="row-sheet-handle"></div>

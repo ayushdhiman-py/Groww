@@ -428,10 +428,15 @@ async function fetchIndices() {
   }
 }
 
-// ── Mobile row-detail bottom sheet + horizontal-scroll hint ───
-// Only relevant on the .tw-scan (Stocks/Intraday/Top 50) tables — see
-// index.html's mobile CSS. Desktop rows already show everything inline,
-// so this whole thing is a no-op above the mobile breakpoint.
+// ── Mobile row-detail bottom sheet ──────────────────────────────
+// Previously auto-opened on row tap for the .tw-scan (Stocks/Intraday/
+// Top 50) tables, back when those used a sticky-column horizontal-scroll
+// table on mobile that hid most fields off-screen. All tabs now render
+// as full labeled cards on mobile (every field already visible inline),
+// so the auto-open trigger was removed — it would just pop up a
+// redundant sheet duplicating what's already on screen. openRowSheet/
+// closeRowSheet are left in place, unused, in case a future "view full
+// detail" affordance wants them.
 const MOBILE_SCAN_MQ = '(max-width: 768px)';
 
 function openRowSheet(trEl) {
@@ -467,30 +472,9 @@ window.openRowSheet = openRowSheet;
 window.closeRowSheet = closeRowSheet;
 
 function setupRowSheetAndScanHint() {
-  const tbody = document.getElementById('tbody');
-  const twWrap = document.getElementById('twWrap');
-
-  // Event delegation — rows get replaced wholesale on every render, a
-  // single listener on the stable #tbody parent survives that.
-  tbody?.addEventListener('click', (e) => {
-    if (!twWrap?.classList.contains('tw-scan')) return;
-    if (!window.matchMedia(MOBILE_SCAN_MQ).matches) return;
-    // A click on an actual control inside the row (button/link/onclick
-    // chart cell) should do ITS OWN thing, not also open the sheet.
-    if (e.target.closest('button, a')) return;
-    const tr = e.target.closest('tr.main-row');
-    if (tr) openRowSheet(tr);
-  });
-
-  // Horizontal-scroll affordance: fade the right edge and show a text hint
-  // until the user has actually scrolled once, then get out of the way.
-  twWrap?.addEventListener('scroll', () => {
-    if (twWrap.scrollLeft > 8) {
-      twWrap.classList.add('scrolled');
-      const hint = document.getElementById('scanHint');
-      if (hint) hint.style.display = 'none';
-    }
-  }, { passive: true });
+  // Intentionally empty — see the comment above MOBILE_SCAN_MQ. Kept as a
+  // named call site rather than removed outright so re-enabling a manual
+  // "view detail" trigger later is a one-line change, not an archaeology dig.
 }
 
 // ── Keyboard Shortcuts ───────────────────────────────────────
