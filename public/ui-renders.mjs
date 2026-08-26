@@ -394,9 +394,9 @@ function renderStocks(data) {
 
     return `<tr class='main-row ${(r.goldenCross ? 'gc-row' : '')}' id="row-${rowKey}">
       <td style="text-align:left;">
-        <div class='sym' style="white-space:nowrap;">${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
+        <div class='sym'>${expandToggle}${symLink} <span class="tf-purple">(${r.tf})</span>${gcBadge}</div>
         <div class='muted-xl' style="text-transform:uppercase; font-size:9px; margin-top:3px;">${r.sector} · <span class='${cc}'>${fullChg}</span></div>
-        ${r.dividend ? `<div class='dividend-info' style="margin-top:2px; font-size:9px; font-family:var(--mono);">💰 <span class="${r.dividend.colorClass}">${r.dividend.displayText}</span> <span style="opacity:0.6;">(${r.dividend.yield.toFixed(2)}% yield)</span></div>` : ''}
+        ${r.dividend ? `<div class='dividend-info' style="margin-top:2px; font-family:var(--mono);">💰 <span class="${r.dividend.colorClass}">${r.dividend.displayText}</span> <span style="opacity:0.6;">(${r.dividend.yield.toFixed(2)}% yield)</span></div>` : ''}
       </td>
       <td data-label="CMP">
         <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">

@@ -1735,6 +1735,7 @@
       align-items: center;
       gap: 3px;
       white-space: nowrap;
+      font-size: 10px;
     }
 
     .dividend-info .high-yield {
@@ -2293,6 +2294,11 @@
         box-shadow: 2px 0 6px rgba(0,0,0,0.35);
         white-space: normal; max-width: var(--sticky-col1-w);
       }
+      /* .dividend-info's own base rule sets white-space:nowrap (fine on a
+         wide desktop table); inside the width-constrained sticky column it
+         must wrap like everything else here, or it overflows into the
+         adjacent sticky column exactly like .sym used to. */
+      .tw.tw-scan td:first-child .dividend-info { white-space: normal; }
       .tw.tw-scan td:nth-child(2), .tw.tw-scan th:nth-child(2) {
         position: sticky; left: var(--sticky-col1-w); z-index: 2; background: var(--card2);
         box-shadow: 2px 0 6px rgba(0,0,0,0.35);
@@ -2329,12 +2335,12 @@
 
       /* Symbol / row-header text */
       .sym { font-size: 12px; }
-      .muted-xl { font-size: 9px; }
-      .dividend-info { font-size: 9px; }
+      .muted-xl { font-size: var(--fs-xs); }
+      .dividend-info { font-size: var(--fs-xs); }
 
       /* Price */
       .price-bold { font-size: 13px; }
-      .vwap-muted { font-size: 9px; }
+      .vwap-muted { font-size: var(--fs-xs); }
 
       /* Volume */
       .vol-large { font-size: 12px; }
@@ -2409,11 +2415,11 @@
       .tw tbody tr:not(.sub-row) td, .model-table tbody tr td { padding: 8px 10px !important; font-size: 10px; }
 
       .sym { font-size: 11px; }
-      .tf-purple { font-size: 9px; }
-      .muted-xl { font-size: 7px; }
-      
+      .tf-purple { font-size: var(--fs-xs); }
+      .muted-xl { font-size: var(--fs-xs); }
+
       /* Price */
-      .price-bold { font-size: 11px; }
+      .price-bold { font-size: var(--fs-sm); }
       
       /* Volume */
       .vol-large { font-size: 10px; }
