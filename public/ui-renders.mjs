@@ -141,9 +141,21 @@ function generateSparkline(priceHist, ema21Hist, ema50Hist) {
   const getX = i => (i / (priceHist.length - 1)) * w;
   const getY = v => h - ((v - min) / range) * h;
 
+  // A period-N EMA is null for its first N-1 points by definition (not
+  // enough history yet to average) — plotting those anyway (the old
+  // behavior) fed `null` straight into getY, which type-coerces it to 0 and
+  // draws a line jumping to a garbage y-position instead of just not being
+  // there yet. Skip straight to the first real value and only draw through
+  // finite ones — a shorter-but-correct line instead of a longer-but-broken
+  // one, and correct for the price line too even though it's never null.
   const mkPath = (arr, cls) => {
-    let d = `M ${getX(0)} ${getY(arr[0])}`;
-    for (let i = 1; i < arr.length; i++) d += ` L ${getX(i)} ${getY(arr[i])}`;
+    const startIdx = arr.findIndex(Number.isFinite);
+    if (startIdx === -1) return '';
+    let d = `M ${getX(startIdx)} ${getY(arr[startIdx])}`;
+    for (let i = startIdx + 1; i < arr.length; i++) {
+      if (!Number.isFinite(arr[i])) continue;
+      d += ` L ${getX(i)} ${getY(arr[i])}`;
+    }
     return `<path class='${cls}' d='${d}' />`;
   };
 
@@ -186,6 +198,344 @@ function generateRangeBar(low, high, current) {
   </div>`;
 }
 
+// ── VIRTUALIZED RENDERING: "All" chip's ~500-row table ──────────────────
+// content-visibility (index.html) skips paint for vertically off-screen
+// rows, but rows currently in the vertical viewport still get fully
+// painted regardless of horizontal scroll position — with 500 rows in the
+// DOM, that's still a lot of paint surface. This keeps only the rows
+// actually on screen (+ a small buffer) in the DOM at all, using two
+// spacer <tr>s to hold the correct total scrollable height — the standard
+// technique for virtualizing a native <table> without breaking column
+// alignment. Row height is measured from the first real row actually
+// painted rather than hardcoded, so the spacer math can't silently drift
+// out of sync with whatever the browser actually rendered.
+let virtRows = [];
+let virtMaxVolume = 1;
+let virtRowHeight = 52; // seed estimate; replaced by a real measurement after first paint
+let virtSortCol = null;
+let virtSortAsc = false;
+
+// Column -> field on the cheap snapshot row. 'symbol' sorts alphabetically;
+// everything else is numeric, missing values always sort last regardless
+// of direction (a "—" cell isn't meaningfully "0").
+const VIRT_SORT_COLS = {
+  symbol: 'symbol', price: 'price', change: 'chgPctCheap',
+  volume: 'volumeCheap', ema: 'emaGapCheap', score: 'score',
+};
+
+function applyVirtSort(rows) {
+  if (!virtSortCol) return rows;
+  const field = VIRT_SORT_COLS[virtSortCol];
+  const asc = virtSortAsc;
+  return rows.slice().sort((a, b) => {
+    if (virtSortCol === 'symbol') {
+      const r = (a.symbol || '').localeCompare(b.symbol || '');
+      return asc ? r : -r;
+    }
+    const va = a[field], vb = b[field];
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;  // missing always last
+    if (vb == null) return -1;
+    return asc ? va - vb : vb - va;
+  });
+}
+
+// Click a "All" chip header to sort by it — same column again reverses
+// direction. Self-contained (not the shared SortManager other chips use):
+// that manager re-renders from dataManager.cache, which this view never
+// populates, so it would've silently re-fetched the heavy Stage-2 endpoint
+// on every sort click instead of just re-sorting what's already in memory.
+window.sortAllStocks = function (col) {
+  if (virtSortCol === col) { virtSortAsc = !virtSortAsc; } else { virtSortCol = col; virtSortAsc = col !== 'symbol'; }
+  renderStocksAllVirtualized(window.universeSnapshotCache || []);
+};
+let virtRowHeightMeasured = false;
+let virtScrollBound = false;
+let virtTicking = false;
+
+// "ALL" timeframe only makes sense once search has narrowed to exactly one
+// stock (see stage1_filter.mjs's computeSymbolAllTimeframes for why a
+// universe-wide "ALL" isn't offered at all — ~7x the background cost for a
+// feature only useful on one stock at a time). Same search-matching logic
+// as SearchFilter.filterRows (ui-managers.mjs), just scoped to symbol/sector
+// since universeSnapshotCache rows don't carry signal/rating.
+function getSingleStockMatch() {
+  const query = (window.stateManager?.get('searchQuery') || '').trim().toUpperCase();
+  if (!query) return null;
+  const terms = query.split(',').map(t => t.replace(/\s+/g, '').trim()).filter(Boolean);
+  if (!terms.length) return null;
+
+  const matches = (window.universeSnapshotCache || []).filter(r => {
+    if (r.sector === 'INDEX') return false;
+    const sym = (r.symbol || '').toUpperCase().replace(/\s+/g, '');
+    const sec = (r.sector || '').toUpperCase().replace(/\s+/g, '');
+    return terms.some(t => sym.includes(t) || sec.includes(t));
+  });
+  return matches.length === 1 ? matches[0].symbol : null;
+}
+window.getSingleStockMatch = getSingleStockMatch;
+
+// Greys out (and functionally disables — see TimeframeManager.selectTimeframe
+// in ui-core.mjs) the "ALL" dropdown option unless search currently matches
+// exactly one stock; auto-reverts away from ALL if it's selected but the
+// condition stops holding (search cleared, or now matches more than one).
+function updateAllTfAvailability() {
+  const allOption = document.querySelector('#tfOptions .option[data-value="ALL"]');
+  if (!allOption) return;
+  const singleMatch = getSingleStockMatch();
+  allOption.classList.toggle('option-disabled', !singleMatch);
+
+  if (!singleMatch && window.stateManager?.get('timeframe') === 'ALL') {
+    const fallbackEl = document.querySelector('#tfOptions .option[data-value="5m"]');
+    window.timeframeManager?.selectTimeframe('5m', fallbackEl);
+  }
+}
+window.updateAllTfAvailability = updateAllTfAvailability;
+
+// Renders exactly what /api/universe-snapshot returns for one symbol — no
+// merging with any other data source, no derived/synthesized fields.
+function buildAllStocksRowHtml(r, maxVolume) {
+  const chg = r.chgPctCheap;
+  const cc = chg == null ? '' : chg >= 0 ? 'up' : 'dn';
+  const chgTxt = chg == null ? '—' : `${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%`;
+  const priceTxt = r.price == null ? '—' : `₹${r.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(r.symbol.toUpperCase())}`;
+  // '5m' — the candle timeframe stage1_filter.mjs's cheap snapshot actually
+  // uses for priceHist/ema21Hist/ema50Hist (in ALL mode too — the blend only
+  // applies to the EMA-status/Score reading, not the visual chart, since a
+  // line chart needs one continuous series); openModalChart falls back to
+  // this same data (see ui-renders.mjs) when no Stage-2 row exists yet.
+  const rawTf = window.stateManager?.get('timeframe');
+  const chartTf = rawTf && rawTf !== 'ALL' ? rawTf : '5m';
+  const chartTxt = `<div style='cursor:pointer; opacity:0.85;' onclick="window.openModalChart('${r.symbol}', '${chartTf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>`;
+
+  const volBarPct = r.volumeCheap == null ? 0 : Math.round((r.volumeCheap / maxVolume) * 100);
+  const volTxt = r.volumeCheap == null ? '—' : formatVolume(r.volumeCheap);
+
+  let emaTxt;
+  if (r.ema21aboveCheap == null) {
+    emaTxt = `<span class="muted-xl">—</span>`;
+  } else {
+    const emaCls = r.ema21aboveCheap ? 'ea' : 'eb';
+    const emaColor = r.ema21aboveCheap ? 'var(--green)' : 'var(--red)';
+    emaTxt = `<div class='${emaCls} muted-xl' style='font-weight:600; color:${emaColor}'>EMA 21 ${r.ema21aboveCheap ? '>' : '<'} 50</div>
+      <div class="muted-xl ${cc}" style="font-weight:600;">Gap ${Math.abs(r.emaGapCheap || 0).toFixed(2)}%</div>`;
+  }
+
+  // Score/Why — same 8-factor engine as the Intraday tab (see
+  // stage1_filter.mjs's computeMoverScore), tf-aware; reuses moverScoreColor
+  // defined above for the Intraday row.
+  let scoreTxt;
+  if (r.score == null) {
+    scoreTxt = `<span class="muted-xl">—</span>`;
+  } else {
+    const color = moverScoreColor(r.score);
+    const whyTxt = (r.reasons || []).join(' · ') || 'No standout factor';
+    scoreTxt = `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+        <span style="font-weight:800;font-size:14px;font-family:var(--mono);color:${color};">${r.score}</span>
+        <span class="muted-xl why-line" style="opacity:1;max-width:140px;">${whyTxt}</span>
+      </div>`;
+  }
+
+  return `<tr class='main-row virt-row' id="row-${r.symbol}">
+    <td style="text-align:left;">
+      <div style="display:flex; align-items:baseline; gap:8px;">
+        <span class='sym'><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit; text-decoration:none;">${r.symbol}</a></span>
+        <span class="price-bold">${priceTxt}</span>
+      </div>
+      <span class='muted-xl' style="text-transform:uppercase;">${r.sector || ''} <span class="${cc}">(${chgTxt})</span></span>
+    </td>
+    <td data-label="Chart"><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
+    <td data-label="Volume">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+        <div style="font-size:13px; font-weight:700; font-family:var(--mono);">${volTxt}</div>
+        <div style="width:60px; height:7px; background:rgba(255,255,255,0.07); border-radius:6px; overflow:hidden;">
+          <div class="vb-normal" style="width:${volBarPct}%; height:100%; border-radius:6px; background:var(--accent);"></div>
+        </div>
+      </div>
+    </td>
+    <td data-label="EMA">
+      <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">${emaTxt}</div>
+    </td>
+    <td data-label="Score">${scoreTxt}</td>
+  </tr>`;
+}
+
+function renderStocksAllVirtualized(rows) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  const tableHeader = document.getElementById('tableHeader');
+  if (!tbody) return;
+
+  // Indices (NIFTY/BANKNIFTY/etc) have their own capsule strip above the
+  // table — they aren't individual stocks, so they don't belong mixed in
+  // with 500 actual symbols here.
+  rows = rows.filter(r => r.sector !== 'INDEX');
+  const totalCount = rows.length;
+  rows = window.searchFilter?.filterRows(rows) || rows;
+
+  if (tableHeader) {
+    const arrow = col => virtSortCol === col ? `<span class="sort-meta">${virtSortAsc ? '↑' : '↓'}</span>` : '';
+    const th = (col, label) => `<th onclick="window.sortAllStocks('${col}')" style="cursor:pointer;">${label}${arrow(col)}</th>`;
+    tableHeader.innerHTML = `<tr>
+      ${th('symbol', 'Stock')}
+      <th>Chart</th>
+      ${th('volume', 'Volume')}
+      ${th('ema', 'EMA')}
+      ${th('score', 'Score')}
+    </tr>`;
+  }
+
+  rows = applyVirtSort(rows);
+  virtRows = rows;
+  virtMaxVolume = Math.max(...rows.map(x => x.volumeCheap || 0), 1);
+
+  const rcEl = document.getElementById('rowCount');
+  if (rcEl) rcEl.textContent = `Stocks: ${rows.length} of ${totalCount}`;
+
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = totalCount ? 'No stocks match your search.' : 'No data yet.'; }
+    return;
+  }
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+
+  if (!virtScrollBound) {
+    virtScrollBound = true;
+    const onScroll = () => {
+      if (virtTicking) return;
+      virtTicking = true;
+      requestAnimationFrame(() => {
+        virtTicking = false;
+        const st = window.stateManager?.get();
+        // Single-symbol "ALL" timeframe mode (see renderSingleSymbolAllTimeframes)
+        // renders a plain, non-virtualized 7-row table into the same #tbody —
+        // without this check, this handler would still fire on scroll and
+        // clobber it with paintVirtualWindow()'s stale virtRows from the last
+        // normal 500-row render, visibly collapsing it down to whatever
+        // fraction of virtRows the current scroll position happened to window
+        // into.
+        if (st?.activeTab === 'STOCKS' && (st.stockFilter || 'ALL') === 'ALL' && st.timeframe !== 'ALL') paintVirtualWindow();
+      });
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
+    document.querySelector('.tw')?.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+  }
+
+  paintVirtualWindow();
+}
+
+function paintVirtualWindow() {
+  const tbody = document.getElementById('tbody');
+  const anchor = tbody?.closest('table');
+  if (!tbody || !anchor || !virtRows.length) return;
+
+  const total = virtRows.length;
+  const scrolledPast = Math.max(0, -anchor.getBoundingClientRect().top);
+  const buffer = 12;
+  let startIdx = Math.floor(scrolledPast / virtRowHeight) - buffer;
+  startIdx = Math.max(0, Math.min(startIdx, total - 1));
+  const visibleSlots = Math.ceil(window.innerHeight / virtRowHeight) + buffer * 2;
+  const endIdx = Math.min(total, startIdx + visibleSlots);
+
+  const topH = startIdx * virtRowHeight;
+  const bottomH = (total - endIdx) * virtRowHeight;
+  const blankTd = `<td colspan="5" style="padding:0;border:none;"></td>`;
+
+  tbody.innerHTML =
+    `<tr aria-hidden="true" style="height:${topH}px;">${blankTd}</tr>` +
+    virtRows.slice(startIdx, endIdx).map(r => buildAllStocksRowHtml(r, virtMaxVolume)).join('') +
+    `<tr aria-hidden="true" style="height:${bottomH}px;">${blankTd}</tr>`;
+
+  // Self-correct the row-height estimate from what the browser actually
+  // rendered ONCE, so spacer heights stay accurate instead of drifting from
+  // a hardcoded guess — but only once, not every repaint: reading
+  // getBoundingClientRect right after an innerHTML write forces a
+  // synchronous layout flush, which is fine a single time but would add
+  // real cost done on every scroll-driven repaint (up to 60/sec).
+  if (!virtRowHeightMeasured) {
+    const measured = tbody.querySelector('tr.virt-row')?.getBoundingClientRect().height;
+    if (measured) {
+      virtRowHeightMeasured = true;
+      if (Math.abs(measured - virtRowHeight) > 1) { virtRowHeight = measured; paintVirtualWindow(); return; }
+    }
+  }
+}
+
+// ── "ALL" timeframe, single symbol only ─────────────────────────────────────
+// See stage1_filter.mjs's computeSymbolAllTimeframes: 7 real timeframes for
+// ONE stock (never the whole universe — that would be ~7x the background
+// cost for a feature only useful on one stock at a time). Price/sector come
+// from the already-loaded universeSnapshotCache (tf-agnostic, canonical);
+// only the chart/EMA/Score per row are genuinely per-timeframe.
+function buildSymbolTfRowHtml(symbol, r) {
+  const chartTxt = `<div style='cursor:pointer; opacity:0.85;' onclick="window.openModalChart('${symbol}', '${r.tf}')">${generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist)}</div>`;
+
+  let emaTxt;
+  if (r.ema21aboveCheap == null) {
+    emaTxt = `<span class="muted-xl">—</span>`;
+  } else {
+    const emaColor = r.ema21aboveCheap ? 'var(--green)' : 'var(--red)';
+    emaTxt = `<div class='muted-xl' style='font-weight:600; color:${emaColor}'>EMA 21 ${r.ema21aboveCheap ? '>' : '<'} 50</div>
+      <div class="muted-xl" style="font-weight:600;">Gap ${Math.abs(r.emaGapCheap || 0).toFixed(2)}%</div>`;
+  }
+
+  let scoreTxt;
+  if (r.score == null) {
+    scoreTxt = `<span class="muted-xl">—</span>`;
+  } else {
+    const color = moverScoreColor(r.score);
+    const whyTxt = (r.reasons || []).join(' · ') || 'No standout factor';
+    scoreTxt = `<div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
+        <span style="font-weight:800;font-size:14px;font-family:var(--mono);color:${color};">${r.score}</span>
+        <span class="muted-xl why-line" style="opacity:1;max-width:200px;">${whyTxt}</span>
+      </div>`;
+  }
+
+  return `<tr class="main-row">
+      <td style="text-align:left;"><span class="sym" style="font-weight:700;">${r.tf}</span></td>
+      <td data-label="Chart"><div style="display:flex; justify-content:center;">${chartTxt}</div></td>
+      <td data-label="EMA"><div style="display:flex; flex-direction:column; align-items:center; gap:3px;">${emaTxt}</div></td>
+      <td data-label="Score">${scoreTxt}</td>
+    </tr>`;
+}
+
+function renderSingleSymbolAllTimeframes(payload) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
+  const tableHeader = document.getElementById('tableHeader');
+  if (!tbody) return;
+
+  const symbol = payload?.symbol;
+  const rows = payload?.rows || [];
+  const canonical = (window.universeSnapshotCache || []).find(x => x.symbol === symbol);
+
+  if (tableHeader) {
+    tableHeader.innerHTML = `<tr>
+      <th style="text-align:left;">Timeframe</th>
+      <th>Chart</th>
+      <th>EMA</th>
+      <th>Score</th>
+    </tr>`;
+  }
+
+  const rcEl = document.getElementById('rowCount');
+  if (rcEl) {
+    const priceTxt = canonical?.price == null ? '' : ` · ₹${canonical.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}`;
+    rcEl.textContent = symbol ? `${symbol}${priceTxt} — all ${rows.length} timeframes` : 'No stock selected';
+  }
+
+  if (!symbol || !rows.length) {
+    tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data yet.'; }
+    return;
+  }
+  if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
+
+  tbody.innerHTML = rows.map(r => buildSymbolTfRowHtml(symbol, r)).join('');
+}
+
 // ── MAIN RENDER: STOCKS TAB — filter chips: All / Golden Cross / Buy / Sell / F&O ──
 function renderStocks(data) {
   const state = window.stateManager.get();
@@ -199,6 +549,25 @@ function renderStocks(data) {
   // GUARD: Don't render stocks when on tabs with their own dedicated render
   // function / different table shape.
   if (activeTab !== 'STOCKS') {
+    return;
+  }
+
+  // "All" chip + "ALL" timeframe together: single-symbol, 7-real-timeframes
+  // view (see stage1_filter.mjs's computeSymbolAllTimeframes) — only ever
+  // reachable once search has narrowed to exactly one stock (TimeframeManager
+  // guards the selection itself), a completely different data shape from the
+  // universe-wide table below.
+  if (stockFilter === 'ALL' && timeframe === 'ALL') {
+    renderSingleSymbolAllTimeframes(window.symbolAllTimeframesCache);
+    return;
+  }
+
+  // "All" chip: one API (/api/universe-snapshot, via ui-main.mjs's poll into
+  // window.universeSnapshotCache), shown directly — every Nifty-500 symbol
+  // it returns, unfiltered, unsorted, not merged with any other data source.
+  // Fully self-contained; skips all the Stage-2-data plumbing below.
+  if (stockFilter === 'ALL') {
+    renderStocksAllVirtualized(window.universeSnapshotCache || []);
     return;
   }
 
@@ -282,6 +651,7 @@ function renderStocks(data) {
     });
   }
 
+
   // Update row count
   const uniqueStocks = new Set(rows.map(r => r.symbol)).size;
   const totalStocks = data.universe || 0;
@@ -337,6 +707,14 @@ function renderStocks(data) {
   // node and later timeframes silently overwrite/clobber earlier ones.
   const rowKeyFor = (r) => stockFilter === 'FO' ? r.symbol : `${r.symbol}::${r.tf}`;
 
+  // Computed once per render, not per row — this used to be
+  // `Math.max(...rows.map(...))` inline inside both renderRow and
+  // patchTable's per-row loop below, making the whole render O(n²). Went
+  // unnoticed while "All" only ever held Stage-2's ~100-row rotation subset;
+  // at the full ~500-symbol universe it was 250k+ ops per render, on a table
+  // that now re-renders every 2s — the direct cause of the reported lag.
+  const maxVolume = Math.max(...rows.map(x => x.volume || 0), 1);
+
   // Render row function
   const renderRow = (r) => {
     const rowKey = rowKeyFor(r);
@@ -361,7 +739,7 @@ function renderStocks(data) {
     const chartTxt = `<div style='cursor:pointer; opacity:0.85;' onclick="window.openModalChart('${r.symbol}', '${r.tf}')">`
       + generateSparkline(r.priceHist, r.ema21Hist, r.ema50Hist) + `</div>`;
 
-    const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
+    const volBarPct = Math.round((Math.abs(r.volume || 0) / maxVolume) * 100);
     const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
     const macdTxt = r.macdAbove
       ? `<div><span class='up' style='font-size:12px;font-weight:600;'>▲ Bull <span style='opacity:0.5;font-size:10px;'>(${macdVal})</span></span></div>`
@@ -473,7 +851,7 @@ function renderStocks(data) {
       const chgP = (r.priceChange >= 0 ? '+' : '') + r.priceChange.toFixed(2);
       const chg = (r.chgPct >= 0 ? '+' : '') + r.chgPct.toFixed(2) + '%';
       const fullChg = `${chgP} (${chg})`;
-      const volBarPct = Math.round((Math.abs(r.volume || 0) / Math.max(...rows.map(x => x.volume || 0), 1)) * 100);
+      const volBarPct = Math.round((Math.abs(r.volume || 0) / maxVolume) * 100);
       const macdVal = r.macdVal !== null ? r.macdVal.toFixed(2) : '—';
 
       if (existingRows.has(rowId)) {
@@ -605,362 +983,250 @@ function renderStocks(data) {
   }
 }
 
-// ── INTRADAY OPPORTUNITIES ───────────────────────────────────
-// Ranking, Opportunity Score, Entry Attractiveness, and Upside estimates are
-// all computed server-side (src/entry_score.mjs) from real Upstox candles —
-// this just reads state.intradayOpportunities. No indicator combination
-// predicts a stock will keep moving with certainty; this surfaces the
-// strongest CURRENT multi-factor confluence as a starting point for the
-// user's own risk management, not a guarantee.
-function computeIntradayCandidates(data) {
-  // intradayActionable (src/actionable_score.mjs) is the new
-  // Actionable-Quality layer: score >= 75, ranked, max 50, on top of
-  // trade-plan/R:R/remaining-move/trap-risk validation — the real
-  // deliverable. It's `null` (not `[]`) until the backend has computed it
-  // at least once (server just booted, or before the Intraday tab's first
-  // heartbeat lands) — an actual computed-and-empty result (nothing
-  // cleared the bar this cycle) must NOT fall back to the older, looser
-  // intradayOpportunities list, or "0 qualify" would silently turn into
-  // "here are some that don't."
-  if (Array.isArray(data?.intradayActionable)) return data.intradayActionable;
-  return data?.intradayOpportunities || [];
+// ── INTRADAY: 15-MIN MOMENTUM MOVERS ──────────────────────────
+// Fully independent of Stage-2/entry_score.mjs/actionable_score.mjs — see
+// src/intraday_movers.mjs for the scoring design (six weighted technical
+// factors: volatility expansion, relative volume, multi-timeframe EMA
+// alignment, breakout structure, VWAP position, F&O confirmation). Reads
+// /api/intraday-movers directly (ui-core.mjs's fetchIntradayMovers), never
+// state.intradayOpportunities/intradayActionable/fastMovers — this tab
+// shares no data or computation with anything else in the app.
+const INTRADAY_TABLE_HEADER = `<tr>
+    <th style="text-align:left;">Stock</th>
+    <th>Score</th>
+    <th style="text-align:left;">Why</th>
+  </tr>`;
+
+function moverScoreColor(score) {
+  if (score >= 70) return 'var(--green)';
+  if (score >= 55) return 'var(--yellow)';
+  return 'var(--muted)';
 }
 
-function bandColor(band) {
-  if (band === 'VERY STRONG') return '#22c55e';
-  if (band === 'STRONG') return '#4ade80';
-  if (band === 'WATCH') return '#f59e0b';
-  return '#ef4444';
-}
-
-// ── TOP PICKS (Intraday tab highlight) ─────────────────────────
-// The top 5 (already ranked by Opportunity Score in entry_score.mjs) as
-// prominent cards: entry price NOW, an estimated target ZONE (never a
-// single fixed number — that implies false precision), and either a real
-// historical win rate from the learning layer once enough data exists, or
-// an explicit "not enough data yet" — never a fabricated confidence
-// number. This is explicitly an estimate, not a guarantee (see disclaimer).
-function renderTopPicks(picks) {
-  const el = document.getElementById('topPicksBanner');
-  if (!el) return;
-  if (!picks || !picks.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
-
-  // A dense table, not a handful of pretty cards — every column here
-  // answers a specific question ("why is this ranked here") instead of
-  // just restating the score.
-  const top8 = picks.slice(0, 8);
-  const rows = top8.map((p, i) => {
-    const upside = p.upside || {};
-    const targetTxt = upside.zoneLow != null ? `₹${upside.zoneLow}–₹${upside.zoneHigh}` : '—';
-    const prob = p.calibratedProbability;
-    const confTxt = prob?.available
-      ? `${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. (n=${prob.sampleCount})`
-      : `${upside.confidence || '—'} (rule-based)`;
-    const why = (p.notes || []).slice(0, 2).join(' · ') || '—';
-    const cc = p.chgPct >= 0 ? 'up' : 'dn';
-    const bc = bandColor(p.opportunityBand);
-    return `<tr>
-      <td class="num" style="color:var(--muted);">${i + 1}</td>
+function renderIntradayMoverRowHtml(m, rank) {
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(m.symbol.toUpperCase())}`;
+  const color = moverScoreColor(m.score);
+  // The volume multiplier already shows in the subtitle line below — skip
+  // its reason string here so Why isn't repeating the same fact twice.
+  const whyTxt = (m.reasons || []).filter(r => !/^Volume .*average$/.test(r)).join(' · ')
+    || 'Ranked on overall composite — no single standout factor';
+  return `<tr class="main-row">
       <td style="text-align:left;">
-        <span class="sym" style="font-size:13px;">${p.symbol}</span>
-        <span class="muted-xl" style="text-transform:uppercase;">${p.sector || ''} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${(p.chgPct ?? 0).toFixed(2)}%</span></span>
+        <div style="display:flex; align-items:baseline; gap:6px; flex-wrap:nowrap;">
+          <span style="color:var(--muted); font-size:10px; font-family:var(--mono); min-width:14px;">${rank}</span>
+          <span class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${m.symbol}</a></span>
+          <span class="price-bold">₹${(m.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(m.priceSource, m.priceTs)}
+        </div>
+        <span class="muted-xl" style="text-transform:uppercase;">${m.sector || ''}${m.relVolX ? ` · ${m.relVolX}x vol` : ''}</span>
       </td>
-      <td><span style="font-weight:700;color:${bc};">${p.opportunityScore}</span> <span class="muted-xl" style="font-size:9px;">${p.opportunityBand}</span></td>
-      <td class="num">₹${(p.price || 0).toFixed(2)}</td>
-      <td class="num">${targetTxt}</td>
-      <td class="num">${upside.remainingPct != null ? '+' + (+upside.remainingPct).toFixed(2) + '%' : '—'}</td>
-      <td><span class="muted-xl" style="font-size:10px;">${confTxt}</span></td>
-      <td style="text-align:left;"><span class="muted-xl why-line" style="opacity:1;max-width:260px;">${why}</span></td>
+      <td data-label="Score">
+        <div style="display:flex;align-items:center;justify-content:center;gap:6px;">
+          <span style="font-weight:800;font-size:15px;font-family:var(--mono);color:${color};">${m.score}</span>
+          <div style="width:34px;height:5px;background:rgba(255,255,255,0.07);border-radius:5px;overflow:hidden;flex-shrink:0;">
+            <div style="width:${Math.round(m.score)}%;height:100%;background:${color};border-radius:5px;"></div>
+          </div>
+        </div>
+      </td>
+      <td data-label="Why" style="text-align:left;"><span class="muted-xl why-line" style="opacity:1;">${whyTxt}</span></td>
     </tr>`;
-  }).join('');
+}
 
-  el.style.display = 'block';
-  el.innerHTML = `<div class="top-picks-wrap">
-    <div class="top-picks-header">
-      <h3>🎯 Top Opportunities Right Now</h3>
-      <span class="disclaimer">Estimates from current setup strength — not guarantees. Past performance ≠ future results.</span>
+// ── RENDER: AI TAB — 7-layer 20-minute move pipeline (src/ai_scanner.mjs) ──
+// Layers 4-5 show BLOCKED on every candidate until a Layer-6-validated model
+// version exists (spec Rule 8) — see that file's header for the full
+// rationale. Rendered as one rich card per candidate rather than a flat
+// table row, since each candidate carries far more structured fields than a
+// row can hold; reuses the same #tbody/#tableHeader elements every other
+// tab does (one wide <td> per row instead of several narrow ones).
+const AI_TABLE_HEADER = `<tr><th style="text-align:left;">AI Scan — 20-Minute Move Pipeline</th></tr>`;
+
+// Full spec-format block for a qualifying opportunity (any candidate that
+// cleared the validated Layer-4 EV threshold — NOT capped at 3). `tag`
+// distinguishes the separate 0-3 position-sizing/execution constraint
+// (POSITION) from the remaining qualifying opportunities shown for
+// visibility only (WATCHLIST) — both are equally real "TRADE" opportunities
+// per Layer 4/5; only the position slot count differs. Only ever rendered
+// when payload.decision === 'TRADE', which requires a validated model
+// (never true today, but the code is ready the moment one exists).
+function aiSpecFormatBlockHtml(c, rank, tag) {
+  const l4 = c.layer4 || {};
+  const l5 = c.layer5 || {};
+  const dirColor = c.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(c.symbol.toUpperCase())}`;
+  const rr = (window.AI_TARGET_PCT / window.AI_SL_PCT).toFixed(1);
+  const slPrice = l5.dynamicSl?.dynamicSl ?? (c.direction === 'LONG' ? c.price * (1 - window.AI_SL_PCT / 100) : c.price * (1 + window.AI_SL_PCT / 100));
+  const targetPrice = l5.dynamicTarget?.dynamicTarget ?? (c.direction === 'LONG' ? c.price * (1 + window.AI_TARGET_PCT / 100) : c.price * (1 - window.AI_TARGET_PCT / 100));
+  const tagHtml = tag === 'POSITION'
+    ? `<span style="margin-left:8px; font-size:9px; padding:2px 6px; border-radius:3px; background:rgba(74,222,128,0.15); color:var(--green); font-weight:700;">POSITION</span>`
+    : `<span style="margin-left:8px; font-size:9px; padding:2px 6px; border-radius:3px; background:rgba(148,163,184,0.15); color:var(--muted); font-weight:700;">WATCHLIST</span>`;
+
+  return `<div style="padding:14px 16px; border-bottom:1px solid rgba(255,255,255,0.06); font-family:var(--mono); font-size:12px; line-height:1.7;">
+    <div><span class="muted-xl">#${rank}</span> <a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;font-weight:800;">${c.symbol}</a> — <span style="color:${dirColor};font-weight:700;">${c.direction}</span>${tagHtml}</div>
+    <div>Model version: v${l4.modelVersion ?? '—'}</div>
+    <div>Setup Score: ${c.setupScore}/100 (Tier ${c.dataTier || 'B'} — order-flow proxy)</div>
+    <div>Regime bias: ${c.regimeBias}</div>
+    <div>P(Target before SL, 20min): ${l4.pTargetBeforeSl}% [target: +${window.AI_TARGET_PCT}% | SL: -${window.AI_SL_PCT}%]</div>
+    <div class="muted-xl">&nbsp;&nbsp;*N=${l4.n}, regime: ${l4.calibrationRegime}, model v${l4.modelVersion}</div>
+    <div>Expected MFE: ${l4.expectedMfe != null ? l4.expectedMfe.toFixed(2) + '%' : '—'}  Expected MAE: ${l4.expectedMae != null ? l4.expectedMae.toFixed(2) + '%' : '—'}  Expected time-to-resolution: ${l4.expectedTimeToResolutionMin ?? '—'} min</div>
+    <div>Entry: ₹${c.price?.toFixed(2)}  SL: ₹${slPrice?.toFixed(2)}  Target: ₹${targetPrice?.toFixed(2)}  R:R: ${rr}</div>
+    <div>Expected Net Return: ${l4.expectedNetReturnPct != null ? (l4.expectedNetReturnPct >= 0 ? '+' : '') + l4.expectedNetReturnPct.toFixed(2) + '%' : '—'}   Execution Quality: ${l4.executionQuality ?? '—'}</div>
+    <div>Rank Score: ${l4.rankScore ?? '—'}</div>
+    <div>Time-stop: ${l5.timeStopMin ?? 20} min</div>
+    <div style="font-weight:700; color:var(--green);">Decision: TRADE</div>
+  </div>`;
+}
+
+// Diagnostic view of what Layers 0-3 actually found this cycle — explicitly
+// labeled as diagnostic, NOT a trade decision (the spec's decision/NO-TRADE/
+// BLOCKED block above this is the one and only decision output).
+function aiDiagnosticRowHtml(c, rank) {
+  const l4 = c.layer4 || {};
+  const dirColor = c.direction === 'LONG' ? 'var(--green)' : 'var(--red)';
+  const scoreColor = c.setupScore >= 80 ? 'var(--green)' : c.setupScore >= 60 ? 'var(--yellow)' : 'var(--muted)';
+  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(c.symbol.toUpperCase())}`;
+  const pBlock = l4.status === 'BLOCKED'
+    ? `<span style="color:var(--yellow);">BLOCKED</span> <span class="muted-xl">— ${l4.reason}</span>`
+    : `${l4.pTargetBeforeSl}% <span class="muted-xl">N=${l4.n}</span>`;
+
+  return `<div style="padding:12px 16px; border-bottom:1px solid rgba(255,255,255,0.06);">
+    <div style="display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;">
+      <span style="color:var(--muted); font-family:var(--mono); font-size:11px;">#${rank}</span>
+      <a href="${nseUrl}" target="_blank" rel="noopener noreferrer" class="sym" style="color:inherit; text-decoration:none; font-weight:800; font-size:14px;">${c.symbol}</a>
+      <span style="font-weight:700; color:${dirColor};">${c.direction}</span>
+      <span style="margin-left:auto; font-family:var(--mono); font-size:9px; color:var(--muted);">Tier ${c.dataTier || 'B'} · order-flow proxy</span>
     </div>
-    <div class="tp-table-scroll">
-      <table class="tp-table">
-        <thead><tr>
-          <th>#</th><th style="text-align:left;">Stock</th><th>Score</th><th>Price</th>
-          <th>Target Zone</th><th>Upside</th><th>Confidence</th><th style="text-align:left;">Why</th>
-        </tr></thead>
-        <tbody>${rows}</tbody>
-      </table>
+    <div class="muted-xl" style="margin-top:4px;">${(c.reasons || []).join(' · ') || 'No standout factor'}</div>
+    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:8px; margin-top:8px; font-size:11px;">
+      <div><span class="muted-xl">Setup Score</span><br><span style="font-weight:800; font-family:var(--mono); color:${scoreColor};">${c.setupScore}/100</span></div>
+      <div><span class="muted-xl">Regime bias</span><br><span>${c.regimeBias || '—'}</span></div>
+      <div><span class="muted-xl">P(Target before SL)</span><br>${pBlock}</div>
+      <div><span class="muted-xl">Entry</span><br><span class="price-bold">₹${(c.price || 0).toFixed(2)}</span></div>
+      <div><span class="muted-xl">Execution Quality</span><br><span>${l4.executionQuality ?? '—'}</span></div>
     </div>
   </div>`;
 }
 
-function hideTopPicks() {
-  const el = document.getElementById('topPicksBanner');
-  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
-}
-
-// Shared row template for both the flagship (dual-timeframe-confirmed)
-// Intraday list and the single-timeframe Fast Movers lists — same columns,
-// same visual language. `trioLabel` is the small caption under the
-// Opportunity score: the 5m/15m/30m breakdown for the flagship list, or
-// which single horizon this row was ranked under for Fast Movers.
-// Applies the user's clicked-column sort (if any) to a copy of `rows` —
-// used only for what the table body actually displays, never for deriving
-// summaries like the Top Picks banner (which should always reflect
-// Opportunity-Score strength, not whatever column the user last clicked).
-function applyIntradaySort(rows, sortStack) {
-  if (!sortStack?.length || !rows.length) return rows;
-  return [...rows].sort((a, b) => window.sortManager?.compare(a, b, sortStack) || 0);
-}
-
-function renderIntradayRowHtml(p, trioLabel) {
-  const nseUrl = `https://www.nseindia.com/get-quotes/equity?symbol=${encodeURIComponent(p.symbol.toUpperCase())}`;
-  const cc = p.chgPct >= 0 ? 'up' : 'dn';
-  const moveCls = p.pctFromOpen == null ? '' : (p.pctFromOpen >= 0 && p.pctFromOpen <= 2.5 ? 'up' : (p.pctFromOpen > 2.5 ? 'dn' : 'dn'));
-  const upside = p.upside || {};
-  // The "why" — previously buried in a delayed native tooltip on the whole
-  // row; printed directly under the symbol instead so it's visible without
-  // hovering.
-  const whyTxt = (p.notes || []).slice(0, 4).join(' · ');
-  const prob = p.calibratedProbability;
-  const confHtml = prob?.available
-    ? `<span class="up" style="font-size:10px;">${Math.round((prob.probReach1pct ?? 0) * 100)}% hist. reach +1%</span> <span class="muted-xl" style="font-size:8px;">n=${prob.sampleCount}</span>`
-    : `<span class="muted-xl" style="font-size:10px;">${upside.confidence || '—'} <span style="font-size:8px;">(rule-based)</span></span>`;
-  // VWAP / day-range / RSI — already computed server-side but not previously
-  // surfaced on this row at all; a second detail line under the symbol.
-  const detailParts = [];
-  if (p.vwap != null) detailParts.push(`VWAP ₹${(+p.vwap).toFixed(2)}`);
-  if (p.dayL != null && p.dayH != null) detailParts.push(`Day ₹${(+p.dayL).toFixed(1)}–₹${(+p.dayH).toFixed(1)}`);
-  if (p.rsi != null) detailParts.push(`RSI ${p.rsi}`);
-  if (p.atrPct != null) detailParts.push(`ATR ${p.atrPct}%`);
-  const detailTxt = detailParts.join(' · ');
-  // Near-miss rows (p.qualifies === false, from intradayNearMiss or an
-  // unfiltered Fast Movers list) get an explicit sub-threshold badge —
-  // visibility into "how close," never implying these are recommendations
-  // the way a qualifying row is. Deliberately NOT dimmed via opacity: most
-  // rows on a quiet day are near-miss, and fading the whole table made
-  // everything hard to read until hovering — the badge alone is enough.
-  const isNearMiss = p.qualifies === false;
-  const rowCls = isNearMiss ? 'main-row near-miss-row' : 'main-row';
-  const nmBadge = isNearMiss
-    ? `<span class="nm-badge" title="Below today's qualifying bar">SUB-THRESHOLD${p.gapToQualify ? ` · needs +${p.gapToQualify}` : ''}</span>`
-    : '';
-  return `<tr class="${rowCls}">
-      <td style="text-align:left;">
-        <div style="display:flex; align-items:baseline; gap:8px; flex-wrap:nowrap;">
-          <div class="sym"><a href="${nseUrl}" target="_blank" rel="noopener noreferrer" style="color:inherit;text-decoration:none;">${p.symbol}</a>${p.volSpike ? " <span style='color:var(--yellow)'>⚡</span>" : ''}</div>
-          <span class="muted-xl" style="text-transform:uppercase; white-space:nowrap;">${p.sector} · <span class="${cc}">${p.chgPct >= 0 ? '+' : ''}${p.chgPct.toFixed(2)}%</span></span>
-          ${detailTxt ? `<span class="muted-xl why-line">${detailTxt}</span>` : ''}
-          ${whyTxt ? `<span class="muted-xl why-line">${whyTxt}</span>` : ''}
-        </div>
-      </td>
-      <td data-label="Price"><span class="price-bold">₹${(p.price || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${freshnessDot(p.priceSource, p.priceTs)}</td>
-      <td data-label="Chart"><div style="cursor:pointer;" onclick="window.openModalChart('${p.symbol}', '${p.tf || '5m'}')">${generateSparkline(p.priceHist, p.ema21Hist, p.ema50Hist)}</div></td>
-      <td data-label="Opportunity">
-        <div class="opp-cell" style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;">
-          ${nmBadge}
-          <span style="font-weight:700;color:${bandColor(p.opportunityBand)};">${p.opportunityScore}</span>
-          <span class="muted-xl">${p.opportunityBand}</span>
-          ${renderBreakdownBar(p.opportunityBreakdown)}
-          <span class="muted-xl" style="font-size:8px;">${trioLabel}</span>
-        </div>
-      </td>
-      <td data-label="Entry Attractiveness">
-        <div style="display:flex;flex-direction:row;align-items:center;justify-content:center;gap:8px;">
-          <span style="font-weight:700;">${p.entryAttractiveness}</span>
-          <span class="muted-xl">${p.entryAttractivenessLabel || ''}</span>
-          ${p.entryAttractivenessNotes?.[0] ? `<span class="muted-xl" style="font-size:8px;max-width:150px;white-space:normal;text-align:left;line-height:1.3;">${p.entryAttractivenessNotes[0]}</span>` : ''}
-        </div>
-      </td>
-      <td data-label="Move From Open"><span class="${moveCls}" style="font-weight:600;">${p.pctFromOpen != null ? (p.pctFromOpen >= 0 ? '+' : '') + p.pctFromOpen.toFixed(2) + '%' : '—'}</span></td>
-      <td data-label="Upside Potential">${upside.zoneLow != null
-      ? `<span class="up">₹${upside.zoneLow}–₹${upside.zoneHigh}</span> <span class="muted-xl">+${(+upside.remainingPct).toFixed(2)}% remaining</span>`
-      : '<span class="muted-xl">—</span>'}</td>
-      <td data-label="Confidence">${confHtml}</td>
-      ${renderActionableCellsHtml(p)}
-      <td data-label="Action"><button class="mark-critical-btn" onclick="window.criticalManager?.openMarkModal('${p.symbol}', ${p.price || 0})">Mark Critical</button></td>
-    </tr>`;
-}
-
-// New Actionable-Quality columns (src/actionable_score.mjs). Rows from the
-// new intradayActionable list carry tradePlan/positionSizing/etc; older-
-// shape rows (near-miss, Fast Movers — still the pre-existing
-// intradayOpportunities-derived shape) simply don't, and render '—'
-// throughout rather than breaking.
-function renderActionableCellsHtml(p) {
-  const tp = p.tradePlan, ps = p.positionSizing;
-  const dash = '<span class="muted-xl">—</span>';
-
-  const actScoreHtml = p.actionableScore != null
-    ? `<span style="font-weight:700;color:${bandColor(p.actionableScore >= 90 ? 'VERY STRONG' : p.actionableScore >= 80 ? 'STRONG' : 'WATCH')};">${p.actionableScore}</span>`
-    : dash;
-  const directionHtml = p.direction ? `<span class="up" style="font-weight:700;">${p.direction}</span>` : dash;
-  const planHtml = tp
-    ? `<span class="muted-xl" style="font-size:10px;line-height:1.5;white-space:normal;display:block;text-align:left;">Entry ₹${tp.entryLow}–₹${tp.entryHigh}<br>SL ₹${tp.stopLoss} · T1 ₹${tp.target1} · T2 ₹${tp.target2}</span>`
-    : dash;
-  const rrHtml = tp?.riskReward != null ? `<span style="font-weight:600;">1:${tp.riskReward}</span>` : dash;
-  const expMoveHtml = tp?.expectedMovePct != null ? `<span class="up">+${(+tp.expectedMovePct).toFixed(2)}%</span>` : dash;
-  const positionHtml = (ps && ps.quantity > 0)
-    ? `<span class="muted-xl" style="font-size:10px;line-height:1.5;white-space:normal;display:block;text-align:left;">Qty ${ps.quantity} · ₹${ps.capitalDeployed.toLocaleString('en-IN')} deployed<br>Max loss ₹${ps.maxLoss.toLocaleString('en-IN')} · Exp. profit ₹${ps.expectedProfit.toLocaleString('en-IN')}</span>`
-    : dash;
-  const hp = p.calibratedProbability;
-  const histHtml = hp?.available
-    ? `<span class="muted-xl" style="font-size:10px;line-height:1.5;white-space:normal;display:block;text-align:left;">Target +1%: ${Math.round((hp.probReach1pct ?? 0) * 100)}%<br>Adverse: ${hp.probMajorAdverse != null ? Math.round(hp.probMajorAdverse * 100) + '%' : '—'} (n=${hp.sampleCount})</span>`
-    : dash;
-  const trapColors = { HIGH: '#ef4444', MEDIUM: '#f59e0b', LOW: '#22c55e' };
-  const trapHtml = p.operatorTrapRisk
-    ? `<span style="font-weight:700;color:${trapColors[p.operatorTrapRisk] || 'inherit'};" title="${(p.trapFlags || []).join('; ')}">${p.operatorTrapRisk}</span>`
-    : dash;
-  const warningsHtml = (p.actionableWarnings || []).length
-    ? `<span class="muted-xl why-line" style="font-size:9px;white-space:normal;max-width:200px;display:inline-block;text-align:left;line-height:1.3;">${p.actionableWarnings.slice(0, 3).join(' · ')}</span>`
-    : dash;
-
-  return `
-      <td data-label="Actionable Score">${actScoreHtml}</td>
-      <td data-label="Direction">${directionHtml}</td>
-      <td data-label="Trade Plan">${planHtml}</td>
-      <td data-label="R:R">${rrHtml}</td>
-      <td data-label="Expected Move %">${expMoveHtml}</td>
-      <td data-label="Position Sizing">${positionHtml}</td>
-      <td data-label="Historical Probability">${histHtml}</td>
-      <td data-label="Trap Risk">${trapHtml}</td>
-      <td data-label="Warnings" style="text-align:left;">${warningsHtml}</td>`;
-}
-
-const INTRADAY_TABLE_HEADER = `<tr>
-    <th style="text-align:left;" onclick="window.sortManager.handleSort('symbol', event)">Stock / Sector</th>
-    <th onclick="window.sortManager.handleSort('price', event)">Price</th>
-    <th>Chart</th>
-    <th onclick="window.sortManager.handleSort('opportunityScore', event)">Opportunity <div class="th-sub">5m/15m breakdown</div></th>
-    <th onclick="window.sortManager.handleSort('entryAttractiveness', event)">Entry Attractiveness</th>
-    <th onclick="window.sortManager.handleSort('pctFromOpen', event)">Move From Open</th>
-    <th onclick="window.sortManager.handleSort('upside.remainingPct', event)">Upside Potential <div class="th-sub">zone &amp; remaining %</div></th>
-    <th>Confidence</th>
-    <th onclick="window.sortManager.handleSort('actionableScore', event)">Actionable Score <div class="th-sub">75+ only, max 50</div></th>
-    <th>Direction</th>
-    <th style="text-align:left;">Trade Plan <div class="th-sub">Entry / SL / T1 / T2</div></th>
-    <th onclick="window.sortManager.handleSort('tradePlan.riskReward', event)">R:R</th>
-    <th>Expected Move %</th>
-    <th style="text-align:left;">Position Sizing <div class="th-sub">Qty / Capital / Max Loss / Exp. Profit</div></th>
-    <th style="text-align:left;">Historical Probability <div class="th-sub">Target / Adverse</div></th>
-    <th>Trap Risk</th>
-    <th style="text-align:left;">Warnings</th>
-    <th>Action</th>
-  </tr>`;
-
-const HORIZON_LABELS = { '5m': '5 min', '10m': '10 min', '15m': '15 min' };
-
-function renderIntraday(data) {
+function renderAIScan(payload) {
   const tbody = document.getElementById('tbody');
   const empty = document.getElementById('empty');
-  const horizonBar = document.getElementById('intradayHorizons');
+  const tableHeader = document.getElementById('tableHeader');
+  const restoreScroll = captureScroll();
+  if (!tbody) return;
 
-  // Every branch below replaces tbody's content wholesale (unlike
-  // renderStocks' in-place row patching), which can shift or clamp scroll —
-  // save/restore around every exit path so a periodic refresh doesn't yank
-  // the user back to the top of the list.
+  if (tableHeader) tableHeader.innerHTML = AI_TABLE_HEADER;
+  const badgeEl = document.getElementById('badge-AI');
+
+  if (!payload) {
+    tbody.innerHTML = '';
+    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = "AI scan hasn't run yet — check back shortly."; }
+    if (badgeEl) badgeEl.textContent = '—';
+    restoreScroll();
+    return;
+  }
+
+  window.AI_TARGET_PCT = payload.targetPct;
+  window.AI_SL_PCT = payload.slPct;
+
+  let candidates = payload.candidates || [];
+  candidates = window.searchFilter?.filterRows(candidates) || candidates;
+
+  const rcEl = document.getElementById('rowCount');
+  if (rcEl) {
+    const ageTxt = payload.updatedAt ? ` · updated ${Math.max(0, Math.round((Date.now() - payload.updatedAt) / 1000))}s ago` : '';
+    rcEl.textContent = `Tier ${payload.dataTier} · target +${payload.targetPct}% / SL -${payload.slPct}% / ${payload.horizonMin}min horizon${ageTxt}`;
+  }
+  if (badgeEl) badgeEl.textContent = (payload.opportunitySymbols || []).length || '0';
+
+  const l6 = payload.layer6 || {};
+  const mr = payload.marketRegime;
+  const lv = l6.latestModelVersion;
+  const statusBannerHtml = `<div style="padding:10px 16px; background:rgba(129,140,248,0.08); border-bottom:1px solid rgba(129,140,248,0.15); font-size:11px;">
+    <span style="color:#818cf8; font-weight:700;">Layer 6 (Validation):</span>
+    <span class="muted-xl">${l6.candidatesLogged ?? 0} candidates logged · ${l6.outcomesResolved ?? 0} outcomes resolved (need ${l6.minRequiredForValidation ?? '—'} to fit a model) · ${l6.status || 'UNKNOWN'}</span>
+    ${lv ? `<div class="muted-xl" style="margin-top:2px;">Latest model version: v${lv.version_id} (${lv.status}, train=${lv.training_sample_count ?? '—'}, validation=${lv.validation_sample_count ?? '—'})</div>` : ''}
+    ${l6.currentValidatedModel ? `<div class="muted-xl" style="margin-top:2px;">Currently validated: v${l6.currentValidatedModel.versionId} (validated ${new Date(l6.currentValidatedModel.validatedAt).toLocaleDateString('en-IN')})</div>` : `<div style="margin-top:4px; color:var(--yellow);">No validated model yet — live inference stays BLOCKED per spec Rule 8.</div>`}
+    ${mr ? `<div style="margin-top:4px;" class="muted-xl">Market regime: ${mr.indexRegime} · VIX ${mr.vixValue != null ? mr.vixValue.toFixed(1) : '—'} (${mr.vixMode || '—'})</div>` : ''}
+  </div>`;
+
+  const inv = payload.invalid || {};
+  const invalidBannerHtml = inv.total ? `<div style="padding:8px 16px; background:rgba(239,68,68,0.06); border-bottom:1px solid rgba(239,68,68,0.12); font-size:10px;">
+    <span style="color:var(--red); font-weight:700;">INVALID — insufficient data:</span>
+    <span class="muted-xl">${inv.total} symbol(s) this cycle — ${(inv.byReason || []).map(r => `${r.reason} (${r.layer}): ${r.n}`).join(' · ')}</span>
+  </div>` : '';
+
+  // The spec's ONE decision output — TRADE (with the full spec-format block
+  // for EVERY qualifying opportunity, uncapped, ranked by Rank Score — the
+  // top MAX_SIMULTANEOUS_POSITIONS tagged POSITION, the rest WATCHLIST),
+  // NO-TRADE, or BLOCKED. This is never mixed with the diagnostic list below it.
+  const decision = payload.decision || 'BLOCKED: No current Layer-6-validated model version. Live inference not permitted.';
+  const isTrade = decision === 'TRADE';
+  const positionSymbols = payload.positionSymbols || [];
+  const opportunitySymbols = payload.opportunitySymbols || [];
+  const opportunityCandidates = opportunitySymbols
+    .map(sym => candidates.find(c => c.symbol === sym))
+    .filter(Boolean);
+  const decisionHtml = isTrade
+    ? opportunityCandidates.map((c, i) => aiSpecFormatBlockHtml(c, i + 1, positionSymbols.includes(c.symbol) ? 'POSITION' : 'WATCHLIST')).join('')
+    : `<div style="padding:16px; text-align:center; font-family:var(--mono); font-size:12px; color:${decision.startsWith('NO-TRADE') ? 'var(--muted)' : 'var(--yellow)'};">${decision}</div>`;
+
+  const diagnosticHeaderHtml = `<div style="padding:8px 16px; font-size:10px; color:var(--muted); text-transform:uppercase; letter-spacing:0.04em;">Diagnostic — Layers 0-3 candidate list (not a trade decision)</div>`;
+
+  if (empty) empty.style.display = 'none';
+
+  if (!candidates.length) {
+    tbody.innerHTML = `<tr><td style="padding:0;">${statusBannerHtml}${invalidBannerHtml}${decisionHtml}<div style="padding:20px; text-align:center; color:var(--muted);">No candidates cleared Layer 3 this cycle.</div></td></tr>`;
+    restoreScroll();
+    return;
+  }
+
+  tbody.innerHTML = `<tr><td style="padding:0;">${statusBannerHtml}${invalidBannerHtml}${decisionHtml}${diagnosticHeaderHtml}</td></tr>` +
+    candidates.map((c, i) => `<tr><td style="padding:0;">${aiDiagnosticRowHtml(c, i + 1)}</td></tr>`).join('');
+  restoreScroll();
+}
+window.renderAIScan = renderAIScan;
+
+function renderIntraday(payload) {
+  const tbody = document.getElementById('tbody');
+  const empty = document.getElementById('empty');
   const restoreScroll = captureScroll();
 
   document.getElementById('tableHeader').innerHTML = INTRADAY_TABLE_HEADER;
-  if (horizonBar) horizonBar.style.display = 'flex';
-
-  const sortStack = window.stateManager?.get('sortStack');
-  updateSortIndicators(sortStack);
-
-  if (!data?.data) {
-    if (tbody) tbody.innerHTML = '';
-    if (empty) { empty.classList.remove('loading'); empty.style.display = 'block'; empty.textContent = 'No data available'; }
-    restoreScroll();
-    return;
-  }
-
-  renderRegimeBanner(data.marketRegime);
-
-  const horizon = window.stateManager?.get('intradayHorizon') || 'DEFAULT';
-  const marketOpen = window.stateManager?.get('marketOpen');
-  const rcEl = document.getElementById('rowCount');
-  const closedSuffix = marketOpen ? '' : ' (last scan — market closed)';
-
-  if (horizon === 'DEFAULT') {
-    const picks = computeIntradayCandidates(data);
-    renderTopPicks(picks);
-    if (rcEl) {
-      const gate = data.marketRegime?.noTrade ? ' · regime unfavorable — bar raised' : '';
-      rcEl.textContent = `Intraday Opportunities: ${picks.length} · confirmed WATCH+ on both 5m and 15m${gate}${closedSuffix}`;
-    }
-
-    if (!picks.length) {
-      if (data.marketRegime?.noTrade) {
-        // NO TRADE is a deliberate hard stop (BEARISH/high-vol regime), not
-        // just a scoring bar — no near-miss fallback here, that would
-        // undercut the point of the stop.
-        tbody.innerHTML = '';
-        if (empty) {
-          empty.classList.remove('loading');
-          empty.style.display = 'block';
-          empty.textContent = 'NO TRADE — current market regime is unfavorable for fresh intraday longs. See the banner above.';
-        }
-        restoreScroll();
-        return;
-      }
-
-      const nearMiss = data.intradayNearMiss || [];
-      if (!nearMiss.length) {
-        tbody.innerHTML = '';
-        if (empty) {
-          empty.classList.remove('loading');
-          empty.style.display = 'block';
-          empty.textContent = 'No stocks currently clear the Opportunity Score bar on both 5m and 15m. This is expected most of the time — quality setups are rare by design.';
-        }
-        restoreScroll();
-        return;
-      }
-
-      // Nothing qualifies, but there's real ranked data — show the closest
-      // candidates instead of a blank page, clearly marked sub-threshold.
-      if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
-      if (rcEl) {
-        rcEl.textContent = `Intraday Opportunities: 0 confirmed · showing ${nearMiss.length} closest sub-threshold candidate${nearMiss.length === 1 ? '' : 's'}${closedSuffix}`;
-      }
-      tbody.innerHTML = applyIntradaySort(nearMiss, sortStack).map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'}`)).join('');
-      restoreScroll();
-      return;
-    }
-    if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
-
-    tbody.innerHTML = applyIntradaySort(picks, sortStack).map(p => renderIntradayRowHtml(p, `5m ${p.score5m ?? '—'} · 15m ${p.score15m ?? '—'} · 30m ${p.score30m ?? '—'}`)).join('');
-    restoreScroll();
-    return;
-  }
-
-  // Fast Movers — a single-timeframe momentum ranking, not a timed
-  // prediction. hideTopPicks() rather than renderTopPicks([]) since these
-  // rows aren't the flagship dual-confirmed candidates the Top Picks
-  // banner is about. Rows arrive unfiltered (entry_score.mjs no longer
-  // drops sub-threshold candidates) with an explicit `qualifies` flag, so
-  // the tab always shows something as long as ANY candidate has a score.
   hideTopPicks();
-  const allRows = data.fastMovers?.[horizon] || [];
-  const qualifyingCount = allRows.filter(r => r.qualifies).length;
-  const label = HORIZON_LABELS[horizon] || horizon;
-  if (rcEl) {
-    rcEl.textContent = qualifyingCount
-      ? `Fast Movers — ${label} horizon: ${qualifyingCount} qualifying · ranked by current momentum strength, not a timing prediction${closedSuffix}`
-      : `Fast Movers — ${label} horizon: 0 qualifying · showing ${allRows.length} closest sub-threshold candidate${allRows.length === 1 ? '' : 's'}${closedSuffix}`;
-  }
+  const regimeBanner = document.getElementById('regimeBanner');
+  if (regimeBanner) regimeBanner.style.display = 'none';
 
-  if (!allRows.length) {
+  const movers = payload?.movers || [];
+  const badgeEl = document.getElementById('badge-INTRADAY');
+  if (badgeEl) badgeEl.textContent = movers.length || '—';
+  const rcEl = document.getElementById('rowCount');
+  const ageTxt = payload?.updatedAt ? ` · updated ${Math.max(0, Math.round((Date.now() - payload.updatedAt) / 1000))}s ago` : '';
+  if (rcEl) rcEl.textContent = `${movers.length} stock(s) scoring 75+ (of ${payload?.universeSize || 0} scanned)${ageTxt}`;
+
+  if (!movers.length) {
     tbody.innerHTML = '';
     if (empty) {
       empty.classList.remove('loading');
       empty.style.display = 'block';
-      empty.textContent = `No scored candidates yet on the ${label} timeframe this cycle — check back shortly.`;
+      empty.textContent = payload?.universeSize
+        ? 'No stocks are currently scoring 75+ — check back shortly.'
+        : 'Warming up — waiting for enough candle history to start scoring (usually under a minute after the app starts).';
     }
     restoreScroll();
     return;
   }
   if (empty) { empty.classList.remove('loading'); empty.style.display = 'none'; }
 
-  tbody.innerHTML = applyIntradaySort(allRows, sortStack).map(p => renderIntradayRowHtml(p, `${label} horizon only — not confirmed on other timeframes`)).join('');
+  tbody.innerHTML = movers.map((m, i) => renderIntradayMoverRowHtml(m, i + 1)).join('');
   restoreScroll();
+}
+
+// topPicksBanner is the old flagship's banner element — nothing here uses
+// it, but leaving it hidden (rather than assuming it's already hidden)
+// keeps this render correct even if a future change brings that element
+// back for a different purpose.
+function hideTopPicks() {
+  const el = document.getElementById('topPicksBanner');
+  if (el) { el.style.display = 'none'; el.innerHTML = ''; }
 }
 
 // ── MARKET REGIME BANNER ──────────────────────────────────────
@@ -1062,22 +1328,30 @@ function renderQuality(data) {
 // table — each category is its own scannable list. Reuses the same
 // sparkline chart component as every other tab, since these rows carry the
 // exact same buildSignal() output.
+// `byTfGroup: true` — Gainers/Losers: NOT dropdown-driven, shows all four
+// timeframe groupings (GAINER_LOSER_TFS) at once.
+// `byTf: true` — dropdown-driven: server precomputed every real timeframe
+// (src/screener.mjs), pick whichever the timeframe dropdown is currently on.
+// Neither flag (52W High/Low) — flat array, daily-only, unaffected by the
+// dropdown (a 52-week extreme isn't a chart-timeframe concept).
 const SCREENER_SECTIONS = [
-  { key: 'gainers', title: 'Top Gainers', icon: '📈', color: '#22c55e', meta: r => ({ label: 'Chg', value: `${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(2)}%`, cls: r.chgPct >= 0 ? 'up' : 'dn' }) },
-  { key: 'losers', title: 'Top Losers', icon: '📉', color: '#ef4444', meta: r => ({ label: 'Chg', value: `${r.chgPct.toFixed(2)}%`, cls: 'dn' }) },
+  { key: 'gainers', title: 'Top Gainers', icon: '📈', color: '#22c55e', byTfGroup: true, meta: r => ({ label: 'Chg', value: `${r.chgPct >= 0 ? '+' : ''}${r.chgPct.toFixed(2)}%`, cls: r.chgPct >= 0 ? 'up' : 'dn' }) },
+  { key: 'losers', title: 'Top Losers', icon: '📉', color: '#ef4444', byTfGroup: true, meta: r => ({ label: 'Chg', value: `${r.chgPct.toFixed(2)}%`, cls: 'dn' }) },
   // Ranked by |volumeChange| (the latest-candle-vs-previous-candle volume
   // jump — the actual "shock"), not raw cumulative volume — a heavily
   // traded large-cap can have huge raw volume with nothing unusual
   // happening. Must SHOW that same number, not raw volume, or the list
   // looks visibly out of order against whatever's actually displayed.
-  { key: 'volumeShockers', title: 'Volume Shockers', icon: '⚡', color: '#f59e0b', meta: r => ({ label: 'Vol Δ', value: `${r.volumeChange >= 0 ? '+' : ''}${formatVolume(r.volumeChange)}`, cls: r.volumeChange >= 0 ? 'up' : 'dn' }) },
+  { key: 'volumeShockers', title: 'Volume Shockers', icon: '⚡', color: '#f59e0b', byTf: true, meta: r => ({ label: 'Vol Δ', value: `${r.volumeChange >= 0 ? '+' : ''}${formatVolume(r.volumeChange)}`, cls: r.volumeChange >= 0 ? 'up' : 'dn' }) },
   { key: 'high52w', title: '52-Week High', icon: '🚀', color: '#22c55e', meta: r => ({ label: '52W H', value: `₹${(r.w52H || 0).toFixed(1)}`, cls: 'up' }) },
   { key: 'low52w', title: '52-Week Low', icon: '🔻', color: '#ef4444', meta: r => ({ label: '52W L', value: `₹${(r.w52L || 0).toFixed(1)}`, cls: 'dn' }) },
-  { key: 'bullishCrossover', title: 'Bullish Crossover', icon: '✦', color: '#a78bfa', meta: r => ({ label: 'EMA Gap', value: `${(r.emaGap || 0).toFixed(2)}%`, cls: 'up' }) },
-  { key: 'momentumBurst', title: 'Momentum Burst', icon: '🔥', color: '#fb923c', meta: r => ({ label: 'MACD', value: (r.macdVal ?? 0).toFixed(2), cls: 'up' }) },
-  { key: 'rsiOversold', title: 'RSI Oversold', icon: '🔄', color: '#38bdf8', meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
-  { key: 'rsiOverbought', title: 'RSI Overbought', icon: '🔺', color: '#ef4444', meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
+  { key: 'bullishCrossover', title: 'Bullish Crossover', icon: '✦', color: '#a78bfa', byTf: true, meta: r => ({ label: 'EMA Gap', value: `${(r.emaGap || 0).toFixed(2)}%`, cls: 'up' }) },
+  { key: 'momentumBurst', title: 'Momentum Burst', icon: '🔥', color: '#fb923c', byTf: true, meta: r => ({ label: 'MACD', value: (r.macdVal ?? 0).toFixed(2), cls: 'up' }) },
+  { key: 'rsiOversold', title: 'RSI Oversold', icon: '🔄', color: '#38bdf8', byTf: true, meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
+  { key: 'rsiOverbought', title: 'RSI Overbought', icon: '🔺', color: '#ef4444', byTf: true, meta: r => ({ label: 'RSI', value: (r.rsi ?? 0).toFixed(1), cls: '' }) },
 ];
+
+const GAINER_LOSER_TFS = ['5m', '10m', '15m', '1d'];
 
 // Each screener tab shows one or two SCREENER_SECTIONS entries as its full
 // content — 52 Week High/Low and RSI Oversold/Overbought are pairs shown
@@ -1114,11 +1388,25 @@ function screenerRowHtml(r, meta) {
 // Combined tabs (52W High/Low, RSI Oversold/Overbought) show both halves
 // as one continuous table under a shared header, separated by a labeled
 // divider row — not a click-to-switch chip, both stay always visible.
-function screenerDividerRow(section, count) {
-  return `<tr class="screener-divider"><td colspan="4"><span style="font-size:14px;">${section.icon}</span> <span style="color:${section.color}; font-weight:700;">${section.title}</span> <span class="muted-xl">(${count})</span></td></tr>`;
+function screenerDividerRow(section, count, label) {
+  const titleTxt = label ? `${section.title} · ${label}` : section.title;
+  return `<tr class="screener-divider"><td colspan="4"><span style="font-size:14px;">${section.icon}</span> <span style="color:${section.color}; font-weight:700;">${titleTxt}</span> <span class="muted-xl">(${count})</span></td></tr>`;
 }
 
 const SCREENER_EMPTY_ROW = `<tr><td colspan="4" style="text-align:center; color:var(--muted);">No stocks currently match.</td></tr>`;
+
+// Which timeframe a byTf: true section's precomputed data should read —
+// same fallback as effectiveChartTf (ui-core.mjs): 'ALL' is a single-symbol
+// All Stocks-only feature, meaningless here.
+function currentScreenerTf() {
+  const raw = window.stateManager?.get('timeframe');
+  return raw && raw !== 'ALL' ? raw : '5m';
+}
+
+function screenerSectionRows(section, data) {
+  const raw = section.byTf ? (data[section.key]?.[currentScreenerTf()] || []) : (data[section.key] || []);
+  return window.searchFilter?.filterRows(raw) || raw;
+}
 
 // Renders one screener tab's full content — Top Gainers/Losers/Volume
 // Shockers/52W High-Low/Bullish Crossover/Momentum Burst/RSI Oversold-
@@ -1154,15 +1442,24 @@ function renderScreenerCategory(tab, data) {
   const sections = keys.map(k => SCREENER_SECTIONS.find(s => s.key === k)).filter(Boolean);
 
   let rowsHtml;
-  if (sections.length > 1) {
+  if (sections.length === 1 && sections[0].byTfGroup) {
+    // Gainers/Losers — always show all four timeframe groupings together,
+    // not driven by the dropdown.
+    const s = sections[0];
+    rowsHtml = GAINER_LOSER_TFS.map(tf => {
+      const raw = data[s.key]?.[tf] || [];
+      const rows = window.searchFilter?.filterRows(raw) || raw;
+      return screenerDividerRow(s, rows.length, tf) + (rows.length ? rows.map(r => screenerRowHtml(r, s.meta)).join('') : SCREENER_EMPTY_ROW);
+    }).join('');
+  } else if (sections.length > 1) {
     // Combined tab — divider row + rows per section.
     rowsHtml = sections.map(s => {
-      const rows = data[s.key] || [];
+      const rows = screenerSectionRows(s, data);
       return screenerDividerRow(s, rows.length) + (rows.length ? rows.map(r => screenerRowHtml(r, s.meta)).join('') : SCREENER_EMPTY_ROW);
     }).join('');
   } else if (sections[0]) {
     // Single-category tab — no divider needed, the tab itself is the label.
-    const rows = data[sections[0].key] || [];
+    const rows = screenerSectionRows(sections[0], data);
     rowsHtml = rows.length ? rows.map(r => screenerRowHtml(r, sections[0].meta)).join('') : SCREENER_EMPTY_ROW;
   } else {
     rowsHtml = SCREENER_EMPTY_ROW;
@@ -1443,36 +1740,66 @@ let modalChartInstance = null;
 
 function openModalChart(symbol, tf) {
   const state = window.stateManager.get();
-  // /api/state always returns the same full snapshot regardless of which
-  // (timeframe, tab) it was fetched for, so any populated cache entry works
-  // — try the "obvious" key first, then fall back to whatever is cached
-  // (needed for tabs like Intraday whose cache key doesn't follow the
-  // tf+activeTab convention the primary lookup assumes).
-  let data = window.dataManager.cache.get(window.dataManager.cacheKey(tf, state.activeTab))?.data;
-  if (!data?.data) {
-    for (const entry of window.dataManager.cache.values()) {
-      if (entry?.data?.data) { data = entry.data; break; }
+  let row = null;
+
+  // Stocks tab's "All" chip never populates the Stage-2 cache below (see
+  // renderStocks) — its own universe-snapshot cache is the ONLY correct
+  // source for this view, and it's genuinely tf-specific now
+  // (stage1_filter.mjs computes priceHist/ema21Hist/ema50Hist for whichever
+  // tf is currently selected, not always 5m). This view deliberately does
+  // NOT fall through to the Stage-2 cache below when its own data isn't
+  // ready yet (e.g. this symbol's candles for the selected tf haven't been
+  // fetched by stage1_filter.mjs's warm-up pass) — that cache belongs to a
+  // completely different pipeline (Golden Cross/Buy/Sell chips) and could
+  // hold a stale entry from an earlier, unrelated timeframe/session,
+  // silently substituting the wrong data instead of honestly showing
+  // nothing yet.
+  if (state.activeTab === 'STOCKS' && (state.stockFilter || 'ALL') === 'ALL') {
+    const cheapRow = (window.universeSnapshotCache || []).find(x => x.symbol === symbol);
+    if (cheapRow?.priceHist?.length >= 2) row = { ...cheapRow, tf };
+    if (!row) return; // still warming up for this symbol/tf — nothing honest to show yet
+  }
+
+  if (!row) {
+    // /api/state always returns the same full snapshot regardless of which
+    // (timeframe, tab) it was fetched for, so any populated cache entry works
+    // — try the "obvious" key first, then fall back to whatever is cached
+    // (needed for tabs like Intraday whose cache key doesn't follow the
+    // tf+activeTab convention the primary lookup assumes).
+    let data = window.dataManager.cache.get(window.dataManager.cacheKey(tf, state.activeTab))?.data;
+    if (!data?.data) {
+      for (const entry of window.dataManager.cache.values()) {
+        if (entry?.data?.data) { data = entry.data; break; }
+      }
+    }
+
+    if (data?.data) {
+      // Look up the SAME timeframe the user actually clicked the sparkline
+      // from first — this used to always try '1m_ALL' first regardless of
+      // `tf`, so the modal silently showed 1-minute EMAs even when clicked
+      // from a 15m/1d row, which both looks wrong on its own and can't match
+      // a same-timeframe chart on Upstox (or anywhere else) since it's a
+      // different timeframe's data entirely. Only fall back to other
+      // timeframes if this symbol truly has no data at all for the requested
+      // one.
+      const ALL_TFS = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
+      const BUCKETS = ['ALL', 'GOLDEN', 'BUY', 'SELL'];
+      const orderedTfs = [tf, ...ALL_TFS.filter(t => t !== tf)];
+      const allKeys = orderedTfs.flatMap(t => BUCKETS.map(b => `${t}_${b}`));
+
+      for (const key of allKeys) {
+        row = data.data[key]?.find(x => x.symbol === symbol);
+        if (row) break;
+      }
     }
   }
 
-  if (!data?.data) return;
-
-  // Look up the SAME timeframe the user actually clicked the sparkline from
-  // first — this used to always try '1m_ALL' first regardless of `tf`, so
-  // the modal silently showed 1-minute EMAs even when clicked from a 15m/1d
-  // row, which both looks wrong on its own and can't match a same-timeframe
-  // chart on Upstox (or anywhere else) since it's a different timeframe's
-  // data entirely. Only fall back to other timeframes if this symbol truly
-  // has no data at all for the requested one.
-  const ALL_TFS = ['1m', '5m', '10m', '15m', '30m', '1h', '1d'];
-  const BUCKETS = ['ALL', 'GOLDEN', 'BUY', 'SELL'];
-  const orderedTfs = [tf, ...ALL_TFS.filter(t => t !== tf)];
-  const allKeys = orderedTfs.flatMap(t => BUCKETS.map(b => `${t}_${b}`));
-
-  let row = null;
-  for (const key of allKeys) {
-    row = data.data[key]?.find(x => x.symbol === symbol);
-    if (row) break;
+  // Last-resort fallback for any other path that reaches here without a
+  // Stage-2 row (e.g. Stage-2 cache genuinely empty) — same universe-snapshot
+  // source, real tf, not a hardcoded one.
+  if (!row) {
+    const cheapRow = (window.universeSnapshotCache || []).find(x => x.symbol === symbol);
+    if (cheapRow?.priceHist?.length >= 2) row = { ...cheapRow, tf };
   }
 
   if (!row) return;
@@ -1542,19 +1869,30 @@ function closeModalChart(event) {
 }
 
 // ── HELPER: Update badges ────────────────────────────────────
+// Gainers/Losers are keyed by all 4 groupings (GAINER_LOSER_TFS) — sum
+// across all of them for the badge. Volume Shockers/Bullish Crossover/
+// Momentum Burst/RSI are keyed by all 7 real timeframes but only ONE is
+// ever shown at a time (whichever the dropdown is on) — count just that one
+// so the badge actually matches what's on screen.
+function screenerCategoryCount(byTfObj, byTfGroup) {
+  if (!byTfObj) return undefined;
+  if (byTfGroup) return Object.values(byTfObj).reduce((sum, rows) => sum + (rows?.length || 0), 0);
+  return byTfObj[currentScreenerTf()]?.length;
+}
+
 function updateBadges(data, screenerData) {
   if (screenerData) {
     const setScreenerBadge = (id, val) => {
       const el = document.getElementById(id);
       if (el) el.textContent = val === 0 ? '0' : (val || '—');
     };
-    setScreenerBadge('badge-GAINERS', screenerData.gainers?.length);
-    setScreenerBadge('badge-LOSERS', screenerData.losers?.length);
-    setScreenerBadge('badge-VOLSHOCK', screenerData.volumeShockers?.length);
+    setScreenerBadge('badge-GAINERS', screenerCategoryCount(screenerData.gainers, true));
+    setScreenerBadge('badge-LOSERS', screenerCategoryCount(screenerData.losers, true));
+    setScreenerBadge('badge-VOLSHOCK', screenerCategoryCount(screenerData.volumeShockers));
     setScreenerBadge('badge-RANGE52W', (screenerData.high52w?.length || 0) + (screenerData.low52w?.length || 0));
-    setScreenerBadge('badge-BULLCROSS', screenerData.bullishCrossover?.length);
-    setScreenerBadge('badge-MOMENTUM', screenerData.momentumBurst?.length);
-    setScreenerBadge('badge-RSI', (screenerData.rsiOversold?.length || 0) + (screenerData.rsiOverbought?.length || 0));
+    setScreenerBadge('badge-BULLCROSS', screenerCategoryCount(screenerData.bullishCrossover));
+    setScreenerBadge('badge-MOMENTUM', screenerCategoryCount(screenerData.momentumBurst));
+    setScreenerBadge('badge-RSI', (screenerCategoryCount(screenerData.rsiOversold) || 0) + (screenerCategoryCount(screenerData.rsiOverbought) || 0));
   }
   if (!data?.data) return;
 
@@ -1599,8 +1937,6 @@ function updateBadges(data, screenerData) {
   const uniqueBuy = new Set(buys.map(r => r.symbol)).size;
   const uniqueSell = new Set(sells.map(r => r.symbol)).size;
   const uniqueSectors = new Set(all.map(r => r.sector).filter(Boolean)).size;
-
-  setBadge('badge-INTRADAY', computeIntradayCandidates(data).length);
 }
 
 // ── HELPER: Update last updated badge ────────────────────────
@@ -1651,8 +1987,22 @@ function updateScanProgressBadge(status) {
 function renderCurrentView() {
   const activeTab = window.stateManager.get('activeTab');
 
+  if (activeTab === 'AI') {
+    renderAIScan(window.aiScanCache);
+    return;
+  }
+
   if (activeTab in SCREENER_TAB_MAP) {
     renderScreenerCategory(activeTab, window.dataManager.screenerCache?.data);
+    return;
+  }
+
+  // "All" chip's cheap snapshot lives in its own cache (window.
+  // universeSnapshotCache, kept fresh by ui-main.mjs's own poll), not the
+  // Stage-2 `dataManager.cache` this function checks below — render
+  // immediately instead of bailing out on "no Stage-2 data cached yet".
+  if (activeTab === 'STOCKS' && window.stateManager.get('stockFilter') === 'ALL') {
+    renderStocks(null);
     return;
   }
 

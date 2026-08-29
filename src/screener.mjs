@@ -19,17 +19,34 @@ import { SCREENER_UNIVERSE } from "./screener_universe.mjs";
 import { getLtpWithFreshness } from "./feed.mjs";
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const SCREENER_TFS = ["5m", "15m", "1d"];
+// All 7 real candle timeframes — every category below except 52W High/Low
+// (inherently a "vs 52-week extreme" concept, not a chart-timeframe concept,
+// same reasoning as Price/Change% in the All Stocks tab) now needs data
+// across all of them: Gainers/Losers show 4 groupings (GAINER_LOSER_TFS) at
+// once, and the rest are timeframe-dropdown-driven, needing whichever one
+// the frontend currently has selected on demand. This runs on a slow 15-min
+// cycle (not a 2s/20s loop), so precomputing all 7 up front each cycle is
+// cheap relative to it — unlike the "1 symbol at a time, 500x cost"
+// consideration for All Stocks' ALL mode, this is "500 symbols, ~2.3x the
+// fetches of the old 3-tf setup, once every 15 minutes."
+const SCREENER_TFS = ["1m", "5m", "10m", "15m", "30m", "1h", "1d"];
+const GAINER_LOSER_TFS = ["5m", "10m", "15m", "1d"];
 const REFRESH_INTERVAL_MS = 15 * 60 * 1000; // 15 minutes between full refreshes
 const TOP_N = 15;
+
+function emptyByTf(tfs) {
+    return Object.fromEntries(tfs.map(tf => [tf, []]));
+}
 
 export let screenerState = {
     lastUpdated: null,
     dataAsOf: null,
     universeSize: SCREENER_UNIVERSE.length,
-    gainers: [], losers: [], volumeShockers: [],
+    gainers: emptyByTf(GAINER_LOSER_TFS), losers: emptyByTf(GAINER_LOSER_TFS),
+    volumeShockers: emptyByTf(SCREENER_TFS),
     high52w: [], low52w: [],
-    bullishCrossover: [], momentumBurst: [], rsiOversold: [], rsiOverbought: [],
+    bullishCrossover: emptyByTf(SCREENER_TFS), momentumBurst: emptyByTf(SCREENER_TFS),
+    rsiOversold: emptyByTf(SCREENER_TFS), rsiOverbought: emptyByTf(SCREENER_TFS),
 };
 
 let scanning = false;
@@ -51,19 +68,23 @@ async function scanNewSymbol(symbol, rowsByTf) {
 }
 
 export function computeScreenerCategories(rowsByTf) {
-    const daily = rowsByTf["1d"];
-    const fiveMin = rowsByTf["5m"];
+    const daily = rowsByTf["1d"] || [];
 
-    const byChgDesc = daily.filter(r => Number.isFinite(r.chgPct)).sort((a, b) => b.chgPct - a.chgPct);
-    const gainers = byChgDesc.slice(0, TOP_N);
-    const losers = byChgDesc.slice(-TOP_N).reverse();
+    // Gainers/Losers — NOT timeframe-dropdown-driven. Shows all four
+    // groupings (5m/10m/15m/1d) at once, each computed independently from
+    // that timeframe's own rows, rather than picking one via the dropdown.
+    const gainers = {}, losers = {};
+    for (const tf of GAINER_LOSER_TFS) {
+        const rows = rowsByTf[tf] || [];
+        const byChgDesc = rows.filter(r => Number.isFinite(r.chgPct)).sort((a, b) => b.chgPct - a.chgPct);
+        gainers[tf] = byChgDesc.slice(0, TOP_N);
+        losers[tf] = byChgDesc.slice(-TOP_N).reverse();
+    }
 
-    const volumeShockers = fiveMin
-        .filter(r => r.volSpike)
-        .sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange))
-        .slice(0, TOP_N);
-
-    // Within 1% of the 52-week extreme counts as "at/near" the breakout level.
+    // Within 1% of the 52-week extreme counts as "at/near" the breakout
+    // level. Daily-only, unchanged — a 52-week extreme has no meaningful
+    // per-intraday-timeframe variant (same reasoning as Price/Change% in
+    // the All Stocks tab).
     const high52w = daily
         .filter(r => r.w52H && r.price >= r.w52H * 0.99)
         .sort((a, b) => b.chgPct - a.chgPct)
@@ -73,42 +94,29 @@ export function computeScreenerCategories(rowsByTf) {
         .sort((a, b) => a.chgPct - b.chgPct)
         .slice(0, TOP_N);
 
-    // Daily, not 5m — "Golden Cross"/"RSI Oversold"/"Momentum" are
-    // conventionally daily-timeframe concepts on every broker app (Upstox
-    // included); computing them from 5-minute candles instead produced a
-    // completely different, much noisier list (5m RSI dips under 30 many
-    // times a day as ordinary intraday noise, while a genuine daily RSI
-    // oversold reading is rare and significant) — not wrong data, just a
-    // different definition than what these category names imply.
-    // Volume Shockers stays 5m deliberately: an intraday relative-volume
-    // spike is itself an inherently intraday concept, unlike these three.
-    const bullishCrossover = daily
-        .filter(r => r.goldenCross)
-        .sort((a, b) => b.techScore - a.techScore)
-        .slice(0, TOP_N);
-    const momentumBurst = daily
-        .filter(r => r.volSpike && r.macdBull)
-        .sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange))
-        .slice(0, TOP_N);
-    const rsiOversold = daily
-        .filter(r => r.rsi !== null && r.rsi < 30)
-        .sort((a, b) => a.rsi - b.rsi)
-        .slice(0, TOP_N);
-    // Standard 70 threshold (mirrors rsiOversold's standard 30) — distinct
-    // from scanner.mjs's own unrelated ">80" per-row flag, which is a
-    // stricter "extreme" callout on individual rows, not this category's
-    // definition of "overbought."
-    const rsiOverbought = daily
-        .filter(r => r.rsi !== null && r.rsi > 70)
-        .sort((a, b) => b.rsi - a.rsi)
-        .slice(0, TOP_N);
+    // Volume Shockers / Bullish Crossover / Momentum Burst / RSI Oversold /
+    // RSI Overbought — timeframe-dropdown-driven: computed for every real
+    // timeframe so the frontend can select whichever one the dropdown is
+    // currently set to without a separate fetch.
+    const volumeShockers = {}, bullishCrossover = {}, momentumBurst = {}, rsiOversold = {}, rsiOverbought = {};
+    for (const tf of SCREENER_TFS) {
+        const rows = rowsByTf[tf] || [];
+        volumeShockers[tf] = rows.filter(r => r.volSpike).sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange)).slice(0, TOP_N);
+        bullishCrossover[tf] = rows.filter(r => r.goldenCross).sort((a, b) => b.techScore - a.techScore).slice(0, TOP_N);
+        momentumBurst[tf] = rows.filter(r => r.volSpike && r.macdBull).sort((a, b) => Math.abs(b.volumeChange) - Math.abs(a.volumeChange)).slice(0, TOP_N);
+        // Standard 70/30 thresholds — distinct from scanner.mjs's own
+        // unrelated >80/<25 per-row flags, which are stricter "extreme"
+        // callouts on individual rows, not this category's own definition.
+        rsiOversold[tf] = rows.filter(r => r.rsi !== null && r.rsi < 30).sort((a, b) => a.rsi - b.rsi).slice(0, TOP_N);
+        rsiOverbought[tf] = rows.filter(r => r.rsi !== null && r.rsi > 70).sort((a, b) => b.rsi - a.rsi).slice(0, TOP_N);
+    }
 
     // `lastUpdated` is when this refresh cycle ran, not a claim that every
     // row is that fresh — rows reused from the main scan can be up to ~30s
     // old, and symbols the main scan hasn't produced a row for yet are only
     // refreshed once per REFRESH_INTERVAL_MS (15 min). `dataAsOf` is the
     // actual oldest priceTs among everything just categorized.
-    const allRows = [...daily, ...fiveMin];
+    const allRows = SCREENER_TFS.flatMap(tf => rowsByTf[tf] || []);
     const priceTimes = allRows.map(r => r.priceTs).filter(ts => ts != null);
     const dataAsOf = priceTimes.length ? Math.min(...priceTimes) : null;
 
@@ -125,7 +133,7 @@ export async function runScreenerScan() {
     if (scanning) return;
     scanning = true;
     try {
-        const rowsByTf = { "5m": [], "15m": [], "1d": [] };
+        const rowsByTf = emptyByTf(SCREENER_TFS);
         const newSymbols = [];
 
         // Reuse only when the main scan has ACTUALLY produced a row for this

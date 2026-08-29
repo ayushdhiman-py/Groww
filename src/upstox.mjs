@@ -289,13 +289,16 @@ export async function fetchBulkLtp(symbols) {
     return prices;
 }
 
-// ── Bulk Quotes (bid/ask depth + order-flow) ──────────────────────────────────
+// ── Bulk Quotes (bid/ask depth + order-flow + volume) ─────────────────────────
 // Upstox's v3 LTP endpoint (used everywhere else in this app) doesn't carry
-// quote/spread/order-flow data at all — only this older v2 "full quote"
-// endpoint does, via best-5 market depth plus total_buy_quantity/
-// total_sell_quantity. Used sparingly (Stage-2-scanned symbols only, not the
-// whole scanned universe every cycle) since it's a separate, heavier call
-// than the LTP path.
+// quote/spread/order-flow/volume data at all — only this older v2 "full
+// quote" endpoint does, via best-5 market depth plus total_buy_quantity/
+// total_sell_quantity/volume. Used sparingly for depth/order-flow (Stage-2-
+// scanned symbols only, not the whole scanned universe every cycle) since
+// it's a separate, heavier call than the LTP path — intraday_movers.mjs is
+// the one exception, calling this for the FULL universe, but only once
+// every 15 minutes (chunked at 500 keys/request, so normally a single
+// call), just to read `volume` and find which symbols traded today.
 export async function fetchBulkQuotes(symbols) {
     if (!symbols || symbols.length === 0) return {};
     if (!isInstrumentMasterLoaded()) await loadInstrumentMaster();
@@ -351,7 +354,7 @@ export async function fetchBulkQuotes(symbols) {
             const buySellRatio = (buyQty != null && sellQty != null && sellQty > 0 && buyQty > 0)
                 ? +(buyQty / sellQty).toFixed(3)
                 : null;
-            quotes[sym] = { bestBid, bestAsk, spread, spreadPct, lastPrice: entry.last_price ?? null, buyQty, sellQty, buySellRatio };
+            quotes[sym] = { bestBid, bestAsk, spread, spreadPct, lastPrice: entry.last_price ?? null, buyQty, sellQty, buySellRatio, volume: entry.volume ?? null };
         }
     }
     return quotes;

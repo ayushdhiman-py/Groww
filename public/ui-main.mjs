@@ -2,7 +2,7 @@
 // MAIN INTEGRATION FILE - Wires everything together
 // ============================================================
 
-import { StateManager, DataManager, RenderEngine, SCREENER_TABS } from './ui-core.mjs';
+import { StateManager, DataManager, RenderEngine, SCREENER_TABS, effectiveChartTf } from './ui-core.mjs';
 import { TabManager, TimeframeManager, LivePriceUpdater, PortfolioManager, SortManager, SearchFilter, FOManager, IntervalManager, CriticalManager, ModelManager } from './ui-managers.mjs';
 import './ui-renders.mjs';
 
@@ -96,17 +96,44 @@ async function loadInitialData() {
   const timeframe = stateManager.get('timeframe');
   const activeTab = stateManager.get('activeTab');
 
-  // Load scanner data
-  const data = await dataManager.fetchState(timeframe, activeTab, true);
-  if (data) {
-    renderStocks(data);
-    window.renderRegimeBanner?.(data.marketRegime);
+  // "All Stocks" — its one data source is /api/universe-snapshot, fetched
+  // directly instead of waiting on the unrelated heavy Stage-2 fetch below.
+  if (activeTab === 'STOCKS' && stateManager.get('stockFilter') === 'ALL') {
+    window.universeSnapshotCache = await dataManager.fetchUniverseSnapshot(effectiveChartTf(timeframe));
 
-    // Update badges
-    updateBadges(data);
-    updateLastUpdatedBadge(data);
+    // A persisted 'ALL' timeframe from a previous session is only still
+    // valid if the persisted search still narrows to exactly one stock now
+    // that the universe snapshot (which the match check reads) is loaded —
+    // otherwise fall back to a normal timeframe rather than leaving the
+    // dropdown showing ALL with nothing sensible to render.
+    if (timeframe === 'ALL') {
+      const symbol = window.getSingleStockMatch?.();
+      if (symbol) {
+        window.symbolAllTimeframesCache = await dataManager.fetchSymbolAllTimeframes(symbol);
+      } else {
+        stateManager.set('timeframe', '5m');
+        stateManager.persist();
+      }
+    }
+    window.updateAllTfAvailability?.();
+    renderStocks(null);
+  } else if (activeTab === 'AI') {
+    // AI tab's one data source — see src/ai_scanner.mjs. Fetched directly
+    // instead of the unrelated Stage-2 fetch below (which renderStocks()
+    // would just no-op on anyway, same reasoning as the All Stocks branch
+    // above).
+    window.aiScanCache = await dataManager.fetchAIScan();
+    window.renderAIScan(window.aiScanCache);
   } else {
-    console.error('[App] Failed to load initial data');
+    const data = await dataManager.fetchState(timeframe, activeTab, true);
+    if (data) {
+      renderStocks(data);
+      window.renderRegimeBanner?.(data.marketRegime);
+      updateBadges(data);
+      updateLastUpdatedBadge(data);
+    } else {
+      console.error('[App] Failed to load initial data');
+    }
   }
 
   // Load cached portfolio if available
@@ -125,10 +152,11 @@ function startBackgroundTasks() {
     updateMarketStatus();
   }, 1000);
 
-  // Poll status (every 2s)
+  // Poll status (every 2s) — skip while the tab is backgrounded, same guard
+  // LivePriceUpdater already uses, so a hidden/idle tab stops costing bandwidth.
   intervalManager.add('pollStatus', async () => {
     await pollStatus();
-  }, 2000);
+  }, 2000, () => !document.hidden);
 
   // Live price updates (every 3s) - managed by LivePriceUpdater
   livePriceUpdater.start();
@@ -142,6 +170,8 @@ function startBackgroundTasks() {
   intervalManager.add('fullReload', async () => {
     const activeTab = stateManager.get('activeTab');
     if (activeTab === 'CRITICAL') return; // CriticalManager polls on its own 8s cadence
+    if (activeTab === 'INTRADAY') return; // has its own dedicated poll below — independent of Stage-2's /api/state
+    if (activeTab === 'AI') return; // has its own dedicated poll below — independent of Stage-2's /api/state
     if (SCREENER_TABS.includes(activeTab)) {
       const screenerData = await dataManager.fetchScreener();
       if (screenerData) {
@@ -155,19 +185,62 @@ function startBackgroundTasks() {
     const data = await dataManager.fetchState(timeframe, activeTab, true);
     if (!data) return;
     window.renderRegimeBanner?.(data.marketRegime);
-    if (activeTab === 'INTRADAY') {
-      window.renderIntraday(data);
-    } else {
-      renderStocks(data);
-    }
+    renderStocks(data);
     updateBadges(data);
     updateLastUpdatedBadge(data);
-  }, 30000);
+  }, 30000, () => !document.hidden);
 
-  // Fetch indices (every 5s)
+  // Intraday tab: its own poll against src/intraday_movers.mjs's
+  // independent pipeline — 20s to match the server's own recompute
+  // interval, no point polling faster than the underlying data changes.
+  intervalManager.add('intradayMovers', async () => {
+    if (stateManager.get('activeTab') !== 'INTRADAY') return;
+    const payload = await dataManager.fetchIntradayMovers();
+    window.renderIntraday(payload);
+  }, 20000, () => !document.hidden);
+
+  // AI tab: its own poll against src/ai_scanner.mjs's independent 7-layer
+  // pipeline — the server itself only recomputes every 5min, but polling
+  // faster than that is still cheap (in-memory cache read, zero REST cost)
+  // and means the tab catches that update within ~60s of it landing instead
+  // of needing the user to leave and re-enter the tab.
+  intervalManager.add('aiScan', async () => {
+    if (stateManager.get('activeTab') !== 'AI') return;
+    window.aiScanCache = await dataManager.fetchAIScan();
+    window.renderAIScan(window.aiScanCache);
+  }, 60000, () => !document.hidden);
+
+  // Fetch indices (every 1s) — server's own indexCache TTL matches (see
+  // scanner_testing.mjs's /api/indices), so this is a real 1s refresh end
+  // to end, not just a wasted extra request against a stale server cache.
   intervalManager.add('fetchIndices', async () => {
     await fetchIndices();
-  }, 5000);
+  }, 1000, () => !document.hidden);
+
+  // Stocks tab's "All" chip: fetch /api/universe-snapshot (all Nifty-500
+  // symbols, one call, zero Upstox REST cost server-side — see
+  // stage1_filter.mjs's fast loop) and show it, nothing else. No merging
+  // with any other data source.
+  intervalManager.add('universeSnapshot', async () => {
+    if (stateManager.get('activeTab') !== 'STOCKS' || stateManager.get('stockFilter') !== 'ALL') return;
+    const timeframe = stateManager.get('timeframe');
+
+    // Single-symbol "ALL" mode (see TimeframeManager.selectTimeframe in
+    // ui-core.mjs) — refresh just that one symbol's 7-timeframe data, never
+    // the whole universe. There's no need to fetch all 500 symbols every 2s
+    // while looking at one stock's timeframes.
+    if (timeframe === 'ALL') {
+      const symbol = window.getSingleStockMatch?.();
+      if (symbol) {
+        window.symbolAllTimeframesCache = await dataManager.fetchSymbolAllTimeframes(symbol);
+        renderCurrentView();
+      }
+      return;
+    }
+
+    window.universeSnapshotCache = await dataManager.fetchUniverseSnapshot(effectiveChartTf(timeframe));
+    renderCurrentView();
+  }, 2000, () => !document.hidden);
 }
 
 // ── Market Status ────────────────────────────────────────────
@@ -280,6 +353,7 @@ async function pollStatus() {
     // interval happened to fire.
     if (status.scanning && !scanDataInterval) {
       scanDataInterval = setInterval(async () => {
+        if (document.hidden) return;
         const activeTab = stateManager.get('activeTab');
         // These tabs each have their own independent data source/refresh
         // path (CriticalManager's 8s poll, the screener tabs' own ~15min
@@ -293,15 +367,13 @@ async function pollStatus() {
           return;
         }
         if (SCREENER_TABS.includes(activeTab)) return;
+        if (activeTab === 'INTRADAY') return; // own independent poll — not tied to Stage-2 scan progress
+        if (activeTab === 'AI') return; // own independent poll — not tied to Stage-2 scan progress
 
         const st = await dataManager.fetchState(stateManager.get('timeframe'), activeTab, true);
         if (st?.lastUpdated && st.lastUpdated !== lastUpdatedTs) {
           lastUpdatedTs = st.lastUpdated;
-          if (activeTab === 'INTRADAY') {
-            window.renderIntraday(st);
-          } else {
-            renderStocks(st);
-          }
+          renderStocks(st);
           updateBadges(st);
           updateLastUpdatedBadge(st);
         }
@@ -325,13 +397,7 @@ async function pollStatus() {
           window.renderScreenerCategory(activeTab, screenerData);
           updateBadges(null, screenerData);
         }
-      } else if (activeTab === 'INTRADAY') {
-        const data = await dataManager.fetchState(timeframe, activeTab, true);
-        if (data) {
-          window.renderIntraday(data);
-          updateBadges(data);
-        }
-      } else {
+      } else if (activeTab !== 'INTRADAY' && activeTab !== 'AI') { // own independent polls — not tied to Stage-2 scan progress
         const data = await dataManager.fetchState(timeframe, activeTab, true);
         if (data) {
           renderStocks(data);
@@ -406,10 +472,19 @@ async function fetchIndices() {
           </span>`
         : '';
 
+      // Per-index regime label (src/index_regime.mjs) — recomputed server-
+      // side every 60s from ATR%/EMA-slope/PCR, not tied to this 1s price
+      // poll. regimeCls picks the pill color; "Unknown" (candle/options
+      // cache not warm yet) gets the same muted look as "Sideways" rather
+      // than a 5th color for what's really just "no reading yet".
+      const regimeCls = idx.regime === 'Trending Up' ? 'up' : idx.regime === 'Trending Down' ? 'down' : idx.regime === 'Volatile' ? 'volatile' : 'flat';
+      const regimeHtml = idx.regime ? `<span class='idx-regime idx-regime-${regimeCls}'>${idx.regime}</span>` : '';
+
       html += `<div class='idx-card ${trendCls}'>
         <span class='idx-name'>${idx.symbol}</span>
         <span class='idx-price'>₹${ltp.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span>${window.freshnessDot?.(idx.ltpSource, idx.ltpTs) || ''}
         ${deltaHtml}
+        ${regimeHtml}
       </div>`;
     });
 

@@ -8,6 +8,25 @@ export function ema(values, period) {
     return out;
 }
 
+/**
+ * Bollinger Band width at every bar, as a % of the middle band (SMA) — the
+ * standard normalized squeeze/expansion measure (comparable across stocks
+ * of different price levels, unlike raw band width). Returns an array
+ * parallel to `values`; the first `period - 1` entries are null (not enough
+ * history yet for that bar's SMA/stdev).
+ */
+export function bollingerBandWidthPct(values, period = 20, mult = 2) {
+    const out = new Array(values.length).fill(null);
+    for (let i = period - 1; i < values.length; i++) {
+        const window = values.slice(i - period + 1, i + 1);
+        const mean = window.reduce((a, b) => a + b, 0) / period;
+        const variance = window.reduce((a, b) => a + (b - mean) ** 2, 0) / period;
+        const sd = Math.sqrt(variance);
+        if (mean !== 0) out[i] = ((mult * sd * 2) / mean) * 100;
+    }
+    return out;
+}
+
 export function macd(closes, fast = 12, slow = 26, sig = 9) {
     const ef = ema(closes, fast), es = ema(closes, slow);
     const ml = ef.map((v, i) => v !== null && es[i] !== null ? v - es[i] : null);

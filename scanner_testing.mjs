@@ -1,7 +1,8 @@
 import express from "express";
+import compression from "compression";
 import path from "path";
 import { fileURLToPath } from "url";
-import { createHash } from "crypto";
+import { createHash, timingSafeEqual } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
 import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
 import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow, markIntradayActive } from "./src/scanner.mjs";
@@ -14,6 +15,10 @@ import { isMarketOpen } from "./src/scanner.mjs";
 import { theoreticalOptionChain } from "./src/indicators.mjs";
 import { runOperatorScan, getOperatorState, buildMarketSummary, formatMarketSummaryBlock, transformScannerData } from "./src/operator_scanner.mjs";
 import { isDividendServiceAvailable } from "./src/dividend.mjs";
+import { startIntradayMoversLoop, getLatestMovers } from "./src/intraday_movers.mjs";
+import { startAIScanLoop, getLatestAIScan } from "./src/ai_scanner.mjs";
+import { startIndexRegimeLoop, getLatestIndexRegimes } from "./src/index_regime.mjs";
+import { startFastSnapshotLoop, getLatestFullUniverseSnapshot, getLatestChartFields, setActiveChartTf, computeSymbolAllTimeframes } from "./src/stage1_filter.mjs";
 import { screenerState, startScreenerScan } from "./src/screener.mjs";
 import {
     markCritical, listCriticalTrades,
@@ -29,6 +34,70 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+
+// Every route below is unauthenticated by design for localhost-only use —
+// once this server is reachable over a public tunnel URL, anyone with the
+// link can read portfolio data or close live trades via the API. Gate the
+// whole app behind Basic Auth whenever DASHBOARD_USER/DASHBOARD_PASS are
+// set (they must be for any non-localhost exposure); skip only for local
+// dev where they're intentionally left unset.
+const { DASHBOARD_USER, DASHBOARD_PASS, AUTH_TOKEN } = process.env;
+if (DASHBOARD_USER && DASHBOARD_PASS) {
+    const expectedUser = Buffer.from(DASHBOARD_USER);
+    const expectedPass = Buffer.from(DASHBOARD_PASS);
+    const expectedToken = AUTH_TOKEN ? Buffer.from(AUTH_TOKEN) : null;
+
+    const tokenMatches = (candidate) => {
+        if (!expectedToken || !candidate) return false;
+        const candidateBuf = Buffer.from(candidate);
+        return candidateBuf.length === expectedToken.length && timingSafeEqual(candidateBuf, expectedToken);
+    };
+
+    app.use((req, res, next) => {
+        // 1) One-click login link (?auth=TOKEN) — no embedded credentials in the
+        //    URL, so it isn't flagged/blocked by mobile browsers' phishing
+        //    heuristics the way user:pass@host links are. Sets a long-lived
+        //    cookie, then redirects to the clean URL so the token doesn't
+        //    linger in the address bar.
+        if (tokenMatches(req.query.auth)) {
+            res.cookie("auth_token", AUTH_TOKEN, {
+                maxAge: 10 * 365 * 24 * 60 * 60 * 1000,
+                httpOnly: true,
+                secure: true,
+                sameSite: "Lax",
+            });
+            return res.redirect(req.path);
+        }
+
+        // 2) Existing session cookie from a previous ?auth= visit.
+        const cookies = Object.fromEntries((req.headers.cookie || "").split(";").map(p => {
+            const i = p.indexOf("=");
+            return i === -1 ? [p.trim(), ""] : [p.slice(0, i).trim(), decodeURIComponent(p.slice(i + 1).trim())];
+        }));
+        if (tokenMatches(cookies.auth_token)) return next();
+
+        // 3) Manual Basic Auth fallback (browser login prompt).
+        const header = req.headers.authorization || "";
+        const [scheme, encoded] = header.split(" ");
+        if (scheme === "Basic" && encoded) {
+            const [user, pass] = Buffer.from(encoded, "base64").toString().split(":");
+            const userBuf = Buffer.from(user || "");
+            const passBuf = Buffer.from(pass || "");
+            const userOk = userBuf.length === expectedUser.length && timingSafeEqual(userBuf, expectedUser);
+            const passOk = passBuf.length === expectedPass.length && timingSafeEqual(passBuf, expectedPass);
+            if (userOk && passOk) return next();
+        }
+        res.set("WWW-Authenticate", 'Basic realm="Scanner"');
+        res.status(401).send("Authentication required");
+    });
+} else {
+    console.warn("⚠️  DASHBOARD_USER/DASHBOARD_PASS not set — running with NO AUTH. Do not expose this server over a public tunnel until they're set.");
+}
+
+// The JSON poll endpoints (/api/state, /api/ltp, ...) are 40-90KB uncompressed
+// and hit every few seconds by an open browser tab — compression must be
+// registered before any route so every response goes through it.
+app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -79,6 +148,58 @@ app.get("/api/state", (req, res) => {
     lastStateEtag = etag;
     res.set("ETag", etag);
     res.json(state);
+});
+
+// Cheap full-Nifty-500 snapshot (price/chgPct/volume, no Stage-2 indicators)
+// — backed by stage1_filter.mjs's fast independent loop, not the slow
+// Stage-2 cycle. Used by the Stocks tab's "All" chip, which wants every
+// symbol refreshed quickly rather than a computed-but-partial, minutes-stale
+// subset. Chart/EMA fields are computed separately, per the requested `tf`
+// (?tf=1m|5m|10m|15m|30m|1h|1d, default 5m) — see stage1_filter.mjs's
+// comment on why those are kept OUT of the canonical snapshot above: that
+// one's pctFromOpenCheap/aboveVwapCheap/relVolumeCheap feed cheapScore,
+// which Stage-2 symbol selection depends on, and must stay on a fixed basis
+// regardless of what timeframe the user has the chart set to.
+const VALID_CHART_TFS = new Set(["1m", "5m", "10m", "15m", "30m", "1h", "1d"]);
+app.get("/api/universe-snapshot", (req, res) => {
+    const tf = VALID_CHART_TFS.has(req.query.tf) ? req.query.tf : "5m";
+    setActiveChartTf(tf);
+
+    const snapshot = getLatestFullUniverseSnapshot();
+    const chartFields = getLatestChartFields();
+    const rows = snapshot ? [...snapshot.values()].map(row => ({ ...row, ...chartFields.get(row.symbol) })) : [];
+    res.json(rows);
+});
+
+// "ALL" timeframe for a single searched stock — see stage1_filter.mjs's
+// computeSymbolAllTimeframes for why this is a separate, on-demand,
+// single-symbol endpoint rather than a universe-wide "ALL" mode: 1 symbol ×
+// 7 real timeframes is cheap (worst case 7 fetches); 500 symbols × 7 would
+// have meant ~7x the background REST cost and per-tick CPU of a single
+// timeframe, for a feature only ever useful on one stock at a time anyway.
+app.get("/api/symbol-all-timeframes/:symbol", async (req, res) => {
+    try {
+        const rows = await computeSymbolAllTimeframes(req.params.symbol.toUpperCase());
+        res.json({ symbol: req.params.symbol.toUpperCase(), rows });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Intraday tab's data source — see src/intraday_movers.mjs for the full
+// design rationale. Fully independent of the Stage-2 scan cycle and every
+// other tab's data; zero Upstox REST cost (own background loop, cache-reads
+// only).
+app.get("/api/intraday-movers", (_, res) => {
+    res.json(getLatestMovers());
+});
+
+// AI tab's data source — see src/ai_scanner.mjs for the full 7-layer design.
+// Fully independent of every other tab's data/loops. Layers 4-5 (joint
+// probability, Rank Score, trade decision) are BLOCKED in every response
+// until a Layer-6-validated model version exists — see that file's header.
+app.get("/api/ai-scan", (_, res) => {
+    res.json(getLatestAIScan());
 });
 
 app.get("/api/status", (_, res) => {
@@ -328,6 +449,10 @@ function activateMarketData() {
     startScreenerScan();
     startCriticalMonitor();
     startDailyLearningScheduler();
+    startFastSnapshotLoop();
+    startIndexRegimeLoop();
+    startIntradayMoversLoop();
+    startAIScanLoop();
 }
 
 app.post("/api/login", async (req, res) => {
@@ -498,7 +623,11 @@ let   indexCache    = { ts: 0, data: [] };
 app.get("/api/indices", async (_, res) => {
     try {
         if (!isAuthenticated) return res.json([]);
-        if (Date.now() - indexCache.ts < 3000) return res.json(indexCache.data);
+        // 1s, not the previous 3s — matches the frontend's 1s poll interval;
+        // everything this recomputes is an in-memory read (WS price cache,
+        // scanned-state lookup), not a fresh Upstox call, so refreshing every
+        // request the client actually makes is cheap.
+        if (Date.now() - indexCache.ts < 1000) return res.json(indexCache.data);
 
         // Prefer the live WebSocket feed (already subscribed to the whole
         // UNIVERSE, indices included); fall back to a one-off REST call for
@@ -533,7 +662,13 @@ app.get("/api/indices", async (_, res) => {
                 chgTs = scanned.priceTs ?? null;
             }
 
-            return { symbol: label, ltp, ltpSource, ltpTs, priceChange, chgPct, chgSource, chgTs };
+            const regimeInfo = getLatestIndexRegimes().get(label);
+
+            return {
+                symbol: label, ltp, ltpSource, ltpTs, priceChange, chgPct, chgSource, chgTs,
+                regime: regimeInfo?.regime ?? "Unknown",
+                regimeUpdatedAt: regimeInfo?.updatedAt ?? null,
+            };
         });
 
         indexCache = { ts: Date.now(), data: result };

@@ -31,7 +31,21 @@ const TTL_MS = {
 
 // Bounded LRU — caps the cache's own footprint regardless of how many
 // symbols the scan universe touches over a trading day.
-const MAX_ENTRIES = 150;
+//
+// 150 was sized for the old Render deployment (512Mi instance) and only
+// Stage-2's own fetch pattern. Now self-hosted (no more OOM ceiling) and
+// with stage1_filter.mjs's fast loop also peeking every universe symbol's
+// "5m" entry every 2s (on top of Stage-2's ~150-symbol rotation across up
+// to 7 timeframes each, plus screener.mjs's own fetches — all sharing this
+// same cache), 150 was thrashing constantly: a later symbol's fetch would
+// evict an earlier symbol's still-relevant candles well before its own TTL
+// expired, which is what made "All Stocks" chart/volume/EMA data visibly
+// disappear from already-populated rows as later rows finished warming up.
+// 4000 comfortably covers the realistic worst case (~505 symbols x 7
+// timeframes = ~3535 possible distinct keys) without meaningfully thrashing
+// under normal operation; a few thousand small candle arrays is a trivial
+// memory footprint on a real machine.
+const MAX_ENTRIES = 4000;
 const cache = new Map(); // `${symbol}|${tf}` -> { candles, fetchedAt, tf }
 let hits = 0, misses = 0;
 

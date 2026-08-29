@@ -30,26 +30,19 @@ export class LivePriceUpdater {
 
       const activeTab = this.state.get('activeTab');
 
-      // Intraday active-heartbeat — reuses this already-running, already
-      // document.hidden-gated 3s loop instead of adding a second interval.
-      // Backend's Actionable Intraday layer (trade plan/sizing/score) only
-      // recomputes while a heartbeat has landed recently; see
-      // scanner_testing.mjs's POST /api/intraday/heartbeat.
-      if (activeTab === 'INTRADAY') this.sendIntradayHeartbeat();
-
-      if (activeTab === 'CRITICAL' || SCREENER_TABS.includes(activeTab)) return;
+      // Stocks tab's "All" chip is kept fresh by its own 2s universe-snapshot
+      // poll (ui-main.mjs), covering all ~500 symbols including the ones
+      // this LTP-only path would've patched — running both stacked two
+      // full-table re-renders on top of each other every few seconds, which
+      // is what made the "All" view laggy. Intraday has its own fully
+      // independent 20s poll (src/intraday_movers.mjs) and never touches
+      // dataManager.cache at all, so this LTP fetch would be pure waste for it.
+      if (activeTab === 'CRITICAL' || activeTab === 'AI' || SCREENER_TABS.includes(activeTab)) return;
+      if (activeTab === 'STOCKS' && this.state.get('stockFilter') === 'ALL') return;
+      if (activeTab === 'INTRADAY') return;
 
       await this.update();
     }, 3000);
-  }
-
-  async sendIntradayHeartbeat() {
-    try {
-      await fetch('/api/intraday/heartbeat', { method: 'POST' });
-    } catch (e) {
-      // Best-effort — a missed heartbeat just means the backend's Actionable
-      // Intraday layer stays paused a little longer, never a hard failure.
-    }
   }
 
   stop() {
@@ -499,13 +492,12 @@ export class SortManager {
       if (activeTab === 'PORTFOLIO') {
         window.portfolioManager?.loadAndRender();
       } else if (activeTab === 'INTRADAY') {
-        const dataKey = window.dataManager.cacheKey('INTRADAY', 'INTRADAY');
-        const cached = window.dataManager.cache.get(dataKey);
-        if (cached?.data) {
-          window.renderIntraday(cached.data);
-        } else {
-          console.error('[Sort] ❌ No cached data available for intraday');
-        }
+        // No sortable columns on this tab (see ui-renders.mjs's
+        // INTRADAY_TABLE_HEADER) — src/intraday_movers.mjs's list is
+        // already ranked by score, so this path is never actually
+        // triggered, but re-fetch rather than reference a stale cache key
+        // if something ever does call it.
+        window.dataManager.fetchIntradayMovers().then(payload => window.renderIntraday(payload));
       } else if (activeTab === 'SECTORS') {
         // Sectors always use 1d_ALL data (daily timeframe)
         const dataKey = window.dataManager.cacheKey('1d', 'ALL');
@@ -588,6 +580,7 @@ export class SearchFilter {
         this.debounceTimer = setTimeout(() => {
           this.state.set('searchQuery', e.target.value);
           this.state.persist(); // Persist search query
+          window.updateAllTfAvailability?.(); // "ALL" tf option only enabled when search matches exactly one stock
           window.renderCurrentView?.();
         }, 200);
       });
@@ -597,6 +590,7 @@ export class SearchFilter {
         if (this.debounceTimer) clearTimeout(this.debounceTimer);
         this.state.set('searchQuery', searchInput.value);
         this.state.persist(); // Persist search query
+        window.updateAllTfAvailability?.();
         window.renderCurrentView?.();
       });
     }

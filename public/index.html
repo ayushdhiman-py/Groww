@@ -383,16 +383,32 @@
 
     /* Index capsules (NIFTY/BANKNIFTY/etc.) — the one KPI strip left at the
        top of the page, so it gets a distinct, more deliberate look than a
-       plain stat card: a rounded pill with a soft directional tint. */
-    .idx-strip { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 16px; }
+       plain stat card: a rounded pill with a soft directional tint.
+       A single horizontally-scrollable row (same pattern as .tabs below),
+       not flex-wrap onto multiple lines — short, one-line capsules the user
+       swipes/scrolls through sideways instead of the strip growing taller
+       as more fields (the regime pill) get added to each card. */
+    .idx-strip {
+      display: flex;
+      gap: 8px;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+      margin: 0 0 16px;
+      padding-bottom: 2px;
+    }
+    .idx-strip::-webkit-scrollbar { display: none; }
     .idx-card {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
+      flex: 0 0 auto;
+      white-space: nowrap;
       background: linear-gradient(135deg, var(--card), var(--card2));
       border: 1px solid var(--border);
       border-radius: var(--r-pill);
-      padding: 10px 20px;
+      padding: 8px 16px;
       box-shadow: var(--shadow-1);
       transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
     }
@@ -422,6 +438,18 @@
     .idx-pct { padding: 2px 9px; border-radius: var(--r-pill); font-size: 11px; }
     .idx-card.up .idx-pct { background: rgba(34, 197, 94, 0.15); }
     .idx-card.down .idx-pct { background: rgba(239, 68, 68, 0.15); }
+
+    /* Per-index regime label (src/index_regime.mjs) — "Volatile" gets its
+       own amber tint distinct from the plain up/down green/red used
+       elsewhere in this card, since it isn't a directional call. "Sideways"
+       and "Unknown" (no candle/options data warm yet) share the same muted
+       look — a pending reading and a genuinely flat market both mean
+       "nothing directional to show" from the user's point of view. */
+    .idx-regime { font-family: var(--mono); font-weight: 700; font-size: 10px; padding: 2px 8px; border-radius: var(--r-pill); white-space: nowrap; letter-spacing: 0.02em; }
+    .idx-regime-up { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+    .idx-regime-down { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+    .idx-regime-volatile { background: rgba(245, 158, 11, 0.15); color: var(--yellow); }
+    .idx-regime-flat { background: rgba(255, 255, 255, 0.06); color: var(--muted); }
 
     /* ── Unified Controls Bar (same width as table) ────────────────── */
     .controls-wrap {
@@ -629,6 +657,16 @@
 
     .option.active div {
       opacity: 0.85;
+    }
+
+    /* "ALL" timeframe — only valid once search matches exactly one stock
+       (see ui-renders.mjs's updateAllTfAvailability). Greyed out and
+       non-interactive otherwise; the actual click is also guarded in
+       TimeframeManager.selectTimeframe, this is just the visual signal. */
+    .option.option-disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      pointer-events: none;
     }
 
     /* Indices toggle inside controls */
@@ -873,6 +911,29 @@
       border-radius: 999px;
       transition: width 0.3s ease, opacity 0.3s ease;
       opacity: 0;
+    }
+
+    /* AI — indigo */
+    .tab[data-set="AI"].active {
+      background: rgba(129, 140, 248, 0.12);
+      color: #818cf8;
+      border-color: rgba(129, 140, 248, 0.3);
+      box-shadow: 0 0 18px rgba(129, 140, 248, 0.12), inset 0 1px 0 rgba(129, 140, 248, 0.15);
+    }
+
+    .tab[data-set="AI"].active::after {
+      width: 60%;
+      background: #818cf8;
+      opacity: 1;
+    }
+
+    .tab[data-set="AI"].active .tab-badge {
+      background: rgba(129, 140, 248, 0.2);
+      color: #818cf8;
+    }
+
+    .tab[data-set="AI"].active .tab-icon {
+      filter: drop-shadow(0 0 4px rgba(129, 140, 248, 0.7));
     }
 
     /* STOCKS — teal */
@@ -1378,6 +1439,36 @@
 
     tbody tr.main-row:hover {
       background: rgba(255, 255, 255, 0.025);
+    }
+
+    /* Skips layout/paint entirely for rows currently scrolled out of view —
+       the browser only does that work for rows actually on screen, instead
+       of every row in a 500-row table on every scroll frame. This is what
+       actually fixes scroll jank (a data-refresh interval only explains
+       periodic stutter, not lag on plain scrolling with no data changing).
+       auto-sizing (`auto 52px`) means only OFF-screen rows use the estimate;
+       once a row has been on screen, its real measured size is remembered. */
+    tbody tr.main-row {
+      content-visibility: auto;
+      contain-intrinsic-size: auto 52px;
+    }
+
+    /* Stocks "All" chip's virtualized rows only (ui-renders.mjs's
+       buildAllStocksRowHtml/paintVirtualWindow) — a real, fixed row height
+       is required for the spacer-row math that keeps scroll position/total
+       height correct to stay accurate; nowrap+ellipsis guarantees no row
+       ever silently grows taller than that from wrapped content. */
+    tbody tr.main-row.virt-row {
+      content-visibility: visible; /* already windowed by JS — redundant with the rule above */
+    }
+    tbody tr.main-row.virt-row td:first-child > div {
+      flex-wrap: nowrap;
+      overflow: hidden;
+    }
+    tbody tr.main-row.virt-row td:first-child .muted-xl,
+    tbody tr.main-row.virt-row td:first-child .sym {
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     tbody tr.gc-row {
@@ -1897,7 +1988,7 @@
 
     /* Intraday "why" line — the top opportunity notes, previously dumped
        into the whole row's delayed native tooltip; printed visibly instead. */
-    .why-line { font-size: 8px; margin-top: 3px; white-space: normal; max-width: 220px; line-height: 1.4; opacity: 0.75; }
+    .why-line { font-size: 8px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; display: inline-block; vertical-align: middle; opacity: 0.75; }
 
     .rf {
       color: var(--red);
@@ -2152,12 +2243,13 @@
       .action-btn svg { width: 12px; height: 12px; }
 
 
-      /* Controls */
-      .controls-wrap { flex-direction: column; gap: 6px; padding: 8px; border-radius: 12px; }
-      .controls-wrap #search { border-right: none; border-bottom: 1px solid var(--border); margin-right: 0; width: 100%; padding: 10px 12px; font-size: 14px; }
-      .controls-right { width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
-      .custom-select-trigger { min-width: 100px; padding: 7px 10px; font-size: 12px; }
-      .controls-wrap .idx-tg, .controls-wrap .div-tg { padding: 5px 8px; min-height: var(--tap-min); font-size: 9px; }
+      /* Controls — timeframe dropdown stays right next to the search bar,
+         same row, on mobile too (it's the only thing left in .controls-right
+         since the Indices/Dividend toggles were removed, so there's no
+         longer a real reason to stack it onto its own row below search). */
+      .controls-wrap { padding: 8px; border-radius: 12px; }
+      .controls-wrap #search { padding: 10px 12px; font-size: 14px; }
+      .custom-select-trigger { min-width: 88px; padding: 7px 10px; font-size: 12px; }
 
       /* Tabs — one horizontally-scrollable strip instead of wrapping onto
          multiple rows, so the tab bar doesn't eat vertical space that could
@@ -2216,11 +2308,21 @@
       .rat-badge { font-size: 9px; padding: 2px 6px; }
       .flag-group { font-size: 9px; }
 
-      /* Index capsules — tighter on mobile; the strip itself already wraps
-         (flex-wrap on .idx-strip), so each capsule just gets smaller. */
-      .idx-card { padding: 8px 14px; gap: 8px; }
-      .idx-price { font-size: 14px; }
-      .idx-name { font-size: 10px; }
+      /* Index capsules on mobile — short, single-line pills in a row you
+         scroll sideways through (base rule above already makes .idx-strip
+         horizontally scrollable; this just shrinks each capsule and trims
+         it to the essentials so more of them fit on screen at once instead
+         of each one being wide enough to need real scrolling to see the
+         next). Absolute rupee delta is dropped here — the % change plus
+         the regime pill already say "how much" and "what kind of move", the
+         exact rupee figure is the one field a phone-width pill can afford
+         to lose. */
+      .idx-card { padding: 6px 12px; gap: 6px; }
+      .idx-price { font-size: 13px; }
+      .idx-name { font-size: 9px; }
+      .idx-delta > span:first-child { display: none; }
+      .idx-pct { font-size: 10px; padding: 1px 7px; }
+      .idx-regime { font-size: 8px; padding: 1px 6px; }
 
       /* F&O sub-row */
       .sub-wrap { padding: 12px; margin: 6px; border-radius: 8px; }
@@ -2470,16 +2572,6 @@
               </div>
             </div>
           </div>
-          <label class="idx-tg" title="Include Indices in main list">
-            <input type="checkbox" id="idxTgl" checked onchange="toggleIndices()"/>
-            <span class="idx-tg-s"></span>
-            <span class="idx-tg-l">Indices</span>
-          </label>
-          <label class="div-tg" title="Highlight stocks with dividends">
-            <input type="checkbox" id="divTgl" onchange="toggleDividendHighlight()"/>
-            <span class="div-tg-s"></span>
-            <span class="div-tg-l">💰 Dividend</span>
-          </label>
         </div>
       </div>
 
@@ -2497,6 +2589,11 @@
       <!-- Flat top-level tab list — no chip-based sub-navigation. Each tab
            is a full, self-contained view. -->
       <div class="tabs tabs-primary">
+        <div class="tab" data-set="AI">
+          <span class="tab-icon">◈</span>
+          <span class="tab-label">AI</span>
+          <span class="tab-badge" id="badge-AI">—</span>
+        </div>
         <div class="tab active" data-set="STOCKS">
           <span class="tab-icon">⊞</span>
           <span class="tab-label">All Stocks</span>
@@ -2552,16 +2649,10 @@
         <table>
           <thead id="tableHeader">
             <tr>
-              <th onclick="window.sortManager.handleSort('symbol', event)">Stock / Sector</th>
-              <th onclick="window.sortManager.handleSort('price', event)">CMP</th>
+              <th>Stock</th>
               <th>Chart</th>
-              <th onclick="window.sortManager.handleSort('emaGap', event)">EMA</th>
-              <th onclick="window.sortManager.handleSort('volume', event)">Volume</th>
-              <th onclick="window.sortManager.handleSort('macdVal', event)">MACD</th>
-              <th onclick="window.sortManager.handleSort('dayH', event)">Day Range</th>
-              <th onclick="window.sortManager.handleSort('w52H', event)">52W Range</th>
-              <th onclick="window.sortManager.handleSort('techScore', event)">Score</th>
-              <th onclick="window.sortManager.handleSort('rating', event)">Rating</th>
+              <th>Volume</th>
+              <th>EMA</th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>

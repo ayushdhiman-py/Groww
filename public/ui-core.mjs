@@ -2,6 +2,17 @@
 // PHASE 1: CORE INFRASTRUCTURE
 // ============================================================
 
+// For /api/universe-snapshot specifically — that endpoint only understands
+// the 7 real candle timeframes (see scanner_testing.mjs's VALID_CHART_TFS).
+// 'ALL' is a different, single-symbol-only feature (see
+// DataManager.fetchSymbolAllTimeframes / renderSingleSymbolAllTimeframes in
+// ui-renders.mjs) that never goes through this endpoint at all — this just
+// keeps the universe-snapshot call sane if 'ALL' (or nothing) is ever passed
+// in here by mistake.
+export function effectiveChartTf(timeframe) {
+  return timeframe && timeframe !== 'ALL' ? timeframe : '5m';
+}
+
 // ── 1. STATE MANAGER ─────────────────────────────────────────
 export class StateManager {
   constructor() {
@@ -13,7 +24,6 @@ export class StateManager {
       // were removed can't silently filter these tabs with no way to
       // change it back.
       stockFilter: 'ALL',
-      intradayHorizon: 'DEFAULT',
       timeframe: localStorage.getItem('scanner_tf') || '15m', // Changed default to 15m
       sortStack: [{ col: 'techScore', asc: false }],
       tabSorts: {}, // Per-tab sort state: { STOCKS::ALL: [...], STOCKS::GOLDEN: [...], INTRADAY: [...], ... }
@@ -57,7 +67,6 @@ export class StateManager {
     try {
       localStorage.setItem('scanner_tf', this.state.timeframe);
       localStorage.setItem('scanner_stockFilter', this.state.stockFilter);
-      localStorage.setItem('scanner_intradayHorizon', this.state.intradayHorizon);
       localStorage.setItem('scanner_tabSorts', JSON.stringify(this.state.tabSorts));
       localStorage.setItem('scanner_showIndices', this.state.showIndices);
       localStorage.setItem('scanner_showDividend', this.state.showDividend);
@@ -214,6 +223,64 @@ export class DataManager {
     } catch (e) {
       console.error('[Data] Fetch indices error:', e);
       return [];
+    }
+  }
+
+  // Cheap full-Nifty-500 snapshot (price/chgPct, no indicators) for the
+  // Stocks tab's "All" chip — server refreshes this every ~2s at zero
+  // Upstox REST cost, so no client-side TTL/caching needed here either.
+  async fetchUniverseSnapshot(tf) {
+    try {
+      const res = await fetch(`/api/universe-snapshot?tf=${encodeURIComponent(tf || '5m')}`);
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('[Data] Fetch universe snapshot error:', e);
+      return [];
+    }
+  }
+
+  // "ALL" timeframe, single symbol only (see stage1_filter.mjs's
+  // computeSymbolAllTimeframes) — only ever called once search has narrowed
+  // to exactly one stock; never a universe-wide fetch.
+  async fetchSymbolAllTimeframes(symbol) {
+    try {
+      const res = await fetch(`/api/symbol-all-timeframes/${encodeURIComponent(symbol)}`);
+      if (!res.ok) return { symbol, rows: [] };
+      return await res.json();
+    } catch (e) {
+      console.error('[Data] Fetch symbol all-timeframes error:', e);
+      return { symbol, rows: [] };
+    }
+  }
+
+  // Intraday tab's sole data source — src/intraday_movers.mjs, fully
+  // independent of Stage-2/entry_score/actionable_score. No client-side
+  // caching needed: the server's own loop only recomputes every 20s, so
+  // there's nothing to gain from a TTL here.
+  async fetchIntradayMovers() {
+    try {
+      const res = await fetch('/api/intraday-movers');
+      if (!res.ok) return { movers: [], updatedAt: null, universeSize: 0 };
+      return await res.json();
+    } catch (e) {
+      console.error('[Data] Fetch intraday movers error:', e);
+      return { movers: [], updatedAt: null, universeSize: 0 };
+    }
+  }
+
+  // AI tab's sole data source — src/ai_scanner.mjs's 7-layer pipeline, its
+  // own 5-min server-side loop. Layers 4-5 (joint probability/Rank Score/
+  // decision) are BLOCKED in every response until a Layer-6-validated model
+  // version exists — see that file's header for why.
+  async fetchAIScan() {
+    try {
+      const res = await fetch('/api/ai-scan');
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      console.error('[Data] Fetch AI scan error:', e);
+      return null;
     }
   }
 
@@ -473,29 +540,27 @@ export class TabManager {
 
   // Load data for new tab
   async loadTabData(tab) {
-    // Restore sort state for new tab
-    const tabSorts = this.state.get('tabSorts');
-    const savedSort = tabSorts[this.sortKey(tab)];
-    if (savedSort) {
-      this.state.set('sortStack', [...savedSort]);
-    } else if (tab === 'INTRADAY') {
-      this.state.set('sortStack', [{ col: 'opportunityScore', asc: false }]);
-    } else {
-      this.state.set('sortStack', [{ col: 'techScore', asc: false }]);
+    // Restore sort state for new tab. Intraday has no clickable sort
+    // columns (its list is always pre-ranked by src/intraday_movers.mjs's
+    // composite score) so it's excluded here rather than given a stale
+    // sortStack default from the old flagship pipeline.
+    if (tab !== 'INTRADAY' && tab !== 'AI') {
+      const tabSorts = this.state.get('tabSorts');
+      const savedSort = tabSorts[this.sortKey(tab)];
+      this.state.set('sortStack', savedSort ? [...savedSort] : [{ col: 'techScore', asc: false }]);
     }
 
     // Load appropriate data based on tab
-    if (tab === 'INTRADAY') {
-      // Intraday always needs both 5m and 15m regardless of the timeframe
-      // dropdown — /api/state returns the full scan state either way.
-      const data = await this.data.fetchState('INTRADAY', 'INTRADAY', true);
-      if (data) {
-        window.renderIntraday(data);
-        window.updateBadges?.(data);
-        window.updateLastUpdatedBadge?.(data);
-      } else {
-        console.error('[TabManager] Failed to fetch intraday data');
-      }
+    if (tab === 'AI') {
+      // AI tab's one data source — see src/ai_scanner.mjs. Fully independent
+      // of every other tab's data/loops, its own 5-min server-side cycle.
+      window.aiScanCache = await this.data.fetchAIScan();
+      window.renderAIScan(window.aiScanCache);
+    } else if (tab === 'INTRADAY') {
+      // Intraday's one data source — see src/intraday_movers.mjs. Fully
+      // independent of /api/state.
+      const payload = await this.data.fetchIntradayMovers();
+      window.renderIntraday(payload);
     } else if (SCREENER_TABS.includes(tab)) {
       // Top Gainers/Losers/Volume Shockers/52W High-Low/Bullish Crossover/
       // Momentum Burst/RSI Oversold-Overbought — one shared market-wide
@@ -508,6 +573,10 @@ export class TabManager {
       }
     } else if (tab === 'CRITICAL') {
       await window.criticalManager?.fetchAndRender();
+    } else if (tab === 'STOCKS' && this.state.get('stockFilter') === 'ALL') {
+      // "All Stocks" — its one data source is /api/universe-snapshot.
+      window.universeSnapshotCache = await this.data.fetchUniverseSnapshot(effectiveChartTf(this.state.get('timeframe')));
+      window.renderStocks(null);
     } else {
       await this.loadScannerData();
     }
@@ -555,6 +624,7 @@ export class TimeframeManager {
   init() {
     // Initialize dropdown
     this.updateDropdown(this.state.get('timeframe'));
+    window.updateAllTfAvailability?.(); // reflect any persisted search query's match state on the ALL option right away
 
     // Setup click handlers
     document.querySelectorAll('#tfOptions .option').forEach(option => {
@@ -583,6 +653,13 @@ export class TimeframeManager {
   }
 
   selectTimeframe(value, optionEl) {
+    // "ALL" is only ever valid once search has narrowed to exactly one stock
+    // (see ui-renders.mjs's getSingleStockMatch/updateAllTfAvailability) —
+    // this is the one place both the inline onclick and this manager's own
+    // click listener funnel through, so it's the single point that actually
+    // needs to enforce that, not just the dropdown's greyed-out styling.
+    if (value === 'ALL' && !window.getSingleStockMatch?.()) return;
+
     // Debounce to prevent rapid switching
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
 
@@ -593,8 +670,43 @@ export class TimeframeManager {
         this.updateDropdown(value);
         document.getElementById('tfDropdown')?.classList.remove('open');
 
-        // Reload data with new timeframe
-        window.tabManager?.loadScannerData();
+        // Reload data with new timeframe. "All Stocks" has its own data
+        // source (loadScannerData() would trigger the unrelated heavy
+        // Stage-2 fetch instead of re-fetching the chart at the new tf).
+        if (this.state.get('activeTab') === 'STOCKS' && this.state.get('stockFilter') === 'ALL') {
+          if (value === 'ALL') {
+            // Single-symbol, 7-real-timeframes view — see
+            // stage1_filter.mjs's computeSymbolAllTimeframes. Never a
+            // universe-wide fetch.
+            const symbol = window.getSingleStockMatch?.();
+            if (symbol) {
+              window.dataManager.fetchSymbolAllTimeframes(symbol).then(payload => {
+                window.symbolAllTimeframesCache = payload;
+                window.renderStocks(null);
+              });
+            }
+          } else {
+            window.dataManager.fetchUniverseSnapshot(effectiveChartTf(value)).then(rows => {
+              window.universeSnapshotCache = rows;
+              window.renderStocks(null);
+            });
+          }
+        } else if (SCREENER_TABS.includes(this.state.get('activeTab'))) {
+          // Top Gainers/Losers/Volume Shockers/Bullish Crossover/Momentum
+          // Burst/RSI Oversold-Overbought — src/screener.mjs already
+          // precomputes every real timeframe on its own 15-min server-side
+          // cycle, so switching the dropdown just needs to re-render from
+          // the already-fetched cache (renderScreenerCategory picks the
+          // right timeframe's slice itself), never a new fetch. Previously
+          // this fell through to the `else` branch below, which called
+          // loadScannerData() — that fetches the unrelated Stage-2 pipeline
+          // and calls renderStocks(), which immediately no-ops for any tab
+          // that isn't STOCKS, so changing timeframe on a screener tab
+          // silently did nothing at all.
+          window.renderScreenerCategory?.(this.state.get('activeTab'), window.dataManager.screenerCache?.data);
+        } else {
+          window.tabManager?.loadScannerData();
+        }
       }
     }, 150);
   }
