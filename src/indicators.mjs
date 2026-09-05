@@ -70,6 +70,73 @@ export function atr(candles, period = 14) {
 }
 
 /**
+ * Supertrend indicator implementation (ATR-based) — returns an object:
+ * { trend: Array<number|null>, direction: Array<'UP'|'DOWN'|null> }
+ * `trend` is the Supertrend value, `direction` is the trend state at each bar.
+ * Uses standard Supertrend calculation with basic upper/lower bands and
+ * final bands that flip only when price closes beyond them.
+ */
+export function supertrend(candles, period = 10, multiplier = 3) {
+    if (!candles || candles.length < period + 2) return { trend: new Array(candles.length).fill(null), direction: new Array(candles.length).fill(null) };
+    const highs = candles.map(c => c.high);
+    const lows = candles.map(c => c.low);
+    const closes = candles.map(c => c.close);
+    const atrArr = [];
+    // compute ATR per bar (same length as candles)
+    for (let i = 0; i < candles.length; i++) {
+        const window = candles.slice(Math.max(0, i - period + 1), i + 1);
+        const a = atr(window, Math.min(period, window.length - 1));
+        atrArr.push(a);
+    }
+
+    const basicUpper = new Array(candles.length).fill(null);
+    const basicLower = new Array(candles.length).fill(null);
+    const finalUpper = new Array(candles.length).fill(null);
+    const finalLower = new Array(candles.length).fill(null);
+    const trend = new Array(candles.length).fill(null);
+    const direction = new Array(candles.length).fill(null);
+
+    for (let i = 0; i < candles.length; i++) {
+        const hl2 = (highs[i] + lows[i]) / 2;
+        const a = atrArr[i];
+        if (a == null) continue;
+        basicUpper[i] = hl2 + multiplier * a;
+        basicLower[i] = hl2 - multiplier * a;
+        if (i === 0) {
+            finalUpper[i] = basicUpper[i];
+            finalLower[i] = basicLower[i];
+            continue;
+        }
+        finalUpper[i] = (basicUpper[i] < finalUpper[i - 1] || closes[i - 1] > finalUpper[i - 1]) ? basicUpper[i] : finalUpper[i - 1];
+        finalLower[i] = (basicLower[i] > finalLower[i - 1] || closes[i - 1] < finalLower[i - 1]) ? basicLower[i] : finalLower[i - 1];
+    }
+
+    // Determine trend by comparing close to final bands
+    for (let i = 0; i < candles.length; i++) {
+        if (finalUpper[i] == null || finalLower[i] == null) { trend[i] = null; direction[i] = null; continue; }
+        if (i === 0) {
+            trend[i] = finalUpper[i];
+            direction[i] = closes[i] > finalUpper[i] ? 'UP' : (closes[i] < finalLower[i] ? 'DOWN' : null);
+            continue;
+        }
+        const prevDir = direction[i - 1];
+        if (closes[i] > finalUpper[i]) {
+            direction[i] = 'UP';
+            trend[i] = finalLower[i];
+        } else if (closes[i] < finalLower[i]) {
+            direction[i] = 'DOWN';
+            trend[i] = finalUpper[i];
+        } else {
+            // no flip — carry prior direction
+            direction[i] = prevDir;
+            trend[i] = prevDir === 'UP' ? finalLower[i] : finalUpper[i];
+        }
+    }
+
+    return { trend, direction };
+}
+
+/**
  * Slope of an EMA series over `lookback` bars, expressed as %-change per bar
  * relative to the series' own current level (so it's comparable across
  * stocks at very different price levels). Returns null if not enough data.
