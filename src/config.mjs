@@ -49,7 +49,7 @@ const getEnv = (key, fallback) => {
     return val;
 };
 
-// ── Upstox Credentials ──────────────────────────────────────────────────────────
+// ── Upstox Credentials ───────────────────────────────────────────────────────
 // Upstox Analytics Token: long-lived (~1yr), read-only, generated once from the
 // Upstox Developer Apps dashboard. No daily login/checksum flow is required.
 export const CREDS = {
@@ -62,7 +62,7 @@ if (CREDS.accessToken) {
     console.warn("[Config] ⚠️ UPSTOX_ACCESS_TOKEN not set. Market data calls will fail until it is configured.");
 }
 
-// ── Upstox API URLs ──────────────────────────────────────────────────────────────
+// ── Upstox API URLs ─────────────────────────────────────────────────────────
 export const BASE_URL = "https://api.upstox.com";
 export const LTP_URL = `${BASE_URL}/v3/market-quote/ltp`;
 export const QUOTES_URL = `${BASE_URL}/v2/market-quote/quotes`; // full quote incl. bid/ask depth
@@ -96,3 +96,16 @@ export const MAX_DISPLAYED_OPPORTUNITIES = Number(process.env.MAX_DISPLAYED_OPPO
 // selectIntradayCandidates) — independent of Stage-2's own ~55-100 shortlist,
 // so a stock isn't excluded from Intraday merely because Stage-2 didn't pick it.
 export const INTRADAY_PREFILTER_TOP_N = Number(process.env.INTRADAY_PREFILTER_TOP_N) || 80;
+
+// ── Trial feature configuration (1-minute background scanner)
+export const TRIAL_ENABLED = (process.env.TRIAL_ENABLED || "true") !== "false";
+export const TRIAL_MINUTE_CADENCE_MS = Number(process.env.TRIAL_MINUTE_CADENCE_MS) || 60_000;
+export const TRIAL_1M_HISTORY_BARS = Number(process.env.TRIAL_1M_HISTORY_BARS) || 240; // default 4 hours
+export const TRIAL_MIN_SAMPLES = Number(process.env.TRIAL_MIN_SAMPLES) || 50;
+export const TRIAL_MIN_P_REACH_15_PCT = Number(process.env.TRIAL_MIN_P_REACH_15_PCT) || 0.5; // 50%
+export const TRIAL_MIN_CONTINUATION = Number(process.env.TRIAL_MIN_CONTINUATION) || 0.5;
+export const TRIAL_MAX_REVERSAL = Number(process.env.TRIAL_MAX_REVERSAL) || 0.4;
+export const TRIAL_MIN_EXPECTED_RETURN_PCT = Number(process.env.TRIAL_MIN_EXPECTED_RETURN_PCT) || 0.5;
+export const TRIAL_MIN_RVOL = Number(process.env.TRIAL_MIN_RVOL) || 1.2;
+export const TRIAL_MIN_CONFIDENCE = Number(process.env.TRIAL_MIN_CONFIDENCE) || 0.4; // 0..1
+export const TRIAL_MAX_DISPLAY = Number(process.env.TRIAL_MAX_DISPLAY) || 50;
