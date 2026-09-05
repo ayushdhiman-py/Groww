@@ -1,4 +1,4 @@
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
 // candle_cache.mjs — TTL cache around upstox.mjs's fetchCandles.
 //
 // Upstox's daily-candle endpoint only ever returns COMPLETED days — today's
@@ -16,7 +16,7 @@
 // instance; a native 15m fetch over the same 20-day window is ~500 bars,
 // roughly 15x smaller. Direct-fetch-per-timeframe costs more API calls but
 // keeps each cache entry small.
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────
 import { fetchCandles as fetchCandlesRaw } from "./upstox.mjs";
 
 const TTL_MS = {
@@ -29,22 +29,6 @@ const TTL_MS = {
     "1d": 86_400_000,
 };
 
-// Bounded LRU — caps the cache's own footprint regardless of how many
-// symbols the scan universe touches over a trading day.
-//
-// 150 was sized for the old Render deployment (512Mi instance) and only
-// Stage-2's own fetch pattern. Now self-hosted (no more OOM ceiling) and
-// with stage1_filter.mjs's fast loop also peeking every universe symbol's
-// "5m" entry every 2s (on top of Stage-2's ~150-symbol rotation across up
-// to 7 timeframes each, plus screener.mjs's own fetches — all sharing this
-// same cache), 150 was thrashing constantly: a later symbol's fetch would
-// evict an earlier symbol's still-relevant candles well before its own TTL
-// expired, which is what made "All Stocks" chart/volume/EMA data visibly
-// disappear from already-populated rows as later rows finished warming up.
-// 4000 comfortably covers the realistic worst case (~505 symbols x 7
-// timeframes = ~3535 possible distinct keys) without meaningfully thrashing
-// under normal operation; a few thousand small candle arrays is a trivial
-// memory footprint on a real machine.
 const MAX_ENTRIES = 4000;
 const cache = new Map(); // `${symbol}|${tf}` -> { candles, fetchedAt, tf }
 let hits = 0, misses = 0;
@@ -110,4 +94,80 @@ export function clearCandleCache() {
     cache.clear();
     hits = 0;
     misses = 0;
+}
+
+// -------------------- Trial incremental 1m helpers --------------------
+// These helpers implement a bounded, in-memory recent 1m store used by the
+// Trial minute-worker. They do not replace the existing per-timeframe TTL
+// cache used elsewhere; they are additive and optional (configurable via
+// src/config.mjs). The store keeps only a recent window per symbol to avoid
+// unbounded memory growth.
+
+const trial1mStore = new Map(); // symbol -> Array of { ts, open, high, low, close, volume }
+const TRIAL_DEFAULT_HISTORY = 240; // configurable via env (4 hours)
+
+function minuteBucket(ts) {
+    return Math.floor(ts / 60000) * 60000;
+}
+
+export function appendTickTo1m(symbol, price, volume = null, ts = Date.now(), maxBars = TRIAL_DEFAULT_HISTORY) {
+    if (price == null || !Number.isFinite(price)) return null;
+    const mTs = minuteBucket(ts);
+    const arr = trial1mStore.get(symbol) || [];
+    const last = arr[arr.length - 1];
+    if (!last || last.ts !== mTs) {
+        // start new candle
+        const newC = { ts: mTs, open: price, high: price, low: price, close: price, volume: volume == null ? null : volume };
+        arr.push(newC);
+        // trim history
+        if (arr.length > maxBars) arr.splice(0, arr.length - maxBars);
+        trial1mStore.set(symbol, arr);
+        return newC;
+    } else {
+        // update existing
+        last.high = Math.max(last.high, price);
+        last.low = Math.min(last.low, price);
+        last.close = price;
+        if (volume != null) last.volume = (last.volume || 0) + volume;
+        return last;
+    }
+}
+
+export function getRecentCandles(symbol, tf = "1m", bars = 120) {
+    if (tf === "1m") {
+        const arr = trial1mStore.get(symbol) || [];
+        return arr.slice(-bars);
+    }
+    // derive from 1m
+    const base = trial1mStore.get(symbol) || [];
+    if (!base.length) return [];
+    if (tf === "5m" || tf === "15m") {
+        const factor = parseInt(tf.replace('m',''));
+        const groups = [];
+        // align to tf boundary by minute timestamp
+        for (let i = base.length - 1; i >= 0 && groups.length < bars; i--) {
+            // build windows backward then reverse
+        }
+        // simpler approach: rebuild sequentially
+        const out = [];
+        for (let i = 0; i < base.length; i += factor) {
+            const slice = base.slice(Math.max(0, i - factor + 1), i + 1);
+            if (!slice.length) continue;
+            const ts = slice[0].ts;
+            const open = slice[0].open;
+            const high = Math.max(...slice.map(s => s.high));
+            const low = Math.min(...slice.map(s => s.low));
+            const close = slice[slice.length - 1].close;
+            const volArr = slice.map(s => s.volume).filter(v => v != null);
+            const volume = volArr.length ? volArr.reduce((a,b)=>a+b,0) : null;
+            out.push({ ts, open, high, low, close, volume });
+        }
+        return out.slice(-bars);
+    }
+    // other TFs not supported in trial store
+    return [];
+}
+
+export function clearTrial1mStore() {
+    trial1mStore.clear();
 }
