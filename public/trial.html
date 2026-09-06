@@ -1,0 +1,33 @@
+<script type="module">
+import { fetchTrialFeed, renderTrialTable } from './trial-ui.mjs';
+
+async function init() {
+  document.title = 'Trial Feed';
+  const container = document.getElementById('trial-root');
+  container.innerHTML = '<div id="trialPanel">Loading trial feed…</div>';
+  const feed = await fetchTrialFeed();
+  renderTrialTable(feed);
+  setInterval(async () => {
+    const f = await fetchTrialFeed();
+    renderTrialTable(f);
+  }, 60_000);
+}
+
+init();
+</script>
+
+<style>
+  body { background:#07090f;color:#dce8f5;font-family: 'Sora', sans-serif; padding:20px }
+  .card { background:#0d1220;border:1px solid #1c2a3f;border-radius:10px;padding:12px }
+  table { width:100%; border-collapse:collapse; font-size:13px }
+  th { text-align:left; color:#9fb3cc; padding:6px }
+  td { padding:6px; border-top:1px solid rgba(255,255,255,0.03) }
+  .lb { padding:4px 8px;border-radius:8px;font-weight:700 }
+  .sb { background:#0f1724;color:#22c55e }
+  .sk { background:#0f1724;color:#f59e0b }
+</style>
+
+<div class="card">
+  <h2 style="margin:0 0 8px">Trial Feed</h2>
+  <div id="trial-root"></div>
+</div>
