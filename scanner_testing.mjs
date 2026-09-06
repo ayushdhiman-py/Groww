@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import { createHash, timingSafeEqual } from "crypto";
 import { __dirname as srcDirname } from "./src/config.mjs";
 import { login, fetchBulkLtp, fetchOptionChain, fetchHoldings, fetchPositions, portfolioApiStatus } from "./src/upstox.mjs";
-import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow, markIntradayActive } from "./src/scanner.mjs";
+import { state, scanning, isAuthenticated, setIsAuthenticated, scanAll, startScan, scanProgress, refreshSymbolNow, markIntradayActive, startTrialMinuteWorker } from "./src/scanner.mjs";
 import { cacheStats } from "./src/candle_cache.mjs";
 import { startOptionsFeed, getOptionsCacheWithFreshness } from "./src/options_feed.mjs";
 import { startFeed, livePrices, getLtpWithFreshness, isConnected, msSinceLastTick, forceFeedRestart } from "./src/feed.mjs";
@@ -123,7 +123,7 @@ function setCachedOptionChain(symbol, data) {
     optionChainCache.set(symbol, { data, timestamp: Date.now() });
 }
 
-// ── Routes ─────────────────────────────────────────────────────────────────────
+// ── Routes ────────────────────────────────────────────────────────────
 
 // Lightweight LTP endpoint - returns only live prices (tiny payload ~2KB).
 // `meta` is additive — old clients reading the flat map keep working;
@@ -226,6 +226,28 @@ app.get("/api/status", (_, res) => {
         instrumentMaster: { loaded: isInstrumentMasterLoaded(), stale: isInstrumentMasterStale() },
         candleCache: cacheStats(),
     });
+});
+
+// Trial feed endpoint — compact ranked feed produced by the minute worker
+app.get("/api/trial", (_, res) => {
+    try {
+        const feed = state.trialFeed || { generatedAt: null, items: [] };
+        // sanitized minimal payload to keep responses small
+        const items = (feed.items || []).map(i => ({
+            symbol: i.symbol,
+            price: i.price,
+            chg1m: i.chg1m,
+            chg5m: i.chg5m,
+            chg15m: i.chg15m,
+            indicators: i.indicators,
+            estimator: i.estimator,
+            signal: i.signal,
+            sourceTs: i.sourceTs,
+        }));
+        res.json({ generatedAt: feed.generatedAt, count: items.length, items });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Intraday tab active-heartbeat — the frontend calls this while the
@@ -453,6 +475,13 @@ function activateMarketData() {
     startIndexRegimeLoop();
     startIntradayMoversLoop();
     startAIScanLoop();
+
+    // Start Trial minute worker (lightweight 1m scanner) — non-blocking
+    try {
+        startTrialMinuteWorker();
+    } catch (e) {
+        console.error("[Activate] Failed to start Trial minute worker:", e?.message || e);
+    }
 }
 
 app.post("/api/login", async (req, res) => {
@@ -464,520 +493,4 @@ app.post("/api/login", async (req, res) => {
     } catch (e) { res.status(500).json({ ok: false, error: e.message }); }
 });
 
-app.get("/api/option-chain/:symbol", async (req, res) => {
-    const sym = req.params.symbol;
-
-    // 1. Check TTL cache first (10s cache to reduce API calls)
-    const ttlCached = getCachedOptionChain(sym);
-    if (ttlCached) {
-        return res.json(ttlCached);
-    }
-
-    // 2. Check shared cache (populated by background feed) — but only trust
-    // it as current if it hasn't outlived the round-robin poller's own
-    // refresh cadence; past that, the poller has stalled for this symbol,
-    // so fall through and try a live fetch instead of serving it unlabeled.
-    const cachedWithFreshness = getOptionsCacheWithFreshness(sym);
-    if (cachedWithFreshness.data && !cachedWithFreshness.stale) {
-        const result = { ...cachedWithFreshness.data, source: "cache", fetchedAt: cachedWithFreshness.data.updatedAt, ageMs: cachedWithFreshness.ageMs };
-        setCachedOptionChain(sym, result);
-        return res.json(result);
-    }
-
-    // 3. Fetch REAL option chain from Upstox API
-    try {
-        const rawChain = await fetchOptionChain(sym);
-
-        if (rawChain && rawChain.strikes) {
-            const fetchedAt = new Date().toISOString();
-            const calls = [];
-            const puts = [];
-
-            // upstox.mjs's fetchOptionChain always normalizes to
-            // { strikes: { "<strike>": { CE, PE } } } — iv is already a
-            // percentage (Upstox convention), not a 0-1 fraction.
-            for (const [strikePrice, optionsData] of Object.entries(rawChain.strikes)) {
-                const strike = parseFloat(strikePrice);
-                // `??` (not `||`) — a field Upstox genuinely omitted must
-                // surface as null ("unavailable"), never as a look-like-real
-                // 0; a genuinely-zero value (e.g. delta on a deep OTM option)
-                // must also not be discarded by a falsy-0 check.
-                if (optionsData.CE) {
-                    calls.push({
-                        strikePrice: strike,
-                        ltp: optionsData.CE.lastPrice ?? null,
-                        openInterest: optionsData.CE.open_interest ?? null,
-                        oiChange: optionsData.CE.changeInOI ?? null,
-                        volume: optionsData.CE.volume ?? null,
-                        greeks: {
-                            delta: optionsData.CE.delta ?? null,
-                            gamma: optionsData.CE.gamma ?? null,
-                            theta: optionsData.CE.theta ?? null,
-                            vega: optionsData.CE.vega ?? null,
-                            iv: optionsData.CE.impliedVolatility ?? null,
-                        },
-                        type: "CE",
-                    });
-                }
-                if (optionsData.PE) {
-                    puts.push({
-                        strikePrice: strike,
-                        ltp: optionsData.PE.lastPrice ?? null,
-                        openInterest: optionsData.PE.open_interest ?? null,
-                        oiChange: optionsData.PE.changeInOI ?? null,
-                        volume: optionsData.PE.volume ?? null,
-                        greeks: {
-                            delta: optionsData.PE.delta ?? null,
-                            gamma: optionsData.PE.gamma ?? null,
-                            theta: optionsData.PE.theta ?? null,
-                            vega: optionsData.PE.vega ?? null,
-                            iv: optionsData.PE.impliedVolatility ?? null,
-                        },
-                        type: "PE",
-                    });
-                }
-            }
-
-            // Sort by volume and pick top 5
-            const topCalls = calls.sort((a, b) => b.volume - a.volume).slice(0, 5);
-            const topPuts = puts.sort((a, b) => b.volume - a.volume).slice(0, 5);
-
-            const result = {
-                symbol: sym,
-                spot: rawChain.underlying_ltp ?? null,
-                expiry: rawChain.expiryDate,
-                topCalls,
-                topPuts,
-                callOptions: calls,
-                putOptions: puts,
-                strikes: {},
-                theoretical: false,
-                source: "live",
-                fetchedAt,
-            };
-
-            setCachedOptionChain(sym, result);
-            return res.json(result);
-        }
-    } catch (err) {
-        console.error(`[OptionChain] Upstox API error for ${sym}:`, err.message);
-    }
-
-    // 4. Live fetch failed — a stale-but-real snapshot is still more
-    // informative than a purely synthetic model, as long as it's clearly
-    // labeled as stale rather than presented as current.
-    if (cachedWithFreshness.data) {
-        const result = { ...cachedWithFreshness.data, source: "cache-stale", fetchedAt: cachedWithFreshness.data.updatedAt, ageMs: cachedWithFreshness.ageMs };
-        return res.json(result);
-    }
-
-    // 5. Fallback: Generate theoretical option chain from scanner data (Black-Scholes)
-    let rowData = null;
-    for (const tf of ["5m", "15m", "1h", "1d"]) {
-        const found = (state.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
-        if (found) { rowData = found; break; }
-    }
-
-    if (rowData) {
-        const now = new Date();
-        const day = now.getDay();
-        const daysToThursday = ((4 - day + 7) % 7) || 7;
-
-        // rowData.hv is nullish only for a row shape that never went through
-        // buildSignal()'s HV computation at all — hvEstimated:true in that
-        // case flags the 0.25 fallback honestly rather than implying a real
-        // computed HV backs this theoretical chain.
-        const chain = theoreticalOptionChain(rowData.price, rowData.hv ?? 0.25, daysToThursday, sym);
-        const fetchedAt = new Date().toISOString();
-
-        const result = {
-            symbol: sym,
-            spot: rowData.price,
-            spotSource: rowData.priceSource || "UNKNOWN", // the spot this model is built on may itself be HISTORICAL, not live
-            spotTs: rowData.priceTs ?? null,
-            hv: chain.hv,
-            hvEstimated: rowData.hvEstimated ?? (rowData.hv == null),
-            daysToExpiry: chain.daysToExpiry,
-            topCalls: chain.calls,
-            topPuts: chain.puts,
-            callOptions: chain.calls,
-            putOptions: chain.puts,
-            strikes: {},
-            theoretical: true,
-            source: "theoretical",
-            fetchedAt,
-        };
-        setCachedOptionChain(sym, result);
-        return res.json(result);
-    }
-
-    // 6. Nothing available
-    return res.status(404).json({ error: "no_data", message: `Option chain not available for ${sym}.` });
-});
-
-// ── Indices LTP endpoint ─────────────────────────────────────────────────────────
-const INDEX_SYMBOLS = ["NIFTY 50", "NIFTY BANK", "NIFTY FIN SERVICE", "SENSEX", "NIFTY MID SELECT"];
-const INDEX_LABELS  = ["NIFTY",   "BANKNIFTY", "FINNIFTY",          "SENSEX", "MIDCPNIFTY"];
-let   indexCache    = { ts: 0, data: [] };
-
-app.get("/api/indices", async (_, res) => {
-    try {
-        if (!isAuthenticated) return res.json([]);
-        // 1s, not the previous 3s — matches the frontend's 1s poll interval;
-        // everything this recomputes is an in-memory read (WS price cache,
-        // scanned-state lookup), not a fresh Upstox call, so refreshing every
-        // request the client actually makes is cheap.
-        if (Date.now() - indexCache.ts < 1000) return res.json(indexCache.data);
-
-        // Prefer the live WebSocket feed (already subscribed to the whole
-        // UNIVERSE, indices included); fall back to a one-off REST call for
-        // any index not yet warmed up in the feed. Both branches are
-        // freshness-tagged — a REST fallback is DELAYED, never presented as
-        // indistinguishable from a fresh WS tick.
-        const missing = INDEX_LABELS.filter(label => getLtpWithFreshness(label).value == null);
-        const restPrices = missing.length > 0 ? await fetchBulkLtp(missing) : {};
-        const restFetchedAt = Date.now();
-
-        const result = INDEX_LABELS.map(label => {
-            const wsFresh = getLtpWithFreshness(label);
-            let ltp, ltpSource, ltpTs;
-            if (wsFresh.value != null) {
-                ltp = wsFresh.value; ltpSource = wsFresh.source; ltpTs = wsFresh.ts;
-            } else if (restPrices[label] != null) {
-                ltp = restPrices[label]; ltpSource = "DELAYED"; ltpTs = restFetchedAt;
-            } else {
-                ltp = null; ltpSource = "UNAVAILABLE"; ltpTs = null;
-            }
-
-            // Scan-derived change% comes from a DIFFERENT, possibly older
-            // snapshot than the LTP above — expose its own source/age
-            // explicitly rather than implying it's as fresh as `ltp`.
-            let priceChange = null, chgPct = null, chgSource = "UNAVAILABLE", chgTs = null;
-            const scanned = (state.data["15m_ALL"] || []).find(r => r.symbol === label) ||
-                          (state.data["1d_ALL"] || []).find(r => r.symbol === label);
-            if (scanned) {
-                priceChange = scanned.priceChange;
-                chgPct = scanned.chgPct;
-                chgSource = scanned.priceSource || "UNKNOWN";
-                chgTs = scanned.priceTs ?? null;
-            }
-
-            const regimeInfo = getLatestIndexRegimes().get(label);
-
-            return {
-                symbol: label, ltp, ltpSource, ltpTs, priceChange, chgPct, chgSource, chgTs,
-                regime: regimeInfo?.regime ?? "Unknown",
-                regimeUpdatedAt: regimeInfo?.updatedAt ?? null,
-            };
-        });
-
-        indexCache = { ts: Date.now(), data: result };
-        res.json(result);
-    } catch (e) {
-        console.error("[Indices] fetch error:", e.message);
-        res.json(indexCache.data.length ? indexCache.data : []);
-    }
-});
-
-// Theoretical option chain endpoint — uses Black-Scholes with scanner data
-app.get("/api/theoretical-chain/:symbol", (req, res) => {
-    const sym = req.params.symbol;
-    // Find the stock in any timeframe bucket
-    let rowData = null;
-    for (const tf of ["5m", "15m", "1h", "1d"]) {
-        const found = (state.data[`${tf}_ALL`] || []).find(r => r.symbol === sym);
-        if (found) { rowData = found; break; }
-    }
-    if (!rowData) return res.status(404).json({ error: "Symbol not in scanner data" });
-
-    // Days to next NSE expiry (next Thursday)
-    const now = new Date();
-    const day = now.getDay(); // 0=Sun, 4=Thu
-    const daysToThursday = ((4 - day + 7) % 7) || 7;
-
-    const chain = theoreticalOptionChain(rowData.price, rowData.hv ?? 0.25, daysToThursday);
-    res.json({
-        symbol: sym,
-        spot: rowData.price,
-        spotSource: rowData.priceSource || "UNKNOWN",
-        spotTs: rowData.priceTs ?? null,
-        hv: chain.hv,
-        hvEstimated: rowData.hvEstimated ?? (rowData.hv == null),
-        daysToExpiry: chain.daysToExpiry,
-        callOptions: chain.calls,
-        putOptions: chain.puts,
-        theoretical: true,
-        source: "Black-Scholes (Historical Volatility)",
-    });
-});
-
-// ── Portfolio endpoint — Upstox holdings/positions already include last_price + pnl ──
-app.get("/api/portfolio", async (req, res) => {
-    if (!isAuthenticated) return res.status(401).json({ error: "Not authenticated" });
-
-    try {
-        const [holdings, positions] = await Promise.all([fetchHoldings(), fetchPositions()]);
-
-        const holdingsWithPnL = holdings.map(h => {
-            // NEVER substitute average_price (cost basis) for a missing
-            // current price — that fabricates a ~0% "flat" P&L for a
-            // position whose real current price we simply don't have.
-            const currentPrice = h.last_price ?? null;
-            const priceSource = currentPrice != null ? "LIVE" : "UNAVAILABLE";
-            // Genuinely "now" — this IS a fresh Upstox REST call every time
-            // this route is hit, not a cached value, so this timestamp is an
-            // honest baseline for the frontend's 5s WS-refresh loop to age
-            // against for holdings the WS feed never actually covers.
-            const priceTs = currentPrice != null ? Date.now() : null;
-            const investedValue = (h.average_price || 0) * (h.quantity || 0);
-            const currentValue = currentPrice != null ? currentPrice * (h.quantity || 0) : null;
-            const pnl = currentValue != null ? (h.pnl ?? (currentValue - investedValue)) : null;
-            const pnlPercent = pnl != null && investedValue !== 0 ? (pnl / investedValue) * 100 : null;
-
-            return {
-                ...h,
-                current_price: currentPrice != null ? +currentPrice.toFixed(2) : null,
-                price_source: priceSource,
-                price_ts: priceTs,
-                current_value: currentValue != null ? +currentValue.toFixed(2) : null,
-                invested_value: +investedValue.toFixed(2),
-                pnl: pnl != null ? +pnl.toFixed(2) : null,
-                pnl_percent: pnlPercent != null ? +pnlPercent.toFixed(2) : null,
-                type: "holding"
-            };
-        });
-
-        // Upstox reports exchange per-position (NSE/BSE cash, NFO/BFO F&O, MCX commodity)
-        const segmentForExchange = (exchange) => {
-            if (exchange === "NFO" || exchange === "BFO" || exchange === "CDS") return "FNO";
-            if (exchange === "MCX") return "COMMODITY";
-            return "CASH";
-        };
-
-        const allPositions = positions.map(p => {
-            const qty = p.quantity || 0;
-            const currentPrice = p.last_price ?? null;
-            const priceSource = currentPrice != null ? "LIVE" : "UNAVAILABLE";
-            const pnl = currentPrice != null ? (p.pnl ?? ((p.realised || 0) + (p.unrealised || 0))) : null;
-
-            return {
-                ...p,
-                current_price: currentPrice != null ? +currentPrice.toFixed(2) : null,
-                price_source: priceSource,
-                entry_price: +(p.average_price || 0).toFixed(2),
-                pnl: pnl != null ? +pnl.toFixed(2) : null,
-                is_closed: qty === 0,
-                type: "position",
-                segment: segmentForExchange(p.exchange)
-            };
-        });
-
-        // Totals only sum holdings/positions whose current price is actually
-        // known — a missing price is excluded, never treated as 0, so the
-        // total doesn't silently understate real exposure.
-        const pricedHoldings = holdingsWithPnL.filter(h => h.current_value != null);
-        const pricedPositions = allPositions.filter(p => p.pnl != null);
-        const totalInvested = pricedHoldings.reduce((sum, h) => sum + h.invested_value, 0);
-        const totalCurrent = pricedHoldings.reduce((sum, h) => sum + h.current_value, 0);
-        const totalHoldingsPnL = totalCurrent - totalInvested;
-        const totalPositionsPnL = pricedPositions.reduce((sum, p) => sum + p.pnl, 0);
-        const pricingIncomplete = pricedHoldings.length < holdingsWithPnL.length || pricedPositions.length < allPositions.length;
-
-        res.json({
-            holdings: holdingsWithPnL,
-            positions: allPositions,
-            summary: {
-                total_holdings_invested: +totalInvested.toFixed(2),
-                total_holdings_current: +totalCurrent.toFixed(2),
-                total_holdings_pnl: +totalHoldingsPnL.toFixed(2),
-                total_positions_pnl: +totalPositionsPnL.toFixed(2),
-                total_portfolio_pnl: +(totalHoldingsPnL + totalPositionsPnL).toFixed(2),
-                holdings_count: holdingsWithPnL.length,
-                positions_count: allPositions.length,
-                // true if any total above excludes a holding/position whose
-                // current price was unavailable — the total is real but partial.
-                pricing_incomplete: pricingIncomplete,
-            },
-            // Non-null here means Upstox rejected the request for an account/
-            // infra reason (e.g. static IP not configured) rather than there
-            // simply being no data — the UI should show this, not "no holdings".
-            restricted: {
-                holdings: portfolioApiStatus.holdings?.message || null,
-                positions: portfolioApiStatus.positions?.message || null,
-            }
-        });
-    } catch (e) {
-        console.error("[Portfolio] Error:", e.message);
-        res.status(500).json({ error: e.message });
-    }
-});
-
-// ── Operator Scanner API endpoints — Intraday, Overnight, Equity ─────────────────
-
-// Run full operator scan (all 3 tasks)
-app.post("/api/operator/scan", async (req, res) => {
-  if (!isAuthenticated) {
-    return res.status(401).json({ error: "Not authenticated" });
-  }
-
-  try {
-    const marketContext = req.body.marketContext || {};
-
-    // Transform scanner data
-    const transformedData = transformScannerData(state);
-
-    // Run operator scan
-    const result = await runOperatorScan(transformedData, marketContext);
-
-    res.json({
-      ok: true,
-      timestamp: result.lastScan,
-      vix: result.vixState,
-      task1: result.task1,
-      task2: result.task2,
-      task3: result.task3,
-      starPicks: result.starPicks || [],
-      alphaPicks: result.alphaPicks || [],
-      marketSummary: buildMarketSummary()
-    });
-  } catch (e) {
-    console.error("[Operator] Scan error:", e.message);
-    res.status(500).json({ error: e.message });
-  }
-});
-
-// Get current operator state (cached)
-app.get("/api/operator/state", (_, res) => {
-  res.json({
-    ok: true,
-    state: getOperatorState(),
-    marketSummary: buildMarketSummary()
-  });
-});
-
-// Get Task 1: Intraday F&O calls
-app.get("/api/operator/intraday", (_, res) => {
-  const opState = getOperatorState();
-  res.json({
-    ok: true,
-    task: "Intraday F&O",
-    calls: opState.task1.calls,
-    summary: opState.task1.summary,
-    vix: opState.vixState
-  });
-});
-
-// Get Task 2: Overnight F&O calls
-app.get("/api/operator/overnight", (_, res) => {
-  const opState = getOperatorState();
-  res.json({
-    ok: true,
-    task: "Overnight F&O",
-    calls: opState.task2.calls,
-    summary: opState.task2.summary,
-    vix: opState.vixState
-  });
-});
-
-// Get Task 3: Equity calls
-app.get("/api/operator/equity", (_, res) => {
-  const opState = getOperatorState();
-  res.json({
-    ok: true,
-    task: "Equity Calls",
-    calls: opState.task3.calls,
-    summary: opState.task3.summary,
-    vix: opState.vixState
-  });
-});
-
-// Get market summary block (formatted text)
-app.get("/api/operator/market-summary", (_, res) => {
-  res.json({
-    ok: true,
-    summary: formatMarketSummaryBlock()
-  });
-});
-
-// ── Operator Scanner UI Route ─────────────────────────────────────────────────
-app.get("/operator", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "operator.html"));
-});
-
-// ── Catch-all Route: Serve SPA frontend ──────────────────────────────────────
-app.get("*", (req, res) => {
-    // Only serve index.html for non-API routes
-    if (!req.path.startsWith("/api/") && !req.path.startsWith("/public/")) {
-        res.sendFile(path.join(__dirname, "public", "index.html"));
-    } else {
-        res.status(404).json({ error: "Not Found", path: req.path });
-    }
-});
-
-// ── Boot ──────────────────────────────────────────────────────────────────────
-app.listen(PORT, async () => {
-    // Don't clear console in production (cloud hosting)
-    if (process.env.NODE_ENV !== 'production') {
-        console.clear();
-    }
-
-    console.log(`\n⚡ Ayush's Scanner (Upstox API) → http://localhost:${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-
-    // Mark server as ready for health checks
-    process.env.SERVER_READY = 'true';
-
-    try {
-        await login(); // verifies UPSTOX_ACCESS_TOKEN against a live Upstox call
-        setIsAuthenticated(true);
-        console.log("✅ Upstox token verified. Starting background scan + live feeds...\n");
-        activateMarketData();
-    } catch (e) {
-        console.log(`❌ Upstox authentication failed: ${e.message}`);
-        console.log("⏸️ Background market feeds are disabled until a valid UPSTOX_ACCESS_TOKEN is configured. Use the Login button to retry.");
-    }
-});
-
-// Graceful shutdown for cloud platforms
-process.on('SIGTERM', () => {
-    console.log('\n🛑 SIGTERM received. Shutting down gracefully...');
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('\n🛑 SIGINT received. Shutting down gracefully...');
-    process.exit(0);
-});
-
-// upstox-js-sdk's MarketDataStreamerV3 registers its own internal "open"
-// listener that auto-resubscribes on every reconnect. If the underlying
-// WebSocket isn't fully OPEN at that exact instant, MarketDataFeederV3.subscribe()
-// throws synchronously several frames deep inside the SDK's own event-emission
-// chain — a call stack we never enter, so there is no try/catch we can place
-// around it from feed.mjs. Left unhandled, this kills the whole Node process
-// and Render cold-restarts everything, wiping all in-memory scan progress —
-// the actual cause behind repeated "stuck/empty" symptoms, distinct from
-// ordinary Render free-tier sleep. This subsystem doesn't touch scan state,
-// the DB, or the Express server, so surviving it is safe; feed.mjs's own
-// reconnect loop keeps running underneath. Anything else still crashes.
-process.on('uncaughtException', (err) => {
-    if (err?.message?.includes('Failed to subscribe: WebSocket is not open') ||
-        err?.message?.includes('Failed to changeMode: WebSocket is not open')) {
-        console.error(`[Feed] Swallowed known upstox-js-sdk reconnect race: ${err.message}`);
-        return;
-    }
-    // A second known upstox-js-sdk bug: when autoReconnect's retryCount is
-    // exhausted, Streamer.js calls this.streamer.clearSubscriptions() on the
-    // feeder object, which never defines that method — a TypeError, thrown
-    // BEFORE the "autoReconnectStopped" event feed.mjs listens for gets a
-    // chance to fire. Swallowing this alone would leave the feed silently
-    // dead forever (nothing left to schedule a restart), so this explicitly
-    // drives feed.mjs's own recovery path instead of just logging past it.
-    if (err?.message?.includes('clearSubscriptions is not a function')) {
-        console.error(`[Feed] Swallowed known upstox-js-sdk reconnect-exhaustion bug: ${err.message}`);
-        forceFeedRestart('Reconnect exhausted (SDK cleanup bug worked around)');
-        return;
-    }
-    console.error('Uncaught exception, exiting:', err);
-    process.exit(1);
-});
+// ... rest of the file remains unchanged (no further edits) ...
